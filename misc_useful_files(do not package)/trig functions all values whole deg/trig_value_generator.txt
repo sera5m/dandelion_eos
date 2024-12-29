@@ -1,0 +1,47 @@
+import math
+import csv
+
+# Function to generate and save sine, cosine, and tangent values for each degree (0-365)
+def generate_trig_csv():
+    sin_values = []
+    cos_values = []
+    tan_values = []
+
+    # Iterate through degrees 0 to 365
+    for degree in range(366):  # Including 365 to match the request (0-365 degrees)
+        # Convert degree to radians
+        radian = math.radians(degree)
+        
+        # Calculate sin, cos, and tan values
+        sin_val = math.sin(radian)
+        cos_val = math.cos(radian)
+        
+        # Handle undefined tangent (set to 'inf' or similar)
+        try:
+            tan_val = math.tan(radian)
+        except ValueError:
+            tan_val = float('inf')  # Handle undefined tangent as infinity
+        
+        # Append values to respective lists
+        sin_values.append(sin_val)
+        cos_values.append(cos_val)
+        tan_values.append(tan_val)
+
+    # Write each to their own CSV file
+    with open('/mnt/data/sin_values.csv', 'w', newline='') as sin_file:
+        writer = csv.writer(sin_file)
+        writer.writerow(["Degree", "Sin Value"])
+        writer.writerows(zip(range(366), sin_values))
+
+    with open('/mnt/data/cos_values.csv', 'w', newline='') as cos_file:
+        writer = csv.writer(cos_file)
+        writer.writerow(["Degree", "Cos Value"])
+        writer.writerows(zip(range(366), cos_values))
+
+    with open('/mnt/data/tan_values.csv', 'w', newline='') as tan_file:
+        writer = csv.writer(tan_file)
+        writer.writerow(["Degree", "Tan Value"])
+        writer.writerows(zip(range(366), tan_values))
+
+# Generate the CSV files
+generate_trig_csv()

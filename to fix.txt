@@ -1,0 +1,4 @@
+uh you're working on the ability to get the heart rate and do basic data logging. so do you know what prereqs we need?
+-graph render
+-render support for bar graphs
+-the ENTIRE parsing for files. you need full support for csv and all that nonsense. PAIN. 

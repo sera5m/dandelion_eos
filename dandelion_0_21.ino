@@ -42,8 +42,7 @@ Preferences preferences;
 //#include "esp_bt_main.h"   // Required for esp_bluedroid functions
 #include "esp_bt_device.h" // Optional if you need Bluetooth device functions
 
-//sensors
-#include <SparkFunTMP102.h>
+
 
 //heartrate
 #include "MAX30105.h"
@@ -93,13 +92,22 @@ Madgwick filter;
 
 
 
-//hardware. declare sensors and set settings
+//hardware.
+//#include "FS.h" //doesn't work out here needs to be in storage module?????
+#include <SD.h>
+#include "SPI.h"
+#include "fileSystem.ino"
+/*
+Uncomment and set up if you want to use custom pins for the SPI communication
+#define REASSIGN_PINS
+int sck = -1;
+int miso = -1;
+int mosi = -1;
+int cs = -1;
+*/
 
 
 
-
-// Create an instance of the TMP102 class from SparkFun library
-TMP102 sensor0;
 
 
 
@@ -139,7 +147,7 @@ void taskUpdateHeartRate(void *pvParameters);
 // Setup!!!
 void setup() {
 
-  //have the stupid math shit working
+  //have the stupid math shit working, in the motion sensor
    initializeSampleCache();
 
 //config wifi and bluetooth to be off
@@ -198,30 +206,50 @@ tft.fillScreen(BLACK);
 HRsensorSetup();
 
 //start the imu
- if (IMU.init({true}, 0x68) != 0) { // Use the 6500 initialization process for the 9250. i hate this
+ if (IMU.init({true}, 0x68) != 0) { // Use the 6500 initialization process  i hate this, when prototyping i paid for a 9 series
     Serial.println("IMU initialization failed!");
     while (1);
 }
 
-//stupid temp sensor dbg
-  // Initialize TMP102 sensor
-  if (!sensor0.begin()) {
-    Serial.println("Failed to initialize temperature sensor.");
-    while (1);  // Halt execution if the sensor fails to initialize
-  }
+// Verify the devices are connected
+delay(20);
+tft.fillScreen(BLACK);
 
+tft.setTextColor(WHITE);
+scanI2C(); // Scan the I2C bus to verify if they're connected
+delay(1);
+scanSPI();
+delay(800); // Let the user read things.
+tft.fillScreen(BLACK);
 
+// Now see if the SD card is connected on the SPI
+if (!SD.begin()) { // Check if the SD card initialization is successful
+    Serial.println("Card Mount Failed");
+    tft.printf("SD CARD MOUNT FAILED, CHECK if it's in");
+} else {
+    uint8_t cardType = SD.cardType();
 
- delay(800);
-  tft.fillScreen(BLACK);
+    if (cardType == CARD_NONE) {
+        Serial.println("No SD card attached");
+        tft.printf("No SD card attached\n");
+    } else {
+        Serial.print("SD Card Type: ");
+        if (cardType == CARD_MMC) {
+            Serial.println("MMC");
+        } else if (cardType == CARD_SD) {
+            Serial.println("SDSC");
+        } else if (cardType == CARD_SDHC) {
+            Serial.println("SDHC");
+        } else {
+            Serial.println("UNKNOWN");
+        }
 
-  tft.setTextColor(WHITE);
-  scanI2C();
-  delay(1);
-  scanSPI();
-  delay(800);
-  tft.fillScreen(BLACK);
-
+        // Start up the storage drive if connected
+        uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+        tft.printf("microsd storage: %lluMB\n", SD.totalBytes() / (1024 * 1024));
+        tft.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
+    }
+}
 
 //preboot phase done, move to standard tasks
 
@@ -244,7 +272,7 @@ HRsensorSetup();
 
 
 xTaskCreatePinnedToCore(taskUpdateHeartRate,"HRSENSOR",2048,NULL,1,NULL,1);
-xTaskCreatePinnedToCore(taskPmeterUpdate,"pmeter",8192,NULL,1,NULL,1);
+//xTaskCreatePinnedToCore(taskPmeterUpdate,"pmeter",8192,NULL,1,NULL,1);
 //setup ends here
 }
 
@@ -253,27 +281,36 @@ void loop() {
   //nothing for now
 }
 
-///*
+//pedometer turned off because it's so laggy it's horrid
+/*
 void taskPmeterUpdate(void *pvParameters) {
   (void)pvParameters;  // Avoid unused parameter warning
 
   while (true) {
     // Update sensor data
-        update_IMU();
-    int steps = countSteps();
+    //    update_IMU();
+   // int steps = countSteps();
+   Serial.println("vector magnitude");
+Vector3 v(3.0f, 4.0f, 0.0f);  // This should result in a magnitude of 5.0
+Serial.print("x: "); Serial.println(v.x);
+Serial.print("y: "); Serial.println(v.y);
+Serial.print("z: "); Serial.println(v.z);
+float magnitude = v.magnitude();
+Serial.print("Magnitude: "); Serial.println(magnitude);
 
+// Should print )
     // Print step count
-    Serial.print("Steps detected: ");
-    Serial.println(steps);
+   // Serial.print("Steps detected: ");
+    //Serial.println(steps);
 
-//Serial.print("Free heap: ");
-//Serial.println(esp_get_free_heap_size());
+Serial.print("Free heap: ");
+Serial.println(esp_get_free_heap_size());
 
   
     vTaskDelay(200 / portTICK_PERIOD_MS);  // Delay for n ms before next update.
   }
 }
-//*/
+*/
 
 // Task for drawing to the screen (Core 0)
 void taskDrawScreen(void *pvParameters) {
@@ -293,10 +330,12 @@ void taskUpdateSensors(void *pvParameters) {
 
   while (true) {
     // Update sensor data
-    sensor0.wakeup();
-    temperature = sensor0.readTempC();  // Read temperature in Celsius
-    sensor0.sleep();  // Put sensor back to sleep
-
+   
+   //replacement of temperature sensor with the mpu-s temperature reader
+       temperature=IMU.getTemp(); //USING THE fstimu lib, get device temp. replaces tmp 102 sensor to save a few bucks
+ //i should print this to screen to get a debug,honestly
+ Serial.println(IMU.getTemp());
+ 
     // Update time
     updateStoredTime();  // Function to update time (currentHour, currentMinute, currentSecond)
    //updateheartrate();//commented out, this sensor needs to run faster

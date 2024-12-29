@@ -64,4 +64,39 @@
 //--visual: screen updates at normal rates on core 0
 //--gpu: this application needs to update the screen very frequently, change screen to multithread in taskhandling module
 
+
+
+
+
+/*
+types. NOTE THIS IS 16 BIT
+range: 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF
+
+
+POSITION 1:
+0XN
+N
+DEFINED AS, in order
+0: hardware manipulation (also used for output)
+1
+2
+3
+4
+5
+6:
+7: data manipulation
+8: flow controll
+9
+a
+b
+c
+d
+E: 
+f: user interface, input
+
+//this doesn't show every operation, just the main types
+
+
+*/
+
 #endif

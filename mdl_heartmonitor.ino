@@ -31,9 +31,56 @@ define the following functions:
 
 
 */
-// Declare the global variable here
+// Declare the global variables here
 float usertemperature; // Global variable, no extern needed unless used in another file
 // Global variable for user temperature. this is the USERS temperature as of what the infared sensor says. DO NOT CONFUSE WITH DEVICETEMP!
+
+
+
+//private vars to this class
+
+//thresHolds of heart rate. (all ints) for various activities. should be exposed to the user to let em config
+//TODO: expose these for the user and load em from hard storage if they're there!
+int HR_sleepThresHold=45;
+int HR_restingThresHold=65;
+int HR_walkingThresHold=100;
+int HR_excersiseThresHold=140;
+int HR_excessiveHR=180;
+
+
+// Sensor state
+bool isWorn;
+const byte RATE_SIZE = 9; // Increase this for more averaging. 4 is good.
+byte rates[RATE_SIZE]; // Array of heart rates
+byte rateSpot = 0;
+long lastBeat = 0; // Time at which the last beat occurred
+float beatsPerMinute;
+int beatAvg; //should be the user's average heart rate
+
+// Minimum average heart rate storage
+int16_t HRminAverage = 1; // This sensor will average your heart rate each minute, then add it to storage once per minute for health tracking (1440 samples per day)
+
+//i'll have to tick this every little while to guess what the user is doing. 
+
+int hr_guess_usr_activity(int bpm) {
+    if (beatAvg < HR_walkingThresHold) { //cut this in half through the middle to half if comparisons
+        if (beatAvg < HR_sleepThresHold) {
+            return 0; // Below sleep threshold
+        } else if (beatAvg < HR_restingThresHold) {
+            return 1; // Between sleep and resting threshold
+        } else {
+            return 2; // Between resting and walking threshold
+        }
+    } else {
+        if (beatAvg < HR_excersiseThresHold) {
+            return 3; // Between walking and exercise threshold
+        } else if (beatAvg < HR_excessiveHR) {
+            return 4; // Between exercise and excessive heart rate
+        } else {
+            return 5; // Above excessive heart rate
+        }
+    }
+}
 
 
 void checkbodytemp()
@@ -53,20 +100,6 @@ void checkbodytemp()
 
 
 
-
-// Sensor state
-bool isWorn;
-const byte RATE_SIZE = 9; // Increase this for more averaging. 4 is good.
-byte rates[RATE_SIZE]; // Array of heart rates
-byte rateSpot = 0;
-long lastBeat = 0; // Time at which the last beat occurred
-float beatsPerMinute;
-int beatAvg;
-
-// Minimum average heart rate storage
-int16_t HRminAverage = 1; // This sensor will average your heart rate each minute, then add it to storage once per minute for health tracking (1440 samples per day)
-
-
 void HRsensorSetup()
 {
 
@@ -76,7 +109,7 @@ void HRsensorSetup()
     Serial.println("MAX30105 was not found. Please check wiring/power. ");
     while (1);
   }
-  Serial.println("Place your index finger on the sensor with steady pressure.");
+  Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
 
   particleSensor.setup(); //Configure sensor with default settings
   particleSensor.setPulseAmplitudeRed(0x0A); //Turn Red LED to low to indicate sensor is running
@@ -88,7 +121,7 @@ void HRsensorSetup()
 
 
 
-void Log_heartrateData(int16_t HRminAverage)
+void Log_heartrateData(int16_t HRminAverage) //call this once per min, i guess. may be out of date for modifications to mdl time keeping mods and log changes
 {
     HeartRateData data;
 
@@ -187,6 +220,10 @@ void updateheartrate() {
 
 
 #endif // mdl_heartmonitor_H
+
+//this code is somewhat derived from the default library,and hence the chip itself/original lib is from these guys
+
+
 
 /* Copyright (C) 2016 Maxim Integrated Products, Inc., All Rights Reserved.
 *

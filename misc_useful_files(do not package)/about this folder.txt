@@ -1,0 +1,1 @@
+this folder contains useful files such as tools, data tables, or misc that i used when creating this project
