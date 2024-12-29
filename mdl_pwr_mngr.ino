@@ -1,7 +1,9 @@
 #ifndef MDL_PWR_MNGR_H
 #define MDL_PWR_MNGR_H
 
-
+//weird vars for handling power
+bool ForceKeepDeviceOn=false; //forcibly keep the device on, ignoring the users settings. only expose this over a terminal or something
+//TODO: expose this for use later
 
 // Global variables for Wi-Fi and Bluetooth state control
 extern bool wifiOff;

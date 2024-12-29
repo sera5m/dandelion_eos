@@ -229,14 +229,71 @@ void copyFile(fs::FS &fs, const char *srcPath, const char *destPath) {
   destFile.close();
 }
 
-String getFileExtension(const char *filename) {
-  String name = String(filename);
-  int dotIndex = name.lastIndexOf('.');
-  if (dotIndex == -1) return ""; // No extension
-  return name.substring(dotIndex + 1);
+std::string getFileExtension(const char *filename) {
+    std::string name(filename);
+    size_t dotIndex = name.rfind('.');
+    if (dotIndex == std::string::npos) return ""; // No extension
+    return name.substr(dotIndex + 1);
 }
 
-///*
+  //known file types
+  //text: csv,txt, [not supported yet] doc extensions or anything else
+  //audio: mp3,ogg,wav,
+  //video: mp4,gif,avi
+  //images: png,jpg,bitmap,ico
+
+// Known file types
+enum fileType {
+    unknown,
+    document,
+    executable,
+    enterperatable, // Custom form of pseudo executable file
+    audio,
+    video,
+    config,
+    image
+};
+
+// Function to get the file type based on its extension
+fileType GetFileType(const std::string& Extension) {
+    // Convert the extension to lowercase for case-insensitive comparison
+    std::string ext = Extension;
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    // Map of file extensions to file types
+    static const std::unordered_map<std::string, fileType> extensionMap = { //should map file types to my file types enum thingy idk. 
+        {"csv", document},
+        {"txt", document},
+        // {"doc", document}, // Not supported yet
+        {"mp3", audio},
+        {"ogg", audio},
+        {"wav", audio},
+        {"mp4", video},
+        {"gif", video},
+        {"avi", video},
+        {"png", image},
+        {"jpg", image},
+        {"bmp", image},
+        {"ico", image},
+        {"cmer", enterperatable}, // Mercury file
+        {"cfg", config} // Plaintext configs
+    };
+
+    // Find and return the file type
+    auto it = extensionMap.find(ext);
+    if (it != extensionMap.end()) {
+        return it->second;
+    }
+
+    // Return unknown if not found
+    return unknown;
+}
+
+//if you want to call this to get the extension of a file, just call GetFileType(getFileExtension(filename));
+
+
+/*
+//the shitty library doesn't even include metadata handling? wow good job expressif. i hate you so much
 void getFileMetadata(fs::FS &fs, const char *path) {
   Serial.printf("Fetching metadata for: %s\n", path);
 
@@ -279,6 +336,6 @@ void writeFileMetadata(fs::FS &fs, const char *path, const char *key, const char
 
   Serial.println("Metadata written successfully");
 }
-//*/
+*/
 
 #endif

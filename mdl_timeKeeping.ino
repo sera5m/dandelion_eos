@@ -12,7 +12,9 @@ extern int currentSecond;
 // Global variable for Unix time
 extern time_t currentUnixTime;
 
-extern struct tm { //i think this is the correct unix time thingy,ext so other mdls can use
+/*
+struct tm is defined like this by default in the code for the esp32 because apparently it's slightly unix compatable or whatever
+extern struct tm {
   int tm_sec;   // Seconds
   int tm_min;   // Minutes
   int tm_hour;  // Hours
@@ -23,6 +25,7 @@ extern struct tm { //i think this is the correct unix time thingy,ext so other m
   int tm_yday;  // Day of the year (0-365)
   int tm_isdst; // Daylight saving time flag
 };
+*/
 
 //struct for time itself
 struct FreindlyTime { //i renamed all instances of dateTime to FreindlyTime. and i replaced it with the find n replace. aha. gl nerd
@@ -34,30 +37,28 @@ struct FreindlyTime { //i renamed all instances of dateTime to FreindlyTime. and
     int second; // 0-59
 };
 
-// Initialize the RTC with stored Unix time or set a default time
+//todo make sure i have timezones working right, and daylight savings (daylight savings really shouldn't exist, ugh. why was it ever created)
+
+// Initialize the RTC with stored Unix time or set a default Unix time. probably needs to be fixed.
 void initializeRTC() {
     if (preferences.isKey("unix_time")) {
-        // Retrieve stored Unix time
+        // Retrieve stored Unix time from NVS
         time_t storedTime = preferences.getULong("unix_time");
+
+        // Set the RTC time directly using Unix time
         struct timeval now = { .tv_sec = storedTime, .tv_usec = 0 };
         settimeofday(&now, NULL);
 
         Serial.println("Time initialized from NVS");
     } else {
-        Serial.println("No time stored, setting default time");
+        // No time stored, setting default Unix time (e.g., Jan 1, 2024, 00:00 UTC)
+        time_t defaultUnixTime = 1704067200;  // Example: Jan 1, 2024, 00:00 UTC
 
-        // Set default time (e.g., Aug 1, 2024, 12:00 PM UTC)
-        struct tm defaultTime = {
-            .tm_year = 2024 - 1900,
-            .tm_mon = 7, // August (0-based index)
-            .tm_mday = 1,
-            .tm_hour = 12,
-            .tm_min = 0,
-            .tm_sec = 0
-        };
-        time_t defaultUnixTime = mktime(&defaultTime);
+        // Set the RTC time directly using default Unix time
         struct timeval now = { .tv_sec = defaultUnixTime, .tv_usec = 0 };
         settimeofday(&now, NULL);
+
+        Serial.println("No time stored"); //TODO: make sure this sets a default
     }
 }
 
@@ -138,5 +139,196 @@ void GetNormalTime(time_t unixTime, int timeZoneOffset, FreindlyTime &FreindlyTi
     unixTimeToFreindlyTime(unixTime, timeZoneOffset, FreindlyTime);
 }
 
+FreindlyTime timeUntil(const FreindlyTime &current, const FreindlyTime &target) { //time a to time b, freindly time
+    time_t currentUnix = FreindlyTimeToUnixTime(current, timeZoneOffset);
+    time_t targetUnix = FreindlyTimeToUnixTime(target, timeZoneOffset);
+
+    time_t diff = targetUnix - currentUnix;
+    FreindlyTime result;
+    unixTimeToFreindlyTime(diff, 0, result); // Offset = 0 since this is a duration
+    return result;
+}
+
+enum days{
+  mon,
+  tue,
+  wend,
+  thur,
+  fri,
+  sat,
+  sun
+};
+
+// Define weekdays and weekends
+const bool isWeekday[7] = { true, true, true, true, true, false, false }; // Mon-Fri: true; Sat, Sun: false
+
+
+enum months{
+  jan,
+  feb,
+  mar,
+  jun,
+  jul,
+  sept,
+  oct,
+  nov,
+  dec
+};
+
+//more advanced shitty features for watches defaults.
+struct Alarm { //a repeating alarm that happens at a certain point each day
+    bool allowSnooze; //should we even let users hit snooze?
+    bool forceKeepDeviceOn; //dicks with power settings. fuck you, you're waking up today
+    bool isEnabled;
+    int SnoozeDurationMin; //min of snooze duration default
+    enum days activeDays[7];//array of days we want this on // Specific days for the alarm (up to 7, gaps allowed)
+    int loudness; //a 0-100 value for percents of loudness
+    bool Flash_Led; //flash the led if 
+    bool Flash_screen; //flash the screen or something idk?
+    bool pushNotifToConnectedDevice; //ping your phone too, i guess. 
+
+};
+//half these options do nothing just yet because unfinished hardware and software but that's fine i guess. 
+
+
+bool isAlarmTime(struct Alarm *alarm, enum days currentDay, int currentHour, int currentMinute) {
+    if (!alarm->isEnabled) return false;
+
+    // Check if today is in the activeDays array
+    for (int i = 0; i < alarm->numActiveDays; i++) {
+        if (alarm->activeDays[i] == currentDay) {
+            // Check time match
+            if (alarm->hour == currentHour && alarm->minute == currentMinute) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void checkAlarms(struct Alarm *alarms, int numAlarms, enum days currentDay, int currentHour, int currentMinute) {
+    for (int i = 0; i < numAlarms; i++) {
+        if (isAlarmTime(&alarms[i], currentDay, currentHour, currentMinute)) {
+            triggerAlarm(&alarms[i]);
+        }
+    }
+}
+
+//ASSIGN THE alarm task to freerots task scheduling. 
+//todo: set low priority task so it doesn't work too hard. this also needs to run during sleep modes unless we do periodic boots back to half awake? 
+int AlarmAssignBytes=512;
+
+void checkAlarmsWithTask(struct Alarm *alarms, int numAlarms, enum days currentDay, int currentHour, int currentMinute) {
+    for (int i = 0; i < numAlarms; i++) {
+        if (isAlarmTime(&alarms[i], currentDay, currentHour, currentMinute)) {
+            // Create a new FreeRTOS task for the alarm
+            xTaskCreate(alarmTask, "AlarmTask", alarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL); 
+        }
+    }
+}
+
+
+//TODO: MOVE THESE ALARM FUNCTIONS TO THE STORAGE MODULE
+
+
+//store your allarms at nvs. 
+void saveAlarmsToNVS(struct Alarm *alarms, int numAlarms) {
+    nvs_handle_t nvsHandle;
+    esp_err_t err = nvs_open("alarm_storage", NVS_READWRITE, &nvsHandle);
+    if (err == ESP_OK) {
+        // Write alarms to NVS
+        for (int i = 0; i < numAlarms; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "alarm_%d", i); // Create unique key
+            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(struct Alarm));
+        }
+        nvs_commit(nvsHandle);
+        nvs_close(nvsHandle);
+    }
+}
+
+//call this on boot to load alarms
+int loadAlarmsFromNVS(struct Alarm *alarms, int maxAlarms) {
+    nvs_handle_t nvsHandle;
+    esp_err_t err = nvs_open("alarm_storage", NVS_READONLY, &nvsHandle);
+    int alarmCount = 0;
+
+    if (err == ESP_OK) {
+        for (int i = 0; i < maxAlarms; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "alarm_%d", i);
+
+            size_t alarmSize = sizeof(struct Alarm);
+            if (nvs_get_blob(nvsHandle, key, &alarms[i], &alarmSize) == ESP_OK) {
+                alarmCount++;
+            } else {
+                break; // Stop on first missing alarm
+            }
+        }
+        nvs_close(nvsHandle);
+    }
+    return alarmCount;
+}
+
+
+
+
+
+
+//guess what, we don't have the logic for this but that's fine
+void triggerAlarm(struct Alarm *alarm) {
+    if (alarm->flashLed) {
+        // Flash the LED
+    }
+    if (alarm->flashScreen) {
+        // Flash the screen
+    }
+    if (alarm->pushNotifToConnectedDevice) {
+        // Push notification
+    }
+    // Play alarm sound at specified loudness
+}
+
+
+
+
+
+
+
+
+
+
+//timers 
+
+struct Stopwatch {
+    time_t startUnixTime;
+    time_t stopUnixTime;
+    bool isRunning;
+};
+
+//Stopwatch stopwatch1;  //tip, set this to set up a stopwatch
+
+void startStopwatch() {
+    stopwatch.startUnixTime = getUnixTime();
+    stopwatch.isRunning = true;
+}
+
+void stopStopwatch() {
+    if (stopwatch.isRunning) {
+        stopwatch.stopUnixTime = getUnixTime();
+        stopwatch.isRunning = false;
+    }
+}
+
+time_t getElapsedTime() { 
+    return stopwatch.isRunning ? (getUnixTime() - stopwatch.startUnixTime)
+   (stopwatch.stopUnixTime - stopwatch.startUnixTime);
+}
+
+//todo: store the stopwatch? hell we don't need to do that, if it boots down it wasn't that important was it now.
+
+
+//end the module
+}
 
 #endif // MDL_TIMEKEEPING_H
