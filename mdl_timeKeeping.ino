@@ -290,7 +290,7 @@ void triggerAlarm(struct Alarm *alarm) {
 }
 
 
-
+//todo: add a TIMER: a non repeating alarm that happens once and then deletes itself
 
 
 
@@ -327,6 +327,8 @@ time_t getElapsedTime() {
 
 //todo: store the stopwatch? hell we don't need to do that, if it boots down it wasn't that important was it now.
 
+
+//
 
 //end the module
 }

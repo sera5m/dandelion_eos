@@ -1,10 +1,15 @@
-// module_window_handler.h
+// LILLYPAD_RENDERER.h
 
-#ifndef MODULE_WINDOW_HANDLER_H
-#define MODULE_WINDOW_HANDLER_H
+#ifndef LILLYPAD_RENDERER_H
+#define LILLYPAD_RENDERER_H
+
+//was gonna name this orchid renderer but some guy made a render engine already named that and it was cool tbh
+
+
 
 //this is the window handler for dandelion e-os. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
 //this module handles window creation and draw calls. version 4, now with performance enhancements. :3
+
 
 //todo: automatically store a registry of all known windows
 //need to remove it from the list and from collection because it doesn't exist
@@ -19,7 +24,7 @@ struct WindowCfg {
     bool auto_alignment=0,wrap=1; // Align text centrally or not,wrap text
     int textsize=1; //default text size inside this window
     uint16_t borderColor, bgColor, text_color; // Colors -add defaults
-};
+}; 
 
 
 
@@ -31,10 +36,38 @@ public:
     WindowCfg config; //take config
     std::string content; //take string off this
 
+    //std vector is kina like dynamic arrays
+    std::vector<Canvas*> canvases;  // List of canvases attached to this window
+
+
+    //other internal variables for the windows themselves
+    int WinUpdateMS=500; //this window should update every n miliseconds. this is the variable and it can be dynamically set with a reference to this window by attatched proscesses.
+
+
 
     // Constructor
     Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")
         : name(windowName), config(cfg), content(initialContent) {}
+
+
+    // Destructor: Clean up canvases
+    ~Window() {
+        for (Canvas* canvas : canvases) {
+            delete canvas;
+        }
+    }
+
+
+//canvas
+void addCanvas(const CanvasCfg& cfg) {
+    if (cfg.parentWindow != this) {
+        Serial.println("Error: Canvas parent does not match this window.");
+        return;
+    }
+    canvases.push_back(new Canvas(cfg));
+}
+
+
 
     // Draws the window with its content
     void draw() {
@@ -53,32 +86,26 @@ public:
     }
 
 
+
+
 //clear the window
 void clear() {
     tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
 }
 
 
-
-
-
-    // Updates the window content and redraws it
+    // Updates window content and redraws
     void updateContent(const std::string& newContent) {
         content = newContent;
-        draw(); // Re-draw with updated content
+        draw();
     }
 
-
-
 private:
-    void drawText(const char* text) //draw da text. this should be scaled to text size but i'll add that later
-    { 
-        int charWidth = 6;   // Approximate width of each character 
-        int charHeight = 8;  // Height of each character
-
-        // Break text into words
+    void drawText(const char* text) {
+        int charWidth = 6;  // Character width
+        int charHeight = 8; // Character height
         String strText = String(text);
-        int cursorX = config.x + 2; // Padding
+        int cursorX = config.x + 2;  // Padding
         int cursorY = config.y + 2;
 
         int wordStart = 0;
@@ -89,32 +116,125 @@ private:
 
                 // Check if the word fits in the current line
                 if (cursorX + wordWidth > config.x + config.width - 2) {
-                    // Move to the next line
                     cursorX = config.x + 2;
                     cursorY += charHeight;
-
-                    // Check if there's room for another line
                     if (cursorY + charHeight > config.y + config.height - 2) {
-                        // No more room, text overflows
-                        break;
+                        break;  // Overflow
                     }
                 }
 
-                // Print the word
                 tft.setCursor(cursorX, cursorY);
                 tft.print(word);
-
-                // Move the cursor to the end of the word
-                cursorX += wordWidth + charWidth; // Add space between words
-
-                // Update wordStart to the next word
+                cursorX += wordWidth + charWidth;
                 wordStart = i + 1;
             }
         }
-
-        Serial.println("Window drawn with text");
     }
 };
+
+//example logic for the window registry. this would have to be some kind of dynamic array? idk
+/*
+std::vector<Window*> windowRegistry;
+
+void registerWindow(Window* win) {
+    windowRegistry.push_back(win);
+}
+
+void unregisterWindow(Window* win) {
+    windowRegistry.erase(std::remove(windowRegistry.begin(), windowRegistry.end(), win), windowRegistry.end());
+}
+
+//need to extend this logic
+*/
+
+
+
+
+//*lego building noise* i made a lot of this on 12/30/2024. call that a buzzer beater
+
+
+//the logic for draw canvases
+
+// kina like the window
+struct CanvasCfg {
+    int x, y;          // Position RELATIVE TO PARENT WINDOW
+    int width, height; // Size
+    Window* parentWindow; //get a ref to the parent window. canvases may not have multiple parents
+    uint16_t borderColor, bgColor, text_color; // Colors -add defaults
+}; 
+
+
+//start a new canvas thingy
+class canvas {
+
+int CanvasUpdateMS=500; //ms of update for canvas
+CanvasCfg config; //load the canvas config
+
+
+public:{
+
+
+    // Constructor: Initialize canvas with position, size, color, and parent window
+    Canvas(int posX, int posY, int w, int h, uint16_t color, Window* parent)
+        : x(posX), y(posY), width(w), height(h), bgColor(color), parentWindow(parent) {}
+
+    
+
+
+//draw canvas content here, kina like the win but with new stuff
+     void draw() {
+        if (!parentWindow) {
+            Serial.println("Error: Canvas has no parent window.");
+            return;
+        }
+
+        // Get the canvas's absolute position within the parent window
+        int canvasX = parentWindow->config.x + x;
+        int canvasY = parentWindow->config.y + y;
+
+        // Draw canvas background
+        tft.fillRect(canvasX, canvasY, width, height, bgColor);
+
+        // Draw canvas border
+        tft.drawRect(canvasX, canvasY, width, height, borderColor);
+    }
+//this is just base setup logic, canvases don't seem to have elements yet? 
+//elements should be fixed size, or even things like ug8lib drawings? or where we can put images? idunno
+
+    // Draw a rectangle inside the canvas
+    void drawRect(int posX, int posY, int w, int h, uint16_t color) {
+        int canvasX = parentWindow->config.x + x;
+        int canvasY = parentWindow->config.y + y;
+        tft.fillRect(canvasX + posX, canvasY + posY, w, h, color);
+    }
+
+  }
+
+
+
+
+void clear() {
+    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //my ass just copied this from the window idk lol aha this better work here
+}
+
+
+
+}
+
+private:{
+
+
+}
+
+
+
+} //end canvas work thing
+
+
+
+
+//some defaults idk
+
 
 //variables used in this function to drawscreen
 // Global variables for time access
@@ -158,9 +278,5 @@ void updateLockscreenTemperature(float temperature) {
     tempWindow.updateContent(std::to_string((int)temperature) + "C"); // Update temperature window
 }
 */
-
-
-
-
 
 #endif
