@@ -43,7 +43,7 @@
 //the rest is just set up with spi setup!
 
 
-  CC1101 radio1 = new Module(10, 15, RADIOLIB_NC, 4); //cs,gd0,rst,gdo2
+  //CC1101 radio1 = new Module(10, 15, RADIOLIB_NC, 4); //cs,gd0,rst,gdo2
   //to my understanding you can support multiple radio modules if you define em to diff pins.
 
 

@@ -2,7 +2,7 @@
 #define mdl_diagnosticTools_H
 
 
-byte knownAddresses[] = {0x68, 0x24, 0x57, 0x0C, 0x48}; // Known hardware addresses of the sensors over I2C
+byte knownAddresses[] = {0x68, 0x24, 0x57}; // Known hardware addresses of the sensors over I2C
 int knownDeviceCount = sizeof(knownAddresses) / sizeof(knownAddresses[0]); // Number of known devices
 
 void scanI2C();
@@ -55,11 +55,11 @@ void scanI2C() {
 
 const char* getDeviceName(byte address) {
   switch (address) {
-    case 0x68: return "ACCL"; // Accelerometer 
+    case 0x68: return "ACCL/tmp"; // Accelerometer 
     case 0x24: return "NFC/RFID"; // PN532 NFC/RFID module
     case 0x57: return "Heart Rate";
-    case 0x0C: return "Magnetometer";
-    case 0x48: return "Temperature";
+    //case 0x0C: return "Magnetometer";
+   // case 0x48: return "Temperature";
     // Add more known I2C device addresses here with their names
     default: {
       static char unknownAddress[10];

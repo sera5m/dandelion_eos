@@ -59,6 +59,7 @@ public:
 
 
 //canvas
+
 void addCanvas(const CanvasCfg& cfg) {
     if (cfg.parentWindow != this) {
         Serial.println("Error: Canvas parent does not match this window.");
@@ -157,19 +158,17 @@ void unregisterWindow(Window* win) {
 
 // kina like the window
 struct CanvasCfg {
-    int x, y;          // Position RELATIVE TO PARENT WINDOW
-    int width, height; // Size
-    Window* parentWindow; //get a ref to the parent window. canvases may not have multiple parents
-    uint16_t borderColor, bgColor, text_color; // Colors -add defaults
-}; 
+    int x, y;
+    int width, height;
+    uint16_t bgColor;
+    uint16_t borderColor;
+};
 
-
-//start a new canvas thingy
-class canvas {
-
-int CanvasUpdateMS=500; //ms of update for canvas
-CanvasCfg config; //load the canvas config
-
+class Canvas {
+    // Constructor using CanvasCfg
+    Canvas(const CanvasCfg& cfg, Window* parent)
+        : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), 
+          bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
 
 public:{
 
@@ -212,13 +211,14 @@ public:{
 
 
 
-
 void clear() {
     tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //my ass just copied this from the window idk lol aha this better work here
 }
 
 
-
+    // Accessors for canvas properties (if needed)
+    int getWidth() const { return width; }
+    int getHeight() const { return height; }
 }
 
 private:{

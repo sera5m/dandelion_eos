@@ -12,6 +12,12 @@ extern int currentSecond;
 // Global variable for Unix time
 extern time_t currentUnixTime;
 
+
+//stuff
+int timeZoneOffset = -1; // Example default value for timezone (i have utc-1 by default  )
+
+
+
 /*
 struct tm is defined like this by default in the code for the esp32 because apparently it's slightly unix compatable or whatever
 extern struct tm {
@@ -27,7 +33,7 @@ extern struct tm {
 };
 */
 
-//struct for time itself
+//struct for time in a nice human readable format
 struct FreindlyTime { //i renamed all instances of dateTime to FreindlyTime. and i replaced it with the find n replace. aha. gl nerd
     int year;
     int month;  // 1-12
@@ -36,6 +42,8 @@ struct FreindlyTime { //i renamed all instances of dateTime to FreindlyTime. and
     int minute; // 0-59
     int second; // 0-59
 };
+
+
 
 //todo make sure i have timezones working right, and daylight savings (daylight savings really shouldn't exist, ugh. why was it ever created)
 
@@ -119,6 +127,51 @@ void unixTimeToFreindlyTime(time_t unixTime, int timeZoneOffset, FreindlyTime &F
     FreindlyTime.minute = timeinfo.tm_min;
     FreindlyTime.second = timeinfo.tm_sec;
 }
+//tip: use above to convert to time and date from unix ticks, or convert unix tick to the normal time. i think. 
+
+//use this function to convert seconds (say from a timer) to normative time structures. uses mod to provide ms as a remainder
+//i don't know this works, i glued it together. VERY sloppily
+void RawSecondsToFreindlyTime(float seconds, FreindlyTime &friendlyTime, float &ms) {
+    // Break the float into whole seconds and the fractional part
+    float fractionalPart = 0.0f;
+    float wholeSeconds = std::modf(seconds, &fractionalPart); // Fractional part gives us the remainder
+    
+    // Convert fractional seconds to milliseconds (1 second = 1000 ms)
+    ms = fractionalPart * 1000;
+    
+    // Now, we need to convert wholeSeconds to friendlytime 
+    // using a 1-second precision? i give up
+    int totalSeconds = static_cast<int>(wholeSeconds); // Convert the seconds to an integer
+
+    // Handle year, month, day, hour, minute, and second conversion
+    // Let's assume we are starting from a reference point (e.g., the Unix epoch: January 1, 1970).
+    int secondsInYear = 365 * 24 * 60 * 60; // Simplification, not accounting for leap years.
+    int secondsInMonth = 30 * 24 * 60 * 60;  // Simplified month length assumption (30 days).
+
+    // Calculate the year
+    friendlyTime.year = 1970 + totalSeconds / secondsInYear;
+    totalSeconds %= secondsInYear;  // Remaining seconds after accounting for years
+
+    // Calculate the month
+    friendlyTime.month = 1 + totalSeconds / secondsInMonth;
+    totalSeconds %= secondsInMonth;  // Remaining seconds after accounting for months
+
+    // Calculate the day
+    friendlyTime.day = 1 + totalSeconds / (24 * 60 * 60);  // Days from the start of the month
+    totalSeconds %= (24 * 60 * 60);  // Remaining seconds after accounting for days
+
+    // Calculate the hour
+    friendlyTime.hour = totalSeconds / 3600;
+    totalSeconds %= 3600;  // Remaining seconds after accounting for hours
+
+    // Calculate the minute
+    friendlyTime.minute = totalSeconds / 60;
+    totalSeconds %= 60;  // Remaining seconds after accounting for minutes
+
+    // The remaining seconds are the exact second value
+    friendlyTime.second = totalSeconds;
+}
+
 
 // Convert FreindlyTime to Unix time with time zone adjustment
 time_t FreindlyTimeToUnixTime(const FreindlyTime &FreindlyTime, int timeZoneOffset) {
@@ -135,7 +188,7 @@ time_t FreindlyTimeToUnixTime(const FreindlyTime &FreindlyTime, int timeZoneOffs
 }
 
 // Provide normalized local time (FreindlyTime struct) from Unix time
-void GetNormalTime(time_t unixTime, int timeZoneOffset, FreindlyTime &FreindlyTime) {
+void GetFreindlyTime(time_t unixTime, int timeZoneOffset, FreindlyTime &FreindlyTime) {
     unixTimeToFreindlyTime(unixTime, timeZoneOffset, FreindlyTime);
 }
 
@@ -148,6 +201,9 @@ FreindlyTime timeUntil(const FreindlyTime &current, const FreindlyTime &target) 
     unixTimeToFreindlyTime(diff, 0, result); // Offset = 0 since this is a duration
     return result;
 }
+
+
+
 
 enum days{
   mon,
@@ -175,17 +231,41 @@ enum months{
   dec
 };
 
+
+
+
+//*****************************************************************************************************
+//clock features
+//*****************************************************************************************************
+
+
+//todo: this needs mercury interaction, and visuals.
+//visuals will be made after The visual module revamp, because this module will require popups, an actual window with canvas, and the better formatting for the stopwatch
+
+
+
+
+
+
+
+
+
+
+
+
+
 //more advanced shitty features for watches defaults.
 struct Alarm { //a repeating alarm that happens at a certain point each day
-    bool allowSnooze; //should we even let users hit snooze?
-    bool forceKeepDeviceOn; //dicks with power settings. fuck you, you're waking up today
-    bool isEnabled;
-    int SnoozeDurationMin; //min of snooze duration default
+       bool isEnabled;
+   freindlytime //the freindly time structure TODO FIX THIS! THIS NEEDS A FREINDLY TIME STRUCTURE WITH NO DAY VAR I THINK. idk. 
     enum days activeDays[7];//array of days we want this on // Specific days for the alarm (up to 7, gaps allowed)
     int loudness; //a 0-100 value for percents of loudness
     bool Flash_Led; //flash the led if 
     bool Flash_screen; //flash the screen or something idk?
     bool pushNotifToConnectedDevice; //ping your phone too, i guess. 
+     bool allowSnooze; //should we even let users hit snooze?
+    bool forceKeepDeviceOn; //dicks with power settings. fuck you, you're waking up today
+     int SnoozeDurationMin; //min of snooze duration default
 
 };
 //half these options do nothing just yet because unfinished hardware and software but that's fine i guess. 
@@ -216,7 +296,17 @@ void checkAlarms(struct Alarm *alarms, int numAlarms, enum days currentDay, int 
 
 //ASSIGN THE alarm task to freerots task scheduling. 
 //todo: set low priority task so it doesn't work too hard. this also needs to run during sleep modes unless we do periodic boots back to half awake? 
-int AlarmAssignBytes=512;
+#define AlarmAssignBytes=512;
+
+
+
+void alarmTask(void* parameter) {
+    Alarm* alarm = (Alarm*)parameter;
+    // Alarm handling logic
+    vTaskDelete(NULL);
+}
+
+
 
 void checkAlarmsWithTask(struct Alarm *alarms, int numAlarms, enum days currentDay, int currentHour, int currentMinute) {
     for (int i = 0; i < numAlarms; i++) {
@@ -274,7 +364,7 @@ int loadAlarmsFromNVS(struct Alarm *alarms, int maxAlarms) {
 
 
 
-
+/*
 //guess what, we don't have the logic for this but that's fine
 void triggerAlarm(struct Alarm *alarm) {
     if (alarm->flashLed) {
@@ -288,44 +378,118 @@ void triggerAlarm(struct Alarm *alarm) {
     }
     // Play alarm sound at specified loudness
 }
-
+*/
 
 //todo: add a TIMER: a non repeating alarm that happens once and then deletes itself
 
 
 
 
+//std chrono is a regular c library yo handle time
+//it's got the high prescision stuff we need. because users of a watch need high prescision time.
 
+class Stopwatch {
+private:
+    using high_res_clock = std::chrono::high_resolution_clock;
+    using time_point = std::chrono::time_point<high_res_clock>;
 
-
-//timers 
-
-struct Stopwatch {
-    time_t startUnixTime;
-    time_t stopUnixTime;
+    time_point startTime;
+    time_point stopTime;
     bool isRunning;
-};
+    std::vector<double> laps; // Lap times in seconds with high precision (up to 6 laps)
+    //if this causes optimization issues, we will need to replace this with a fixed size array. probably a todo, i doubt we'll need more than 3.
 
-//Stopwatch stopwatch1;  //tip, set this to set up a stopwatch
+    double currentElapsed() const {
+        if (isRunning) {
+            auto now = high_res_clock::now();
+            return std::chrono::duration<double>(now - startTime).count();
+        } else {
+            return std::chrono::duration<double>(stopTime - startTime).count();
+        }
+    }
 
-void startStopwatch() {
-    stopwatch.startUnixTime = getUnixTime();
-    stopwatch.isRunning = true;
+public:
+    // Constructor
+    Stopwatch() : isRunning(false) {}
+
+    // Start the stopwatch
+    void start() {
+        if (!isRunning) {
+            startTime = high_res_clock::now(); 
+            isRunning = true;
+        }
+    }
+
+    // Stop the stopwatch
+    void stop() {
+        if (isRunning) {
+            stopTime = high_res_clock::now();
+            isRunning = false;
+        }
+    }
+
+//reset this
+void reset() {
+    isRunning = false;
+    startTime = stopTime = time_point{}; // Ensure no leftover times
+    laps.clear();
 }
 
-void stopStopwatch() {
-    if (stopwatch.isRunning) {
-        stopwatch.stopUnixTime = getUnixTime();
-        stopwatch.isRunning = false;
+
+
+    // Record a lap
+    bool recordLap() { 
+        if (laps.size() >= 6) return false; // Maximum 6 laps. hardcoded for now, because why not? 
+        double elapsed = currentElapsed();
+        laps.push_back(elapsed); 
+        return true;
+    }
+
+  //get elapsed time
+    double getElapsedTime() const {
+    double totalLapsTime = 0.0;
+    for (double lap : laps) {
+        totalLapsTime += lap;
+    }
+    return currentElapsed() + totalLapsTime;
+}
+
+
+    // Get lap time by index (returns nullptr if invalid index)
+    std::optional<double> getLap(size_t index) const { //this should see if it exists before returning the value. 
+    if (index < laps.size()) { 
+        return laps[index]; 
+    }
+    return std::nullopt; //null if no index is available
+}
+
+
+    // Print all laps. debug for now, add an option to print to screen or not later.
+
+    void printLaps() const {
+    if (laps.empty()) {
+        std::cout << "No laps recorded.\n";
+        return;
+    }
+    for (size_t i = 0; i < laps.size(); ++i) {
+        Serial.println << "Lap " << i + 1 << ": " << std::fixed << std::setprecision(4) << laps[i] << " seconds\n";
     }
 }
 
-time_t getElapsedTime() { 
-    return stopwatch.isRunning ? (getUnixTime() - stopwatch.startUnixTime)
-   (stopwatch.stopUnixTime - stopwatch.startUnixTime);
-}
 
-//todo: store the stopwatch? hell we don't need to do that, if it boots down it wasn't that important was it now.
+
+
+
+};
+
+//to use the stopwatch:
+
+//create object: Stopwatch [name];
+//start timer: [object name].start();
+//record laps: [object name].recordLap();
+//stop timer: [object name].stop();
+//print laps: [object name].printLaps();
+
 
 
 //

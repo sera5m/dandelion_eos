@@ -83,8 +83,8 @@ Madgwick filter;
 
 
 // Include basic functions
-#include "lillypad_renderer.ino"
-#include "module_window_handler.ino"
+#include "module_math_render_base.ino" //handles screens
+#include "lillypad_renderer.ino" //handles rendering
 #include "mdl_pwr_mngr.ino"
 #include "mdl_timeKeeping.ino"  //the clock is ticking
 #include "mdl_diagnosticTools.ino"
@@ -94,7 +94,7 @@ Madgwick filter;
 
 //hardware.
 //#include "FS.h" //doesn't work out here needs to be in storage module?????
-#include <SD.h>
+#include <SD.h> //currently defaulting to the esp32 version. in other versions of the soft we may need to use a different lib
 #include "SPI.h"
 #include "fileSystem.ino"
 /*
@@ -108,11 +108,6 @@ int cs = -1;
 
 
 
-
-
-
-
-
 //math functions misc i guess
 #include <vector>
 #include <stdint.h> // For int8_t
@@ -123,7 +118,8 @@ int cs = -1;
  float temperature = 69;
 
 
-
+#include <iomanip> // For output precision
+#include <chrono>  // For high-precision timing
 
 
 //less important stuff 
@@ -176,7 +172,7 @@ SPI.endTransaction();
 
 
   delay(1);
-  Wire.begin(SDA_PIN, SCL_PIN); // Initialize I2C
+  //Wire.begin(SDA_PIN, SCL_PIN); // Initialize I2C
   screen_on();
   screen_startup(); // Start the screen up
   tft.fillScreen(BLACK); // Erase it
