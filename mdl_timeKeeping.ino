@@ -130,46 +130,56 @@ void unixTimeToFreindlyTime(time_t unixTime, int timeZoneOffset, FreindlyTime &F
 //tip: use above to convert to time and date from unix ticks, or convert unix tick to the normal time. i think. 
 
 //use this function to convert seconds (say from a timer) to normative time structures. uses mod to provide ms as a remainder
-//i don't know this works, i glued it together. VERY sloppily
+//idk how well this works but it should work fine, ig?
+// Function to convert raw seconds to friendly time
 void RawSecondsToFreindlyTime(float seconds, FreindlyTime &friendlyTime, float &ms) {
-    // Break the float into whole seconds and the fractional part
+    // Extract the fractional part (milliseconds) and the whole number part (seconds)
     float fractionalPart = 0.0f;
-    float wholeSeconds = std::modf(seconds, &fractionalPart); // Fractional part gives us the remainder
+    float wholeSeconds = std::modf(seconds, &fractionalPart);
     
-    // Convert fractional seconds to milliseconds (1 second = 1000 ms)
+    // Convert fractional part to milliseconds
     ms = fractionalPart * 1000;
-    
-    // Now, we need to convert wholeSeconds to friendlytime 
-    // using a 1-second precision? i give up
-    int totalSeconds = static_cast<int>(wholeSeconds); // Convert the seconds to an integer
 
-    // Handle year, month, day, hour, minute, and second conversion
-    // Let's assume we are starting from a reference point (e.g., the Unix epoch: January 1, 1970).
-    int secondsInYear = 365 * 24 * 60 * 60; // Simplification, not accounting for leap years.
-    int secondsInMonth = 30 * 24 * 60 * 60;  // Simplified month length assumption (30 days).
+    // Convert whole seconds into integer
+    int totalSeconds = static_cast<int>(wholeSeconds);
 
-    // Calculate the year
-    friendlyTime.year = 1970 + totalSeconds / secondsInYear;
-    totalSeconds %= secondsInYear;  // Remaining seconds after accounting for years
+    // 1. Convert seconds to minutes, then to hours, days, and years
+    friendlyTime.second = totalSeconds % 60;
+    totalSeconds /= 60;  // Remaining seconds after getting the minute
 
-    // Calculate the month
-    friendlyTime.month = 1 + totalSeconds / secondsInMonth;
-    totalSeconds %= secondsInMonth;  // Remaining seconds after accounting for months
+    if (totalSeconds > 0) {
+        friendlyTime.minute = totalSeconds % 60;
+        totalSeconds /= 60;  // Remaining after minutes to hours
+    } else {
+        friendlyTime.minute = 0;
+    }
 
-    // Calculate the day
-    friendlyTime.day = 1 + totalSeconds / (24 * 60 * 60);  // Days from the start of the month
-    totalSeconds %= (24 * 60 * 60);  // Remaining seconds after accounting for days
+    if (totalSeconds > 0) {
+        friendlyTime.hour = totalSeconds % 24;
+        totalSeconds /= 24;  // Remaining after hours to days
+    } else {
+        friendlyTime.hour = 0;
+    }
 
-    // Calculate the hour
-    friendlyTime.hour = totalSeconds / 3600;
-    totalSeconds %= 3600;  // Remaining seconds after accounting for hours
+    if (totalSeconds > 0) {
+        friendlyTime.day = totalSeconds % 365;  // Assuming 365 days per year
+        totalSeconds /= 365;  // Remaining after days to years
+    } else {
+        friendlyTime.day = 0;
+    }
 
-    // Calculate the minute
-    friendlyTime.minute = totalSeconds / 60;
-    totalSeconds %= 60;  // Remaining seconds after accounting for minutes
+    // Calculate the year (assuming 365.24 days per year for simplicity)
+    friendlyTime.year = 1970 + totalSeconds;
 
-    // The remaining seconds are the exact second value
-    friendlyTime.second = totalSeconds;
+    // Month calculation (just an approximation based on days in the year)
+    // Assume 12 months, divide days by 30 for rough month estimate
+    friendlyTime.month = (friendlyTime.day / 30) + 1;
+    if (friendlyTime.month > 12) {
+        friendlyTime.month = 12;
+    }
+
+    // The day is now adjusted for the month, subtract full months
+    friendlyTime.day = friendlyTime.day % 30;
 }
 
 
@@ -223,8 +233,11 @@ enum months{
   jan,
   feb,
   mar,
+  apr,
+  may,
   jun,
   jul,
+  aug,
   sept,
   oct,
   nov,

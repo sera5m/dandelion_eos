@@ -328,7 +328,7 @@ void taskUpdateSensors(void *pvParameters) {
     // Update sensor data
    
    //replacement of temperature sensor with the mpu-s temperature reader
-       temperature=IMU.getTemp(); //USING THE fstimu lib, get device temp. replaces tmp 102 sensor to save a few bucks
+       temperature=IMU.getTemp(); //USING THE fstimu lib, get device temp. replaces tmp 102 sensor to save a few bucks. 
  //i should print this to screen to get a debug,honestly
  Serial.println(IMU.getTemp());
  

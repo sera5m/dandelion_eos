@@ -11,27 +11,92 @@
 //this module handles window creation and draw calls. version 4, now with performance enhancements. :3
 
 
-//todo: automatically store a registry of all known windows
-//need to remove it from the list and from collection because it doesn't exist
-//we'll also have to use a destructor to clean this object up!
 
 
+//forward declare all possible dependencies/child of window before we use them
+
+class Canvas;  // forward declaration 
+class Window; //do i have to define the window class?
+//include the struct dependencies of children
+
+
+
+
+//declare structs and stuff of the elements of this stupid thing.
 
 // Window structure to hold window properties
 struct WindowCfg {
-    int x, y;          // Position
-    int width, height; // Size
+    int x = 0, y = 0, width = 64, height = 64;
     bool auto_alignment=0,wrap=1; // Align text centrally or not,wrap text
     int textsize=1; //default text size inside this window
+    bool borderless=false;
     uint16_t borderColor, bgColor, text_color; // Colors -add defaults
 }; 
 
 
 
+
+struct CanvasCfg {
+    int x = 0, y = 0, width = 32, height = 32;
+    bool borderless=true;
+     uint16_t bgColor = 0x0000, borderColor = 0xFFFF;
+     Window* parentWindow;
+};
+//end forward dependencies
+
+
+//****************************************************************************************************************************************
+
+//canvas draw logic
+//canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like windows
+
+//******************************************************************************************************************************************************
+
+
+// kina like the window struct setup, but not identical because it takes a parent
+
+
+// Canvas class definition
+// Canvas class definition
+class Canvas {
+public:
+    int x, y, width, height;
+    uint16_t bgColor, borderColor;
+    
+
+    Canvas(const CanvasCfg& cfg, Window* parent): x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
+
+    void clear() {
+        // Use the config directly
+        tft.fillRect(x, y, width, height, bgColor);
+    }
+
+    int getWidth() const { return width; }
+    int getHeight() const { return height; }
+
+private:
+    CanvasCfg config;
+    Window* parentWindow; //ref to parent window. [should i add reparenting??]
+
+};
+
+
+
+//****************************************************************************************************************************************
+
+
+//window draw logic
+
+//windows are pannels that you can have text and attatch to a proscess to directly write to or modify. all children like widgets or canvas pannels need to be attatched to windows.
+//windows are what you call update on, so they update sub elements
+
+//******************************************************************************************************************************************************
+
 //have the windows treated as objects this time instead of just functions. makes referencing much more reliable lol
 
 class Window {
 public:
+
     std::string name;  // Window's name
     WindowCfg config; //take config
     std::string content; //take string off this
@@ -42,6 +107,7 @@ public:
 
     //other internal variables for the windows themselves
     int WinUpdateMS=500; //this window should update every n miliseconds. this is the variable and it can be dynamically set with a reference to this window by attatched proscesses.
+    bool dirty = false;  // does window need redraw
 
 
 
@@ -58,20 +124,23 @@ public:
     }
 
 
-//canvas
 
+  //add a canvas to this window.
 void addCanvas(const CanvasCfg& cfg) {
     if (cfg.parentWindow != this) {
         Serial.println("Error: Canvas parent does not match this window.");
-        return;
+        return; 
     }
-    canvases.push_back(new Canvas(cfg));
+    Canvas* newCanvas = new Canvas(cfg, this);  // create new canvas and assign it to this window
+    //keyword new tells the program i'm creating a new object and to give it some memory. 
+    canvases.push_back(newCanvas);  // add the canvas to the std vector (arr)
 }
 
 
 
     // Draws the window with its content
     void draw() {
+      if (dirty) {
         // Clear the window interior
         tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
 
@@ -84,6 +153,8 @@ void addCanvas(const CanvasCfg& cfg) {
 
         // Render content as word-wrapped text
         drawText(content.c_str());
+                dirty = false;
+                }
     }
 
 
@@ -95,13 +166,19 @@ void clear() {
 }
 
 
-    // Updates window content and redraws
-    void updateContent(const std::string& newContent) {
+void updateContent(const std::string& newContent) {
+    if (content != newContent) { //check to see if it matches. if it does, don't update it
         content = newContent;
-        draw();
+        dirty = true; //k it's tirty so go draw that stuff!
+        draw(); //draw it now
     }
+}
 
 private:
+
+
+
+
     void drawText(const char* text) {
         int charWidth = 6;  // Character width
         int charHeight = 8; // Character height
@@ -131,110 +208,46 @@ private:
             }
         }
     }
-};
 
-//example logic for the window registry. this would have to be some kind of dynamic array? idk
-/*
-std::vector<Window*> windowRegistry;
 
-void registerWindow(Window* win) {
-    windowRegistry.push_back(win);
+
+std::vector<std::unique_ptr<Window>> windowRegistry;
+
+void registerWindow(std::unique_ptr<Window> win) {
+    windowRegistry.push_back(std::move(win));
 }
 
 void unregisterWindow(Window* win) {
-    windowRegistry.erase(std::remove(windowRegistry.begin(), windowRegistry.end(), win), windowRegistry.end());
+    windowRegistry.erase(
+        std::remove_if(
+            windowRegistry.begin(),
+            windowRegistry.end(),
+            [&](const std::unique_ptr<Window>& w) { return w.get() == win; }),
+        windowRegistry.end());
 }
 
-//need to extend this logic
-*/
+}; //the end of the window class
 
 
 
 
-//*lego building noise* i made a lot of this on 12/30/2024. call that a buzzer beater
-
-
-//the logic for draw canvases
-
-// kina like the window
-struct CanvasCfg {
-    int x, y;
-    int width, height;
-    uint16_t bgColor;
-    uint16_t borderColor;
-};
-
-class Canvas {
-    // Constructor using CanvasCfg
-    Canvas(const CanvasCfg& cfg, Window* parent)
-        : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), 
-          bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
-
-public:{
-
-
-    // Constructor: Initialize canvas with position, size, color, and parent window
-    Canvas(int posX, int posY, int w, int h, uint16_t color, Window* parent)
-        : x(posX), y(posY), width(w), height(h), bgColor(color), parentWindow(parent) {}
-
-    
-
-
-//draw canvas content here, kina like the win but with new stuff
-     void draw() {
-        if (!parentWindow) {
-            Serial.println("Error: Canvas has no parent window.");
-            return;
-        }
-
-        // Get the canvas's absolute position within the parent window
-        int canvasX = parentWindow->config.x + x;
-        int canvasY = parentWindow->config.y + y;
-
-        // Draw canvas background
-        tft.fillRect(canvasX, canvasY, width, height, bgColor);
-
-        // Draw canvas border
-        tft.drawRect(canvasX, canvasY, width, height, borderColor);
-    }
-//this is just base setup logic, canvases don't seem to have elements yet? 
-//elements should be fixed size, or even things like ug8lib drawings? or where we can put images? idunno
-
-    // Draw a rectangle inside the canvas
-    void drawRect(int posX, int posY, int w, int h, uint16_t color) {
-        int canvasX = parentWindow->config.x + x;
-        int canvasY = parentWindow->config.y + y;
-        tft.fillRect(canvasX + posX, canvasY + posY, w, h, color);
-    }
-
-  }
-
-
-
-void clear() {
-    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //my ass just copied this from the window idk lol aha this better work here
-}
-
-
-    // Accessors for canvas properties (if needed)
-    int getWidth() const { return width; }
-    int getHeight() const { return height; }
-}
-
-private:{
-
-
-}
-
-
-
-} //end canvas work thing
 
 
 
 
-//some defaults idk
 
+
+
+
+
+
+///***************************************************************************************************************************************************************************************************************************************************************
+//operating system defaults for various types of screen setups
+//default groupings are groups of default windows to put on the screen in some conditions, saving you time from having to manually add one of each window to the screen [lock screen,app screen, etc]
+///***************************************************************************************************************************************************************************************************************************************************************
+
+
+//
 
 //variables used in this function to drawscreen
 // Global variables for time access
@@ -244,26 +257,27 @@ extern int currentSecond;
 extern float temperature;
 extern int AVG_HR;
 
-//define a little window group we can set for the lock screen
-//quick,dirty,effective
+// Define a little window group we can set for the lock screen
+// Quick, dirty, effective
 #define defaultWinGroup_lockscreen \
-// Predefine windows for the lock screen
-Window timeWindow("Time", WindowCfg{14, 34, 100, 40, false, true, 2, 0xFFFF, 0x0000, 0x07FF}, "00:00");
-Window tempWindow("Temperature", WindowCfg{10, 0, 100, 30, false, true, 1, 0xFFFF, 0x0000, 0x558F}, "23C");
-Window heartRateWindow("Heart Rate", WindowCfg{100, 120, 50, 30, false, true, 1, 0xFFFF, 0x0000, 0xB000}, "72");
+//as of jan 2, 2025, it should be  x,y,w,h,auto align?,wrap?,textsize,borderkess?, border color,bgcolor,txt color, new text to write
+Window timeWindow("Time", WindowCfg{14, 34, 100, 40, false, true, 2,false, 0xFFFF, 0x0000, 0x07FF}); \
+Window tempWindow("Temperature", WindowCfg{10, 0, 100, 30, false, true, 1, true, 0xFFFF, 0x0000, 0x558F}); \
+Window heartRateWindow("Heart Rate", WindowCfg{100, 120, 50, 30, false, true, 1,false, 0xFFFF, 0x0000, 0xB000}); \
+
+// TODO: With the clock module overhaul, this section will need a lot of fixes.
 
 void updateLockScreen() {
     heartRateWindow.updateContent(std::to_string(AVG_HR)); // Update heart rate window
-    tempWindow.updateContent(std::to_string(temperature)); // Update temperature window
+    tempWindow.updateContent(std::to_string(IMU.getTemp())); // Update temperature window (updated to use the sensor inside the imu for reduced hardare cost.)
 
-    // Format time as "hh:mm:ss" byconvert time into hhmmss
+    // Format time as "hh:mm:ss" by converting time into hh:mm:ss
     std::string timeString = 
         (currentHour < 10 ? "0" : "") + std::to_string(currentHour) + ":" +  // Ensure 2 digits for hour
         (currentMinute < 10 ? "0" : "") + std::to_string(currentMinute) + ":" +  // Ensure 2 digits for minute
         (currentSecond < 10 ? "0" : "") + std::to_string(currentSecond);  // Ensure 2 digits for second
     timeWindow.updateContent(timeString); // Update time window
 }
-
 
 /*
 void updateLockscreenTime(int hour, int minute, int second) {
