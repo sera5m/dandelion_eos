@@ -94,4 +94,61 @@ bool checkSPIDevice(int csPin) {
   return true;
 }
 
+
+
+
+
+
+void listTasks() {
+    const int maxTasks = 10; // Adjust based on expected number of tasks
+    TaskStatus_t taskStatus[maxTasks];
+    UBaseType_t taskCount;
+    char taskListBuffer[512]; // Buffer for task list
+
+    // Get number of tasks and their states
+    taskCount = uxTaskGetSystemState(taskStatus, maxTasks, NULL);
+
+    Serial.println("Task Name\tState\tPriority\tStack\tTask Number");
+    for (int i = 0; i < taskCount; i++) {
+        Serial.printf("%s\t%c\t%u\t%u\t%u\n", 
+                      taskStatus[i].pcTaskName,
+                      taskStatus[i].eCurrentState == eRunning ? 'R' :
+                      taskStatus[i].eCurrentState == eReady ? 'Y' :
+                      taskStatus[i].eCurrentState == eBlocked ? 'B' :
+                      taskStatus[i].eCurrentState == eSuspended ? 'S' : 'D',
+                      taskStatus[i].uxCurrentPriority,
+                      taskStatus[i].usStackHighWaterMark,
+                      taskStatus[i].xTaskNumber);
+    }
+}
+
+void checkFreeRAM() {
+    size_t freeRAM = esp_get_free_heap_size();
+    Serial.printf("Free RAM: %u bytes\n", freeRAM);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #endif

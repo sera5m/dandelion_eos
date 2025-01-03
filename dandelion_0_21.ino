@@ -6,7 +6,7 @@
 #include "esp_wifi.h"
 #include "esp_bt.h"
 #include "esp_sleep.h"
-#include "esp_system.h" // For device ID
+#include "esp_system.h" 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "HardwareSerial.h" 
@@ -14,6 +14,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <SPI.h>  // Include the SPI library
+#include <stdbool.h>
 
 #define SPI_CLK_SPEED 56000000 // 56 MHz. very high! may increase power use
 #define I2Cclock 400000 //set ic2 clock
@@ -68,10 +69,16 @@ calData calib = { 0 };  //Calibration data
 MagData IMUMag;
 Madgwick filter;
 
+//hardware.
+//#include "FS.h" //doesn't work out here needs to be in storage module?????
+#include <SD.h> //currently defaulting to the esp32 version. in other versions of the soft we may need to use a different lib
+#include "SPI.h"
+#include "fileSystem.ino"
+#include <nvs_flash.h>
+#include <nvs.h>
 
-
-
-
+//important other libraries
+#include <iostream>
 
 
 #include <Adafruit_Sensor.h>
@@ -92,11 +99,7 @@ Madgwick filter;
 
 
 
-//hardware.
-//#include "FS.h" //doesn't work out here needs to be in storage module?????
-#include <SD.h> //currently defaulting to the esp32 version. in other versions of the soft we may need to use a different lib
-#include "SPI.h"
-#include "fileSystem.ino"
+
 /*
 Uncomment and set up if you want to use custom pins for the SPI communication
 #define REASSIGN_PINS

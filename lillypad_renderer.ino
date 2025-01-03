@@ -3,6 +3,32 @@
 #ifndef LILLYPAD_RENDERER_H
 #define LILLYPAD_RENDERER_H
 
+
+
+//todo:
+
+//little alert icons
+//jpeg+png+bmp
+
+//basic effects: fake static,washout,blinking
+//a class for vector drawings (uses ug8lib) that attatches to canvas. vect drawings just use a few simple lines and cubes. we save them on the setup of the drawing object, with it storing the commands on start? idk how to do this outside of vague ideas.
+//crude animations [involves placing objects on the canvas, with objects being an image or "generated vector drawing"] 
+
+//optimize update cycle
+
+//wrap stuff around like text. just read uglib and use that stuff i guess. we can take heavy inspiration from the code.
+
+//dirty flag should be improved. needs tohave autoatic draw calls
+
+
+
+
+
+
+
+
+
+
 //was gonna name this orchid renderer but some guy made a render engine already named that and it was cool tbh
 
 
@@ -93,6 +119,9 @@ private:
 //******************************************************************************************************************************************************
 
 //have the windows treated as objects this time instead of just functions. makes referencing much more reliable lol
+
+//todo:
+//windows should get better text wrapping and scroll boxes
 
 class Window {
 public:

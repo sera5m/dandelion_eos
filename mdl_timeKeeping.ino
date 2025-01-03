@@ -1,21 +1,128 @@
+//improvements to do: iso 8601 parsingg/formatting
+//improve the human readable time
+//support for by country dst (in progress)
+
+
+
 #ifndef mdl_timeKeeping_H
 #define mdl_timeKeeping_H
 
 #include <time.h>
 #include <sys/time.h>
-
+#include <chrono> //i hope the compiler takes c++ v11
+#include <optional>
 // Global variables for time access
+
+
+//default enums and some vars
 extern int currentHour;
 extern int currentMinute;
 extern int currentSecond;
+
+enum days{ 
+  sun,
+  mon,
+  tue,
+  wend,
+  thur,
+  fri,
+  sat
+};
+
+// Define weekdays and weekends
+const bool isWeekday[7] = { false,true, true, true, true, true, false }; // Mon-Fri: true; Sat, Sun: false (week start with sun, end w sat)
+
+
+enum months{
+  jan,
+  feb,
+  mar,
+  apr,
+  may,
+  jun,
+  jul,
+  aug,
+  sept,
+  oct,
+  nov,
+  dec
+};
 
 // Global variable for Unix time
 extern time_t currentUnixTime;
 
 
-//stuff
-int timeZoneOffset = -1; // Example default value for timezone (i have utc-1 by default  )
+//stuff 4 dst
+int UserTimeZoneOffset = 0; // your timezone relative to utc+0 IN SECONDS. 
+bool useDST=false; //use daylight savings time? (likely needs to be either set or stored in nvs or something)
+bool ForceDisableDST=false; //set to true if the user wants to forcibly disable use of dst 
 
+// Enumerate countries (add more as needed)
+enum country {
+    USA,
+    Canada,
+    UK,
+    Germany,
+    Australia,
+    Japan,
+    India,
+    China,
+    Brazil,
+    SouthAfrica,
+    // Add other countries AND REGIONS here!!! THIS LIST IS NOT OCMPLETE
+};
+
+
+enum country userCountry = USA; //default user country
+
+// Structure to hold timezone and DST rules
+typedef struct {
+    int standardOffset; // Standard offset in seconds from UTC
+    bool usesDST;       // Does the country use DST?
+    int dstStartMonth;  // Start month for DST
+    int dstStartDay;    // Approximate start day (e.g., "2nd Sunday of March")
+    int dstEndMonth;    // End month for DST
+    int dstEndDay;      // Approximate end day (e.g., "1st Sunday of November")
+} TimeZoneInfo;
+
+
+// Lookup table for countries and their timezone information
+// TEMPORARY!!! todo: ADD MORE COUNTRIES IF NEEDED. 
+//incomplete timezone coverage for west and east eu and continental USA, south america may need work. check this whole table over
+
+//offset in s, has dst,date of dst start, dst end
+const TimeZoneInfo timeZoneTable[] = {
+    { -18000, true, mar, 14, nov, 7 },   // USA: UTC-5, DST starts 2nd Sunday of March, ends 1st Sunday of November
+    { -18000, true, mar, 14, nov, 7 },   // Canada: Same as USA
+    {     0,  true, mar, 28, oct, 31 },  // UK: UTC+0, DST starts last Sunday of March, ends last Sunday of October
+    {  3600, true, mar, 28, oct, 31 },  // Germany: UTC+1, same DST as UK
+    {  36000, true, oct, 1, apr, 1 },   // Australia: UTC+10, DST varies but generally Oct-Apr
+    {  32400, false, 0, 0, 0, 0 },      // Japan: UTC+9, no DST
+    {  19800, false, 0, 0, 0, 0 },      // India: UTC+5:30, no DST
+    {  28800, false, 0, 0, 0, 0 },      // China: UTC+8, no DST
+    { -10800, true, oct, 1, feb, 15 },  // Brazil: UTC-3, DST varies but generally Oct-Feb
+    {  7200, false, 0, 0, 0, 0 }        // South Africa: UTC+2, no DST
+    // PLEASE Add other countries here
+};
+
+// Function to calculate user timezone offset
+int calculateUserTimeZoneOffset(enum country userCountry, enum months currentMonth, int day, bool forceDisableDST) {
+    const TimeZoneInfo *tzInfo = &timeZoneTable[userCountry];
+
+    // Start with the standard offset
+    int offset = tzInfo->standardOffset;
+
+    // Check if DST should be applied
+    if (!forceDisableDST && tzInfo->usesDST) {
+        if ((currentMonth > tzInfo->dstStartMonth && currentMonth < tzInfo->dstEndMonth) ||
+            (currentMonth == tzInfo->dstStartMonth && day >= tzInfo->dstStartDay) ||
+            (currentMonth == tzInfo->dstEndMonth && day < tzInfo->dstEndDay)) {
+            offset += 3600; // Add one hour for DST
+        }
+    }
+
+    return offset;
+}
 
 
 /*
@@ -34,15 +141,14 @@ extern struct tm {
 */
 
 //struct for time in a nice human readable format
-struct FreindlyTime { //i renamed all instances of dateTime to FreindlyTime. and i replaced it with the find n replace. aha. gl nerd
+struct FriendlyTime {
     int year;
-    int month;  // 1-12
-    int day;    // 1-31
-    int hour;   // 0-23
-    int minute; // 0-59
-    int second; // 0-59
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
 };
-
 
 
 //todo make sure i have timezones working right, and daylight savings (daylight savings really shouldn't exist, ugh. why was it ever created)
@@ -83,7 +189,7 @@ void updateStoredTime() {
 }
 
 // Print the current local time
-void printLocalTime() {
+void GetLocalTime() {
     struct tm timeinfo;
     time_t now;
     time(&now);
@@ -110,29 +216,28 @@ void printLocalTime() {
     Serial.println(time12Str);
 }
 
-// Convert Unix time to local FreindlyTime with time zone support
-void unixTimeToFreindlyTime(time_t unixTime, int timeZoneOffset, FreindlyTime &FreindlyTime) {
-    // Adjust for the time zone offset (in seconds)
-    unixTime += timeZoneOffset;
-
-    // Convert to a tm struct
+// Convert Unix time to local FriendlyTime with time zone support
+void UnixTimeToFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &ft) {
     struct tm timeinfo;
-    gmtime_r(&unixTime, &timeinfo);
+    gmtime_r(&unixTime, &timeinfo); // Converts Unix time to UTC
 
-    // Populate the FreindlyTime structure
-    FreindlyTime.year = timeinfo.tm_year + 1900;
-    FreindlyTime.month = timeinfo.tm_mon + 1;
-    FreindlyTime.day = timeinfo.tm_mday;
-    FreindlyTime.hour = timeinfo.tm_hour;
-    FreindlyTime.minute = timeinfo.tm_min;
-    FreindlyTime.second = timeinfo.tm_sec;
+    timeinfo.tm_hour += timeZoneOffset; // Adjust for time zone
+    mktime(&timeinfo); // Normalize the time structure
+
+    ft.year = timeinfo.tm_year + 1900;
+    ft.month = timeinfo.tm_mon + 1;
+    ft.day = timeinfo.tm_mday;
+    ft.hour = timeinfo.tm_hour;
+    ft.minute = timeinfo.tm_min;
+    ft.second = timeinfo.tm_sec;
 }
+
 //tip: use above to convert to time and date from unix ticks, or convert unix tick to the normal time. i think. 
 
 //use this function to convert seconds (say from a timer) to normative time structures. uses mod to provide ms as a remainder
 //idk how well this works but it should work fine, ig?
 // Function to convert raw seconds to friendly time
-void RawSecondsToFreindlyTime(float seconds, FreindlyTime &friendlyTime, float &ms) {
+void RawSecondsToFriendlyTime(float seconds, FriendlyTime &FriendlyTime, float &ms) {
     // Extract the fractional part (milliseconds) and the whole number part (seconds)
     float fractionalPart = 0.0f;
     float wholeSeconds = std::modf(seconds, &fractionalPart);
@@ -144,105 +249,77 @@ void RawSecondsToFreindlyTime(float seconds, FreindlyTime &friendlyTime, float &
     int totalSeconds = static_cast<int>(wholeSeconds);
 
     // 1. Convert seconds to minutes, then to hours, days, and years
-    friendlyTime.second = totalSeconds % 60;
+    FriendlyTime.second = totalSeconds % 60;
     totalSeconds /= 60;  // Remaining seconds after getting the minute
 
     if (totalSeconds > 0) {
-        friendlyTime.minute = totalSeconds % 60;
+        FriendlyTime.minute = totalSeconds % 60;
         totalSeconds /= 60;  // Remaining after minutes to hours
     } else {
-        friendlyTime.minute = 0;
+        FriendlyTime.minute = 0;
     }
 
     if (totalSeconds > 0) {
-        friendlyTime.hour = totalSeconds % 24;
+        FriendlyTime.hour = totalSeconds % 24;
         totalSeconds /= 24;  // Remaining after hours to days
     } else {
-        friendlyTime.hour = 0;
+        FriendlyTime.hour = 0;
     }
 
     if (totalSeconds > 0) {
-        friendlyTime.day = totalSeconds % 365;  // Assuming 365 days per year
+        FriendlyTime.day = totalSeconds % 365;  // Assuming 365 days per year
         totalSeconds /= 365;  // Remaining after days to years
     } else {
-        friendlyTime.day = 0;
+    
+        FriendlyTime.day = 0;
     }
 
     // Calculate the year (assuming 365.24 days per year for simplicity)
-    friendlyTime.year = 1970 + totalSeconds;
+    FriendlyTime.year = 1970 + totalSeconds;
 
     // Month calculation (just an approximation based on days in the year)
     // Assume 12 months, divide days by 30 for rough month estimate
-    friendlyTime.month = (friendlyTime.day / 30) + 1;
-    if (friendlyTime.month > 12) {
-        friendlyTime.month = 12;
+    FriendlyTime.month = (FriendlyTime.day / 30) + 1;
+    if (FriendlyTime.month > 12) {
+        FriendlyTime.month = 12;
     }
 
     // The day is now adjusted for the month, subtract full months
-    friendlyTime.day = friendlyTime.day % 30;
+    FriendlyTime.day = FriendlyTime.day % 30;
 }
 
 
-// Convert FreindlyTime to Unix time with time zone adjustment
-time_t FreindlyTimeToUnixTime(const FreindlyTime &FreindlyTime, int timeZoneOffset) {
+// Convert FriendlyTime to Unix time with time zone adjustment
+time_t FriendlyTimeToUnixTime(const FriendlyTime &FriendlyTime, int timeZoneOffset) {
     struct tm timeinfo = {};
-    timeinfo.tm_year = FreindlyTime.year - 1900;
-    timeinfo.tm_mon = FreindlyTime.month - 1;
-    timeinfo.tm_mday = FreindlyTime.day;
-    timeinfo.tm_hour = FreindlyTime.hour;
-    timeinfo.tm_min = FreindlyTime.minute;
-    timeinfo.tm_sec = FreindlyTime.second;
+    timeinfo.tm_year = FriendlyTime.year - 1900;
+    timeinfo.tm_mon = FriendlyTime.month - 1;
+    timeinfo.tm_mday = FriendlyTime.day;
+    timeinfo.tm_hour = FriendlyTime.hour;
+    timeinfo.tm_min = FriendlyTime.minute;
+    timeinfo.tm_sec = FriendlyTime.second;
 
     // Convert to Unix time and adjust for time zone offset
     return mktime(&timeinfo) - timeZoneOffset;
 }
 
-// Provide normalized local time (FreindlyTime struct) from Unix time
-void GetFreindlyTime(time_t unixTime, int timeZoneOffset, FreindlyTime &FreindlyTime) {
-    unixTimeToFreindlyTime(unixTime, timeZoneOffset, FreindlyTime);
+// Provide normalized local time (FriendlyTime struct) from Unix time
+void GetFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &FriendlyTime) {
+    UnixTimeToFriendlyTime(unixTime, timeZoneOffset, FriendlyTime);
 }
 
-FreindlyTime timeUntil(const FreindlyTime &current, const FreindlyTime &target) { //time a to time b, freindly time
-    time_t currentUnix = FreindlyTimeToUnixTime(current, timeZoneOffset);
-    time_t targetUnix = FreindlyTimeToUnixTime(target, timeZoneOffset);
+FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) { //time a to time b, friendly time
+    time_t currentUnix = FriendlyTimeToUnixTime(current, timeZoneOffset);
+    time_t targetUnix = FriendlyTimeToUnixTime(target, timeZoneOffset);
 
     time_t diff = targetUnix - currentUnix;
-    FreindlyTime result;
-    unixTimeToFreindlyTime(diff, 0, result); // Offset = 0 since this is a duration
+    FriendlyTime result;
+    UnixTimeToFriendlyTime(diff, 0, result); // Offset = 0 since this is a duration
     return result;
 }
 
 
 
-
-enum days{
-  mon,
-  tue,
-  wend,
-  thur,
-  fri,
-  sat,
-  sun
-};
-
-// Define weekdays and weekends
-const bool isWeekday[7] = { true, true, true, true, true, false, false }; // Mon-Fri: true; Sat, Sun: false
-
-
-enum months{
-  jan,
-  feb,
-  mar,
-  apr,
-  may,
-  jun,
-  jul,
-  aug,
-  sept,
-  oct,
-  nov,
-  dec
-};
 
 
 
@@ -262,96 +339,114 @@ enum months{
 
 
 
+//**********************************************************************************************************************************************
+//alarm features
+//(repeating timers idk)
+//********************************************************************************************************************************************
 
 
 
 
-
-//more advanced shitty features for watches defaults.
-struct Alarm { //a repeating alarm that happens at a certain point each day
-       bool isEnabled;
-   freindlytime //the freindly time structure TODO FIX THIS! THIS NEEDS A FREINDLY TIME STRUCTURE WITH NO DAY VAR I THINK. idk. 
-    enum days activeDays[7];//array of days we want this on // Specific days for the alarm (up to 7, gaps allowed)
-    int loudness; //a 0-100 value for percents of loudness
-    bool Flash_Led; //flash the led if 
-    bool Flash_screen; //flash the screen or something idk?
-    bool pushNotifToConnectedDevice; //ping your phone too, i guess. 
-     bool allowSnooze; //should we even let users hit snooze?
-    bool forceKeepDeviceOn; //dicks with power settings. fuck you, you're waking up today
-     int SnoozeDurationMin; //min of snooze duration default
-
+struct Alarm {
+    bool isEnabled = false;
+    FriendlyTime time;
+    uint8_t activeDays = 0b00000000; // 8-bit bitmask for days
+    int loudness = 50; // Default 50%
+    bool flashLed = false;
+    bool flashScreen = false;
+    bool notifyConnectedDevice = false;
+    bool allowSnooze = true;
+    int snoozeDuration = 5; // Default 5 minutes
 };
-//half these options do nothing just yet because unfinished hardware and software but that's fine i guess. 
+
+//tip: how the bitmask works
+/*
+Bit 0 (LSB) -> Sunday
+Bit 1       -> Monday
+Bit 2       -> Tuesday
+Bit 3       -> Wednesday
+Bit 4       -> Thursday
+Bit 5       -> Friday
+Bit 6       -> Saturday
+Bit 7 (MSB) -> not used. reserved for anything in refactor
+*/
+
+//user provides a boolean array (length 7) of days when sending input. [days sun to sat]
 
 
-bool isAlarmTime(struct Alarm *alarm, enum days currentDay, int currentHour, int currentMinute) {
-    if (!alarm->isEnabled) return false;
+// Convert a bitmask to a vector<bool> representing active days
+std::vector<bool> DayBitMaskToWeekdays(uint8_t bitmask) {
+    std::vector<bool> activeDays(7, false); // Initialize a vector of size 7 with all false
 
-    // Check if today is in the activeDays array
-    for (int i = 0; i < alarm->numActiveDays; i++) {
-        if (alarm->activeDays[i] == currentDay) {
-            // Check time match
-            if (alarm->hour == currentHour && alarm->minute == currentMinute) {
-                return true;
-            }
+    for (int day = sun; day <= sat; day++) { // Loop through all days
+        activeDays[day] = bitmask & (1 << day);
+    }
+    return activeDays;
+}
+
+// Convert a vector<bool> to the bmask
+uint8_t WeekdaysToDayBitMask(const std::vector<bool>& activeDays) {
+    if (activeDays.size() != 7) {
+        throw std::invalid_argument("Active days vector must have exactly 7 elements.");
+    }
+
+    uint8_t bitmask = 0;
+
+    for (int day = sun; day <= sat; day++) {
+        if (activeDays[day]) {
+            bitmask |= (1 << day); // Set the corresponding bit for each active day
         }
     }
-    return false;
+    return bitmask;
 }
 
-void checkAlarms(struct Alarm *alarms, int numAlarms, enum days currentDay, int currentHour, int currentMinute) {
-    for (int i = 0; i < numAlarms; i++) {
-        if (isAlarmTime(&alarms[i], currentDay, currentHour, currentMinute)) {
-            triggerAlarm(&alarms[i]);
-        }
+// Utility functions for handling the activeDays bitmask
+void setDayActive(uint8_t &bitmask, int day, bool active) {
+    if (active) {
+        bitmask |= (1 << day); // Set the bit for the given day
+    } else {
+        bitmask &= ~(1 << day); // Clear the bit for the given day
     }
 }
 
-//ASSIGN THE alarm task to freerots task scheduling. 
-//todo: set low priority task so it doesn't work too hard. this also needs to run during sleep modes unless we do periodic boots back to half awake? 
-#define AlarmAssignBytes=512;
+bool isDayActive(uint8_t bitmask, int day) {
+    return bitmask & (1 << day); // Check if the bit for the given day is set
+}
 
+// Updated isAlarmTime function
+bool isAlarmTime(const Alarm &alarm, int currentDay, int currentHour, int currentMinute) {
+    if (!alarm.isEnabled) return false;
+    if (!isDayActive(alarm.activeDays, currentDay)) return false;
 
-
-void alarmTask(void* parameter) {
-    Alarm* alarm = (Alarm*)parameter;
-    // Alarm handling logic
-    vTaskDelete(NULL);
+    return (alarm.time.hour == currentHour && alarm.time.minute == currentMinute);
 }
 
 
-
-void checkAlarmsWithTask(struct Alarm *alarms, int numAlarms, enum days currentDay, int currentHour, int currentMinute) {
+void checkAlarmsWithTask(Alarm *alarms, int numAlarms, int currentDay, int currentHour, int currentMinute) {
     for (int i = 0; i < numAlarms; i++) {
-        if (isAlarmTime(&alarms[i], currentDay, currentHour, currentMinute)) {
+        if (isAlarmTime(alarms[i], currentDay, currentHour, currentMinute)) {
             // Create a new FreeRTOS task for the alarm
-            xTaskCreate(alarmTask, "AlarmTask", alarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL); 
+            xTaskCreate(alarmTask, "AlarmTask", AlarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL);
         }
     }
 }
 
-
-//TODO: MOVE THESE ALARM FUNCTIONS TO THE STORAGE MODULE
-
-
-//store your allarms at nvs. 
-void saveAlarmsToNVS(struct Alarm *alarms, int numAlarms) {
+// Alarm NVS storage functions
+void saveAlarmsToNVS(Alarm *alarms, int numAlarms) {
     nvs_handle_t nvsHandle;
     esp_err_t err = nvs_open("alarm_storage", NVS_READWRITE, &nvsHandle);
     if (err == ESP_OK) {
-        // Write alarms to NVS
         for (int i = 0; i < numAlarms; i++) {
             char key[16];
             snprintf(key, sizeof(key), "alarm_%d", i); // Create unique key
-            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(struct Alarm));
+            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(Alarm));
         }
         nvs_commit(nvsHandle);
         nvs_close(nvsHandle);
     }
 }
 
-//call this on boot to load alarms
-int loadAlarmsFromNVS(struct Alarm *alarms, int maxAlarms) {
+int loadAlarmsFromNVS(Alarm *alarms, int maxAlarms) {
     nvs_handle_t nvsHandle;
     esp_err_t err = nvs_open("alarm_storage", NVS_READONLY, &nvsHandle);
     int alarmCount = 0;
@@ -361,7 +456,7 @@ int loadAlarmsFromNVS(struct Alarm *alarms, int maxAlarms) {
             char key[16];
             snprintf(key, sizeof(key), "alarm_%d", i);
 
-            size_t alarmSize = sizeof(struct Alarm);
+            size_t alarmSize = sizeof(Alarm);
             if (nvs_get_blob(nvsHandle, key, &alarms[i], &alarmSize) == ESP_OK) {
                 alarmCount++;
             } else {
@@ -373,36 +468,250 @@ int loadAlarmsFromNVS(struct Alarm *alarms, int maxAlarms) {
     return alarmCount;
 }
 
-
-
-
-
-/*
-//guess what, we don't have the logic for this but that's fine
-void triggerAlarm(struct Alarm *alarm) {
+// Trigger alarm
+void triggerAlarm(Alarm *alarm) {
     if (alarm->flashLed) {
         // Flash the LED
     }
     if (alarm->flashScreen) {
         // Flash the screen
     }
-    if (alarm->pushNotifToConnectedDevice) {
+    if (alarm->notifyConnectedDevice) {
         // Push notification
     }
-    // Play alarm sound at specified loudness
+    // Play alarm sound at loudness
 }
+
+
+
+
+
+
+
+
+
+
+
+//TIMER: a non repeating alarm that happens once and then deletes itself
+
+//****************************************************************************************************************************************************************************************************************************
+//timer functionality
+//****************************************************************************************************************************************************************************************************************************
+
+
+
+
+enum days{
+  mon,
+  tue,
+  wend,
+  thur,
+  fri,
+  sat,
+  sun
+};
+
+
+
+
+class Timer {
+
+
+private: //private******************************************************
+    Preferences preferences;
+    char timerName; //char to save memory. when creating a timer convert str to char
+
+    unsigned long startTime = 0;     // Time when the timer started
+    unsigned long duration = 0;      // Original duration in milliseconds
+    unsigned long remainingTime = 0; // Time left when paused or modified
+    bool running = false;
+    bool paused = false;
+
+    esp_timer_handle_t timerHandle = nullptr;
+
+    void saveToNVS() {
+        preferences.begin("timers", false);
+        preferences.putULong(timerName + "_remaining", remainingTime);
+        preferences.putULong(timerName + "_duration", duration);
+        preferences.putBool(timerName + "_running", running);
+        preferences.putBool(timerName + "_paused", paused);
+        preferences.end();
+    }
+
+    void loadFromNVS() {
+        preferences.begin("timers", false);
+        remainingTime = preferences.getULong(timerName + "_remaining", 0);
+        duration = preferences.getULong(timerName + "_duration", 0);
+        running = preferences.getBool(timerName + "_running", false);
+        paused = preferences.getBool(timerName + "_paused", false);
+        preferences.end();
+    }
+
+    void clearFromNVS() {
+        preferences.begin("timers", false);
+        preferences.remove(timerName + "_remaining");
+        preferences.remove(timerName + "_duration");
+        preferences.remove(timerName + "_running");
+        preferences.remove(timerName + "_paused");
+        preferences.end();
+    }
+
+    void setupTimer(unsigned long ms) {
+        if (timerHandle != nullptr) {
+            esp_timer_stop(timerHandle); // Cancel previous timer
+            esp_timer_delete(timerHandle);
+        }
+
+        esp_timer_create_args_t timerArgs = {
+            .callback = [](void* arg) {
+                static_cast<Timer*>(arg)->onTimerFinish(); //cast to the timer on it finishing
+            },
+            .arg = this, //pointer for args,default void but context aware?
+            .name = "user_timer" //default name
+        };
+        esp_timer_create(&timerArgs, &timerHandle);
+        esp_timer_start_once(timerHandle, ms * 1000); // Set timer in microseconds
+    }
+
+    void onTimerFinish() {
+        running = false;
+        paused = false;
+        clearFromNVS();
+        TimerFinish(); // Trigger the callback
+    }
+
+
+//public**********************************************
+public:
+    Timer(const String& name) : timerName(name) {
+        loadFromNVS();
+    }
+
+    ~Timer() {
+        if (timerHandle != nullptr) {
+            esp_timer_stop(timerHandle);
+            esp_timer_delete(timerHandle);
+        }
+        saveToNVS();
+    }
+
+    void start(unsigned long durationInSeconds) {
+        duration = durationInSeconds * 1000;
+        remainingTime = duration;
+        running = true;
+        paused = false;
+        saveToNVS();
+        setupTimer(duration);
+    }
+
+    void stop() {
+        if (timerHandle != nullptr) {
+            esp_timer_stop(timerHandle);
+            esp_timer_delete(timerHandle);
+            timerHandle = nullptr;
+        }
+        running = false;
+        paused = false;
+        clearFromNVS();
+    }
+
+    void pause() {
+        if (running && !paused) {
+            remainingTime = remainingTime - (millis() - startTime);
+            paused = true;
+            running = false;
+            if (timerHandle != nullptr) {
+                esp_timer_stop(timerHandle);
+                esp_timer_delete(timerHandle);
+                timerHandle = nullptr;
+            }
+            saveToNVS();
+        }
+    }
+
+    void resume() {
+        if (paused) {
+            running = true;
+            paused = false;
+            startTime = millis();
+            saveToNVS();
+            setupTimer(remainingTime);
+        }
+    }
+
+    void addTime(unsigned long seconds) {
+        if (paused || running) {
+            remainingTime += seconds * 1000;
+            saveToNVS();
+            if (running) {
+                setupTimer(remainingTime);
+            }
+        }
+    }
+
+    void subtractTime(unsigned long seconds) {
+        if (paused || running) {
+            remainingTime = max(remainingTime, seconds * 1000);
+            saveToNVS();
+            if (running) {
+                setupTimer(remainingTime);
+            }
+        }
+    }
+
+    unsigned long getSecondsLeft() {
+        if (running) {
+            return max((remainingTime - (millis() - startTime)) / 1000, 0UL);
+        }
+        return remainingTime / 1000;
+    }
+
+    unsigned long getOriginalDuration() {
+        return duration / 1000;
+    }
+
+    bool isRunning() {
+        return running;
+    }
+};
+
+// Callback function triggered when the timer finishes
+void TimerFinish() {
+    Serial.println("Timer finished!");
+}
+
+
+
+
+//to use this, do something like this:
+
+/*
+
+Timer myTimer("timer name here"); //declare an object
+
+
+    // Start a 10-second timer
+    myTimer.start(10); //start the timer
+
 */
 
-//todo: add a TIMER: a non repeating alarm that happens once and then deletes itself
 
 
 
+
+
+
+//***********************************************************************************************************************************************************************************************************************************************************************
+//stopwatch functionality
+
+//************************************************
 
 //std chrono is a regular c library yo handle time
 //it's got the high prescision stuff we need. because users of a watch need high prescision time.
 
 class Stopwatch {
-private:
+
+private: 
     using high_res_clock = std::chrono::high_resolution_clock;
     using time_point = std::chrono::time_point<high_res_clock>;
 
@@ -478,22 +787,22 @@ void reset() {
 
 
     // Print all laps. debug for now, add an option to print to screen or not later.
-
-    void printLaps() const {
+void printLaps() const {
     if (laps.empty()) {
-        std::cout << "No laps recorded.\n";
+        Serial.println("No laps recorded.");
         return;
     }
     for (size_t i = 0; i < laps.size(); ++i) {
-        Serial.println << "Lap " << i + 1 << ": " << std::fixed << std::setprecision(4) << laps[i] << " seconds\n";
+        Serial.print("Lap ");
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.print(laps[i], 4); // Print with 4 decimal places
+        Serial.println(" seconds");
     }
 }
 
 
-
-
-
-};
+}; //end stopwatch obj
 
 //to use the stopwatch:
 
@@ -508,6 +817,6 @@ void reset() {
 //
 
 //end the module
-}
+
 
 #endif // MDL_TIMEKEEPING_H

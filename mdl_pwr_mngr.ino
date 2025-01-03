@@ -15,7 +15,7 @@ void setCoreFrequency(float frequencyMHz) {
   frequencyMHz = fmax(80.0f, fmin(240.0f, frequencyMHz));
 
   // Configure the dynamic frequency scaling (DFS) settings
-  esp_pm_config_esp32_t pm_config;
+  esp_pm_config_t pm_config;
   pm_config.max_freq_mhz = frequencyMHz;
   pm_config.min_freq_mhz = frequencyMHz;
   pm_config.light_sleep_enable = false; // Disable light sleep to maintain the frequency
