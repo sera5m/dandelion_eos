@@ -49,7 +49,7 @@ enum months{
 };
 
 // Global variable for Unix time
-extern time_t currentUnixTime;
+extern time_t NowUnixTime;
 
 
 //stuff 4 dst
@@ -181,10 +181,10 @@ void initializeRTC() {
 void updateStoredTime() {
     struct timeval now;
     gettimeofday(&now, NULL);
-    currentUnixTime = now.tv_sec;
+    NowUnixTime = now.tv_sec;
 
     // Store the current Unix time in NVS
-    preferences.putULong("unix_time", currentUnixTime);
+    preferences.putULong("unix_time", NowUnixTime);
     Serial.println("Time updated in NVS");
 }
 
