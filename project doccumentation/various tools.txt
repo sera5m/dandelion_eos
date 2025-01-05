@@ -1,0 +1,12 @@
+files that this category encompases:
+
+
+
+mdl_pwr_mngr
+
+mdl_diagnosticTools
+
+
+mdl_mathHelper
+
+

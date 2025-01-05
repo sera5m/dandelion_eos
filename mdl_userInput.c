@@ -3,6 +3,19 @@
 //okay, turn opcode into useful instructions via bitfuckery
 
 
+
+
+
+//please ignore the prior user input thingy. keyboard inputs should be ascii, but set inline with stuff [opcode to say keycode] [key value] [terminate keycode] [other instructions]
+
+
+
+
+
+
+
+
+
 //switch on the types of inputs. just take a struct type so we can convert that to ints directly. so  wait fuck what do i call this shit. 
 
 

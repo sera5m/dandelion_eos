@@ -17,23 +17,15 @@
 //optimize update cycle
 
 //wrap stuff around like text. just read uglib and use that stuff i guess. we can take heavy inspiration from the code.
-
+//scroll boxes please
 //dirty flag should be improved. needs tohave autoatic draw calls
-
-
-
-
-
-
-
-
 
 
 //was gonna name this orchid renderer but some guy made a render engine already named that and it was cool tbh
 
 
 
-//this is the window handler for dandelion e-os. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
+//this is the window handler for dandelionn. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
 //this module handles window creation and draw calls. version 4, now with performance enhancements. :3
 
 
@@ -66,7 +58,7 @@ struct CanvasCfg {
     int x = 0, y = 0, width = 32, height = 32;
     bool borderless=true;
      uint16_t bgColor = 0x0000, borderColor = 0xFFFF;
-     Window* parentWindow;
+      Window* parentWindow = nullptr;
 };
 //end forward dependencies
 
@@ -90,7 +82,8 @@ public:
     uint16_t bgColor, borderColor;
     
 
-    Canvas(const CanvasCfg& cfg, Window* parent): x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
+    Canvas(const CanvasCfg& cfg, Window* parent)
+    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
 
     void clear() {
         // Use the config directly
@@ -140,9 +133,10 @@ public:
 
 
 
-    // Constructor
+       // Constructor
     Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")
         : name(windowName), config(cfg), content(initialContent) {}
+
 
 
     // Destructor: Clean up canvases
@@ -181,8 +175,9 @@ void addCanvas(const CanvasCfg& cfg) {
         tft.setTextSize(config.textsize); //we will need to be able to draw multiple strings to this. I'd really like dynamic size set and multi string support
 
         // Render content as word-wrapped text
-        drawText(content.c_str());
-                dirty = false;
+        drawText(content.c_str()); //try replacing this with char sometime
+
+                dirty = false; //drawn,now clean
                 }
     }
 
@@ -198,54 +193,67 @@ void clear() {
 void updateContent(const std::string& newContent) {
     if (content != newContent) { //check to see if it matches. if it does, don't update it
         content = newContent;
-        dirty = true; //k it's tirty so go draw that stuff!
+        dirty = true; //k it's dirty so go draw that stuff!
         draw(); //draw it now
     }
 }
-
 private:
-
-
-
-
+    // Helper: Draw word-wrapped text
     void drawText(const char* text) {
-        int charWidth = 6;  // Character width
-        int charHeight = 8; // Character height
-        String strText = String(text);
+        int charWidth = 6 * config.textsize;    // Adjusted for dynamic text size
+        int charHeight = 8 * config.textsize;
+
         int cursorX = config.x + 2;  // Padding
         int cursorY = config.y + 2;
 
-        int wordStart = 0;
-        for (int i = 0; i <= strText.length(); i++) {
-            if (strText[i] == ' ' || strText[i] == '\0') {
-                String word = strText.substring(wordStart, i);
-                int wordWidth = word.length() * charWidth;
+        const char* wordStart = text;
+        char word[32]; // Temporary buffer for the current word (adjust size as needed)
+        int wordIndex = 0;
 
-                // Check if the word fits in the current line
+        while (*text) {
+            if (*text == ' ' || *(text + 1) == '\0') { // End of word or end of string
+                // Copy word into buffer
+                wordIndex = text - wordStart + (*(text + 1) == '\0' ? 1 : 0);
+                if (wordIndex >= sizeof(word)) {
+                    Serial.println("Error: Word too long for buffer.");
+                    break; // Prevent overflow
+                }
+
+                strncpy(word, wordStart, wordIndex); // Copy word into buffer
+                word[wordIndex] = '\0'; // Null-terminate
+
+                int wordWidth = wordIndex * charWidth;
+
+                // Wrap to next line if word doesn't fit
                 if (cursorX + wordWidth > config.x + config.width - 2) {
                     cursorX = config.x + 2;
                     cursorY += charHeight;
                     if (cursorY + charHeight > config.y + config.height - 2) {
-                        break;  // Overflow
+                        break;  // Text overflow
                     }
                 }
 
+                // Render word
                 tft.setCursor(cursorX, cursorY);
                 tft.print(word);
-                cursorX += wordWidth + charWidth;
-                wordStart = i + 1;
+                cursorX += wordWidth + charWidth; // Include space after word
+
+                wordStart = text + 1;  // Move to next word
             }
+            ++text;
         }
     }
 
 
-
+//global window reg
 std::vector<std::unique_ptr<Window>> windowRegistry;
 
+//funct to reg a window TODO: automatically run this if it isn't
 void registerWindow(std::unique_ptr<Window> win) {
     windowRegistry.push_back(std::move(win));
 }
 
+//unregister a window and all it's child components if destroyed: this may need to remove canvases idk
 void unregisterWindow(Window* win) {
     windowRegistry.erase(
         std::remove_if(

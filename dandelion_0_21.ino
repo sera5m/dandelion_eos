@@ -198,7 +198,7 @@ tft.fillScreen(BLACK);
     initializeRTC();
   
     // Print the current local time
-    printLocalTime();
+    //todo:renable this with correct current args
 
 
 //initialize stupid sensors here

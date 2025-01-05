@@ -308,9 +308,9 @@ void GetFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &Friendly
     UnixTimeToFriendlyTime(unixTime, timeZoneOffset, FriendlyTime);
 }
 
-FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) { //time a to time b, friendly time
-    time_t currentUnix = FriendlyTimeToUnixTime(current, timeZoneOffset);
-    time_t targetUnix = FriendlyTimeToUnixTime(target, timeZoneOffset);
+FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) { // time a to time b, friendly time
+    time_t currentUnix = FriendlyTimeToUnixTime(current, UserTimeZoneOffset); // Corrected variable
+    time_t targetUnix = FriendlyTimeToUnixTime(target, UserTimeZoneOffset);
 
     time_t diff = targetUnix - currentUnix;
     FriendlyTime result;
@@ -347,7 +347,7 @@ FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) 
 
 
 
-struct Alarm {
+struct CustomAlarm {
     bool isEnabled = false;
     FriendlyTime time;
     uint8_t activeDays = 0b00000000; // 8-bit bitmask for days
@@ -384,7 +384,6 @@ std::vector<bool> DayBitMaskToWeekdays(uint8_t bitmask) {
     return activeDays;
 }
 
-// Convert a vector<bool> to the bmask
 uint8_t WeekdaysToDayBitMask(const std::vector<bool>& activeDays) {
     if (activeDays.size() != 7) {
         throw std::invalid_argument("Active days vector must have exactly 7 elements.");
@@ -392,7 +391,7 @@ uint8_t WeekdaysToDayBitMask(const std::vector<bool>& activeDays) {
 
     uint8_t bitmask = 0;
 
-    for (int day = sun; day <= sat; day++) {
+    for (int day = 0; day < 7; day++) {
         if (activeDays[day]) {
             bitmask |= (1 << day); // Set the corresponding bit for each active day
         }
@@ -414,39 +413,58 @@ bool isDayActive(uint8_t bitmask, int day) {
 }
 
 // Updated isAlarmTime function
-bool isAlarmTime(const Alarm &alarm, int currentDay, int currentHour, int currentMinute) {
-    if (!alarm.isEnabled) return false;
-    if (!isDayActive(alarm.activeDays, currentDay)) return false;
+bool isAlarmTime(const CustomAlarm &userAlarm, int currentDay, int currentHour, int currentMinute) {
+    if (!userAlarm.isEnabled) return false;
+    if (!isDayActive(userAlarm.activeDays, currentDay)) return false;
 
-    return (alarm.time.hour == currentHour && alarm.time.minute == currentMinute);
+    return (userAlarm.time.hour == currentHour && userAlarm.time.minute == currentMinute);
 }
 
 
-void checkAlarmsWithTask(Alarm *alarms, int numAlarms, int currentDay, int currentHour, int currentMinute) {
+// FreeRTOS task function for CustomAlarm
+void alarmTask(void *parameter) {
+    CustomAlarm *userAlarm = (CustomAlarm *)parameter; // Cast the parameter to CustomAlarm*
+
+    // Perform alarm actions using the instance
+    // // Trigger the alarm actions
+    //TODO: ADD THE ALARM TRIGGER BACK IN! HOLY CRAP! I'M just removing it so this compiles
+
+    // Delete the task when done
+    vTaskDelete(NULL);
+}
+
+
+// Stack size for the alarm task
+constexpr uint16_t AlarmAssignBytes = 512; 
+
+void checkAlarmsWithTask(CustomAlarm *alarms, int numAlarms, int currentDay, int currentHour, int currentMinute) {
     for (int i = 0; i < numAlarms; i++) {
         if (isAlarmTime(alarms[i], currentDay, currentHour, currentMinute)) {
-            // Create a new FreeRTOS task for the alarm
-            xTaskCreate(alarmTask, "AlarmTask", AlarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL);
+            BaseType_t result = xTaskCreate(alarmTask, "AlarmTask", AlarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL);
+            if (result != pdPASS) {
+                // Handle task creation failure
+                Serial.println("Failed to create AlarmTask");
+            }
         }
     }
 }
 
-// Alarm NVS storage functions
-void saveAlarmsToNVS(Alarm *alarms, int numAlarms) {
+// CustomAlarm NVS storage functions
+void saveAlarmsToNVS(CustomAlarm *alarms, int numAlarms) {
     nvs_handle_t nvsHandle;
     esp_err_t err = nvs_open("alarm_storage", NVS_READWRITE, &nvsHandle);
     if (err == ESP_OK) {
         for (int i = 0; i < numAlarms; i++) {
             char key[16];
             snprintf(key, sizeof(key), "alarm_%d", i); // Create unique key
-            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(Alarm));
+            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(CustomAlarm));
         }
         nvs_commit(nvsHandle);
         nvs_close(nvsHandle);
     }
 }
 
-int loadAlarmsFromNVS(Alarm *alarms, int maxAlarms) {
+int loadAlarmsFromNVS(CustomAlarm *alarms, int maxAlarms) {
     nvs_handle_t nvsHandle;
     esp_err_t err = nvs_open("alarm_storage", NVS_READONLY, &nvsHandle);
     int alarmCount = 0;
@@ -456,7 +474,7 @@ int loadAlarmsFromNVS(Alarm *alarms, int maxAlarms) {
             char key[16];
             snprintf(key, sizeof(key), "alarm_%d", i);
 
-            size_t alarmSize = sizeof(Alarm);
+            size_t alarmSize = sizeof(CustomAlarm);
             if (nvs_get_blob(nvsHandle, key, &alarms[i], &alarmSize) == ESP_OK) {
                 alarmCount++;
             } else {
@@ -468,20 +486,19 @@ int loadAlarmsFromNVS(Alarm *alarms, int maxAlarms) {
     return alarmCount;
 }
 
-// Trigger alarm
-void triggerAlarm(Alarm *alarm) {
-    if (alarm->flashLed) {
+// Trigger CustomAlarm
+void triggerAlarm(CustomAlarm *userAlarm) {
+    if (userAlarm->flashLed) {
         // Flash the LED
     }
-    if (alarm->flashScreen) {
+    if (userAlarm->flashScreen) {
         // Flash the screen
     }
-    if (alarm->notifyConnectedDevice) {
+    if (userAlarm->notifyConnectedDevice) {
         // Push notification
     }
     // Play alarm sound at loudness
 }
-
 
 
 
@@ -498,18 +515,11 @@ void triggerAlarm(Alarm *alarm) {
 //timer functionality
 //****************************************************************************************************************************************************************************************************************************
 
+// Callback function triggered when the timer finishes
+void TimerFinish() {
+    Serial.println("Timer finished!");
+}
 
-
-
-enum days{
-  mon,
-  tue,
-  wend,
-  thur,
-  fri,
-  sat,
-  sun
-};
 
 
 
@@ -518,8 +528,9 @@ class Timer {
 
 
 private: //private******************************************************
+
     Preferences preferences;
-    char timerName; //char to save memory. when creating a timer convert str to char
+    String timerName; //TODO: USE CHAR INSTERAD OF STRING
 
     unsigned long startTime = 0;     // Time when the timer started
     unsigned long duration = 0;      // Original duration in milliseconds
@@ -529,36 +540,40 @@ private: //private******************************************************
 
     esp_timer_handle_t timerHandle = nullptr;
 
-    void saveToNVS() {
-        preferences.begin("timers", false);
-        preferences.putULong(timerName + "_remaining", remainingTime);
-        preferences.putULong(timerName + "_duration", duration);
-        preferences.putBool(timerName + "_running", running);
-        preferences.putBool(timerName + "_paused", paused);
-        preferences.end();
-    }
+void saveToNVS() {
+    preferences.begin("timers", false);
+    preferences.putULong((timerName + "_remaining").c_str(), remainingTime);
+    preferences.putULong((timerName + "_duration").c_str(), duration);
+    preferences.putBool((timerName + "_running").c_str(), running);
+    preferences.putBool((timerName + "_paused").c_str(), paused);
+    preferences.end();
+}
 
-    void loadFromNVS() {
-        preferences.begin("timers", false);
-        remainingTime = preferences.getULong(timerName + "_remaining", 0);
-        duration = preferences.getULong(timerName + "_duration", 0);
-        running = preferences.getBool(timerName + "_running", false);
-        paused = preferences.getBool(timerName + "_paused", false);
-        preferences.end();
-    }
+void loadFromNVS() {
+    preferences.begin("timers", false);
+    remainingTime = preferences.getULong((timerName + "_remaining").c_str(), 0);
+    duration = preferences.getULong((timerName + "_duration").c_str(), 0);
+    running = preferences.getBool((timerName + "_running").c_str(), false);
+    paused = preferences.getBool((timerName + "_paused").c_str(), false);
+    preferences.end();
+}
 
-    void clearFromNVS() {
-        preferences.begin("timers", false);
-        preferences.remove(timerName + "_remaining");
-        preferences.remove(timerName + "_duration");
-        preferences.remove(timerName + "_running");
-        preferences.remove(timerName + "_paused");
-        preferences.end();
-    }
+void clearFromNVS() {
+    preferences.begin("timers", false);
+    String key = timerName + "_remaining";
+    preferences.remove(key.c_str());
+    key = timerName + "_duration";
+    preferences.remove(key.c_str());
+    key = timerName + "_running";
+    preferences.remove(key.c_str());
+    key = timerName + "_paused";
+    preferences.remove(key.c_str());
+    preferences.end();
+}
 
     void setupTimer(unsigned long ms) {
         if (timerHandle != nullptr) {
-            esp_timer_stop(timerHandle); // Cancel previous timer
+            esp_timer_stop(timerHandle);
             esp_timer_delete(timerHandle);
         }
 
@@ -659,7 +674,7 @@ public:
         }
     }
 
-    unsigned long getSecondsLeft() {
+  unsigned long getSecondsLeft() {
         if (running) {
             return max((remainingTime - (millis() - startTime)) / 1000, 0UL);
         }
@@ -675,10 +690,7 @@ public:
     }
 };
 
-// Callback function triggered when the timer finishes
-void TimerFinish() {
-    Serial.println("Timer finished!");
-}
+
 
 
 
