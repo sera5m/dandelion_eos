@@ -176,7 +176,7 @@ void initializeRTC() {
     }
 }
 
-// Update the stored Unix time in NVS
+/*// Update the stored Unix time in NVS
 //should get graceful faulure handling later
 void updateStoredTime() {
     struct timeval now;
@@ -187,7 +187,7 @@ void updateStoredTime() {
     preferences.putULong("unix_time", NowUnixTime);
     Serial.println("Time updated in NVS");
 }
-
+*/
 // Print the current local time
 void GetLocalTime() {
     struct tm timeinfo;

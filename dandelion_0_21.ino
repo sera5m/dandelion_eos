@@ -203,13 +203,13 @@ tft.fillScreen(BLACK);
 
 //initialize stupid sensors here
 HRsensorSetup();
-
+/*
 //start the imu
  if (IMU.init({true}, 0x68) != 0) { // Use the 6500 initialization process  i hate this, when prototyping i paid for a 9 series
     Serial.println("IMU initialization failed!");
     while (1);
 }
-
+*/
 // Verify the devices are connected
 delay(20);
 tft.fillScreen(BLACK);
@@ -336,7 +336,7 @@ void taskUpdateSensors(void *pvParameters) {
  Serial.println(IMU.getTemp());
  
     // Update time
-    updateStoredTime();  // Function to update time (currentHour, currentMinute, currentSecond)
+    //updateStoredTime();  // Function to update time (currentHour, currentMinute, currentSecond)
    //updateheartrate();//commented out, this sensor needs to run faster
     vTaskDelay(500 / portTICK_PERIOD_MS);  // Delay for 500ms before next update
 
@@ -347,7 +347,7 @@ void taskUpdateSensors(void *pvParameters) {
   }
 }
 
-// Task for updating heart rate
+// Task for updating heart rate 
 void taskUpdateHeartRate(void *pvParameters) {
   (void)pvParameters;  // Avoid unused parameter warning
 
