@@ -9,30 +9,43 @@
 
 
 
-// Color definitions
+// black,white,grey
 #define BLACK   0x0000
 #define WHITE   0xFFFF
-#define BLUE    0x001F
+#define Grey 0xDDDD
+
+//regular colors
 #define RED     0xF800
+#define YELLOW  0xFFE0 
 #define GREEN   0x07E0
 #define CYAN    0x07FF
+#define BLUE    0x001F
 #define MAGENTA 0xF81F
-#define YELLOW  0xFFE0  
 #define PURPLE  0x780F
+
+//other color defaults
 #define PEACH   0xFD20  // Default window color
 
+
+//Todo here later
+//include more fonts https://github.com/olikraus/u8glib/wiki/fontsize
+
+
+
+
+
+
+
+
 // Define an adjustable SPI frequency
-// Starting with a stable 8 MHz, and you can adjust upwards to see if it works
+// by default spi is 8mhz. i have adjusted the adafruit library to use a higher frequency
 #define SPI_FREQUENCY 40000000  // 40 MHz 
 
 // Define the TFT display object with the SSD1351 chipset
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, CS_PIN, DC_PIN, RST_PIN);
 
-// Function prototypes
+
 void set_orientation(uint8_t rotation);
-void screen_startup();
-void screen_on();
-void screen_off();
 
 // Function for adjusting SPI speed and debugging
 void set_spi_speed(uint32_t frequency) {

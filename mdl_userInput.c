@@ -1,5 +1,83 @@
 #ifndef mdl_userinput_C
 #define mdl_userinput_C
+
+#define MAX_KEYS 6  // Maximum number of keys to track at once. device has 6 physical keys fuck off
+
+
+
+
+//buttons and external keyboards
+//a microphone (may or may not be added to the device)
+
+
+struct UserInput {
+    uint8_t type;  // Hardware type (0xF prefix)
+    uint8_t device;  // Device -error throw position: 0, generic keyboard=1 (doesn't matter if it's over bluetooth or wifi, it's a keyboard, just act normal about it),gesture Sense: 3, generic mouse:4
+    uint16_t key;  // Key code or position, based on the input. in numbers i don't care fuck off
+    bool isdown?; //is the key down 
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//ignoring that shit for now
+
+
+
+
+
+
+
+
+
 //okay, turn opcode into useful instructions via bitfuckery
 
 
@@ -36,11 +114,7 @@
 //xy will be pos for mouses! yay
 
 /*
-struct UserInput {
-    uint8_t type;  // Hardware type (0xF prefix)
-    uint8_t device;  // Device -error throw position: 0, generic keyboard=1 (doesn't matter if it's over bluetooth or wifi, it's a keyboard, just act normal about it),gesture Sense: 3, generic mouse:4
-    uint8_t key;  // Key code or position, based on the input
-};
+
 
 //we should use a single opcode to designate input, and just pass it to an included uint8/16 for keys. should be 0xf1??, 0x7???, [8-16 bit address DESIGNATOR OF THE KEY]
 //0xf101: USER INPUT, TYPE KEYBOARD, get delay
@@ -100,4 +174,5 @@ uint16_t mapKeyboardInput(char key) {
 
 
 //start defining keyboard input types somewhere else, really. 
+
 #endif

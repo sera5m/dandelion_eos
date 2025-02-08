@@ -23,9 +23,13 @@ struct Vector3 {
     float magnitude() const; // Magnitude calculation
 };
 
-//chatgpt helped me with this one because god knows i can't do this shit. alone or with about 6 people
-//the esp32 DOESN'T HAVE A FUCKING FPU THAT DOES SHIT. LAZY GODDAMN MOTHERFUCKER I'M GOING TO STRANGLE MSELF AND THEM. RAUGH
 
+
+
+
+//TODO:REMOVE THE ASM
+
+//chatgpt helped me with this one because god knows i can't do this shit. alone or with about 6 people
 
 // Assembly function definitions
 extern "C++" { //start inline asm
@@ -54,8 +58,6 @@ float Vector3_magnitude(const Vector3* self) {
         "l16ui a3, %1, 2\n"      // Load y
         "l16ui a4, %1, 4\n"      // Load z
 
-//BECAUSE MUL WAS TOO NORMAL. SO WE HAVE TO SAY MULL? BECAUSE WE'RE QUIRKY. BECAUSE THE DEVELOPERS THINK THEY'RE GOD.
-//WELL I'M A GOD TOO. A GODDESS OF FUCKING ASM PAIN. RAAAAAAAAAGUHHHHHH
 
 //mul is mull here
         // Calculate x^2 + y^2 + z^2
@@ -156,7 +158,318 @@ float FastNormalizeAngle_radians(float angle) {
 
 
 
+//various macros
 
+
+//note to self: when i did this on feb 6 2025 at midnight, i had to learn macros.
+//here's how they work so i remember. macros in c just kina replace the code they're put in with their own code so they're proceedurally swapped or wahtever
+//don't repeat code. use macros. even though they're weird to make. no runtime overhead
+//preproscessor straight up replaces the thing where you call the macro with the macro code when it's put into the computer
+//blocks of code behave like single statements
+//warning: no type safety and harder to debug. debuggers see expanded ciode
+
+//WARNING: DO NOT FUCKING PUT WHITESPACE AFTAER MACRO SLASHES. IT WILL BREAK IT.. THE SLASH MUST BE THE LAST CHAR ON THE LINE.
+//SHOULD show up as blue not white normally in the arduino ide
+
+
+//******************************************************rate limit macro
+
+//info:
+//can autogen ids
+//memory:
+//ASSUMED 4 bytes per counter (unsigned long unlock_time)
+//warning:each rate limit called increases ram use! 
+
+
+// Struct for rate limit counters
+typedef struct {
+    unsigned long unlock_time;
+} RateLimitCounter;
+
+// Dynamic array of counters. size can be reconfigured
+#define MAX_RATE_LIMITS 2048 
+static RateLimitCounter rate_limits[MAX_RATE_LIMITS];
+static int rate_limit_count = 0;  // Tracks the number of rate limiters created
+
+// Function to create a new rate limit counter
+int createRateLimit() {
+    if (rate_limit_count < MAX_RATE_LIMITS) {
+        rate_limits[rate_limit_count].unlock_time = 0;
+        return rate_limit_count++;  // Return current ID, then increment
+    }
+    return -1;  // Return -1 if no more counters can be created
+}
+
+// Get current time (replace with your actual function)
+unsigned long getUnixTime() {
+    return millis() / 1000;  // Example using millis() for simplicity
+}
+
+
+// Deregister a rate limit counter
+void deleteRateLimit(int id) {
+    if (id >= 0 && id < rate_limit_count) {
+        // Shift all counters after 'id' to fill the gap
+        for (int i = id; i < rate_limit_count - 1; i++) {
+            rate_limits[i] = rate_limits[i + 1];
+        }
+        rate_limit_count--;
+    }
+}
+
+//to use: deleteRateLimit(myRateLimiter);
+
+  //oughhhh it's a function to limit the rate you can enter it
+#define RATE_LIMIT(id, interval_ms, on_success, not_unlocked_yet)       \
+    do {                                                                \
+        if ((id) >= 0 && (id) < MAX_RATE_LIMITS) {                      \
+            unsigned long current_time = getUnixTime();                 \
+            if (current_time >= rate_limits[(id)].unlock_time) {        \
+                on_success;                                             \
+                rate_limits[(id)].unlock_time = current_time + (interval_ms); \
+            } else {                                                   \
+                not_unlocked_yet;                                       \
+            }                                                          \
+        }                                                              \
+    } while (0)
+
+//to use, copy the following and impliment with whatever logic in the main code or whatever
+
+/*
+
+//assign an id automatically
+static int button_press_id = -1; 
+
+    // Initialize rate limiter once
+    if (button_press_id == -1) {
+        button_press_id = createRateLimit(); //create a rate limit id auto assigned to this
+    }
+
+
+//use of rate limit gate:
+
+    RATE_LIMIT(button_press_id, 5000, //set up using the macro ref id
+        {
+            Serial.println("Unlocked: Executing code.");
+        },
+        {
+            Serial.println("Not unlocked yet.");
+        }
+    );
+//should? be the same as my do and lock for macro
+*/
+
+
+/////////////////////////////////////////////end of rate limit macro
+
+
+
+//toggle state macro
+
+#define TOGGLE_STATE(state_var) (state_var = !(state_var))
+
+//to use:
+/*
+bool light_on = false;
+TOGGLE_STATE(light_on);
+Serial.println(light_on ? "Light ON" : "Light OFF");
+
+*/
+
+
+
+
+
+
+//funny progress bar for that old tech feel
+#define PROGRESS_BAR(current, total, width)                    \ 
+    do {                                                       \
+        Serial.print("[");                                     \
+        int progress = (current * width) / total;              \
+        for (int i = 0; i < width; i++)                        \
+            Serial.print(i < progress ? "#" : "-");            \
+        Serial.println("]");                                   \
+    } while (0)
+
+
+
+
+//to use
+/*
+for (int i = 0; i <= 100; i += 10) {
+    PROGRESS_BAR(i, 100, 20);
+    delay(500);
+}
+
+*/
+
+//counter. you enter and run this counter for whatever the fuck you need to count how many times you enter it. because you gotta count things
+
+#define CREATE_COUNTER() createCounter()
+#define INCREMENT_COUNTER(id, on_exec)         \
+    do {                                       \
+        if (id >= 0 && id < counter_count) {   \
+            counters[id].value++;              \
+            on_exec;                           \
+        }                                      \
+    } while (0)
+
+#define RESET_COUNTER(id, on_reset)            \
+    do {                                       \
+        if (id >= 0 && id < counter_count) {   \
+            counters[id].value = 0;            \
+            on_reset;                          \
+        }                                      \
+    } while (0)
+
+// Struct for counter
+typedef struct {
+    int value;
+} Counter;
+
+Counter counters[32];    // Max 32 counters
+int counter_count = 0;
+
+// Create new counter
+int createCounter() {
+    if (counter_count < 32) {
+        counters[counter_count].value = 0;
+        return counter_count++;
+    }
+    return -1; // Failed to create
+}
+
+//how to use
+/*
+int myCounter = CREATE_COUNTER();
+
+INCREMENT_COUNTER(myCounter, {
+    Serial.print("Counter: ");
+    Serial.println(counters[myCounter].value);
+});
+
+RESET_COUNTER(myCounter, {
+    Serial.println("Counter Reset!");
+});
+
+*/
+
+
+//****************************************************** do stuff a bunch of times-repeatx
+
+ //do stuff with no delay x times
+#define REPEAT_X(times, on_exec)               \
+    do {                                       \
+        for (int i = 0; i < (times); i++) {    \
+            on_exec;                           \
+        }                                      \
+    } while (0)
+
+//example
+/*
+REPEAT_X(5, {
+    Serial.println("Hello!");
+});
+*/
+
+ //do stuff with delay x times
+#define REPEAT_X_WITH_DELAY(times, delay_ms, on_exec)  \
+    do {                                          \
+        for (int i = 0; i < (times); i++) {       \
+            on_exec;                              \
+            delay(delay_ms);                      \
+        }                                         \
+    } while (0)
+
+//example
+/*
+REPEAT_X_WITH_DELAY(3, 1000, {
+    Serial.println("Delayed Hello!");
+});
+*/
+
+//uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+
+//NAMING FUCKED UP HERE FIX ITtypedef struct {
+    unsigned long start_time;
+    unsigned long duration;
+    bool active;
+    bool paused;
+    unsigned long pause_time; // Time when the timer was paused
+} LoopWhileTimer;
+
+LoopWhileTimer loopWhileTimers[32]; // Consistent naming
+int timer_count = 0;
+
+int createLoopWhileTimer(unsigned long duration_ms) {
+    if (timer_count < 32) {
+        loopWhileTimers[timer_count] = {millis(), duration_ms, true, false, 0};
+        return timer_count++;
+    }
+    return -1; // No more timers available
+}
+
+// Execute `on_tick` every `tick_interval` while the timer is active
+#define LOOP_WHILE_TIMER(timer_id, tick_interval, on_tick)             \
+    do {                                                               \
+        if ((timer_id) >= 0 && (timer_id) < timer_count) {             \
+            LoopWhileTimer *t = &loopWhileTimers[timer_id];            \
+            if (t->active && !t->paused && millis() - t->start_time < t->duration) { \
+                static unsigned long last_tick_##timer_id = 0;         \
+                if (millis() - last_tick_##timer_id >= (tick_interval)) { \
+                    on_tick;                                           \
+                    last_tick_##timer_id = millis();                   \
+                }                                                      \
+            }                                                          \
+        }                                                              \
+    } while (0)
+
+#define PAUSE_TIMER(timer_id)                                          \
+    if ((timer_id) >= 0 && (timer_id) < timer_count) {                 \
+        loopWhileTimers[timer_id].paused = true;                       \
+        loopWhileTimers[timer_id].pause_time = millis();               \
+    }
+
+#define RESUME_TIMER(timer_id)                                         \
+    if ((timer_id) >= 0 && (timer_id) < timer_count) {                 \
+        loopWhileTimers[timer_id].paused = false;                      \
+        loopWhileTimers[timer_id].start_time += millis() - loopWhileTimers[timer_id].pause_time; \
+    }
+
+#define RESET_TIMER(timer_id)                                          \
+    if ((timer_id) >= 0 && (timer_id) < timer_count) {                 \
+        loopWhileTimers[timer_id].start_time = millis();               \
+    }
+
+#define DELETE_TIMER(timer_id)                                         \
+    if ((timer_id) >= 0 && (timer_id) < timer_count) {                 \
+        loopWhileTimers[timer_id].active = false;                      \
+    }
+
+#define SKIP_TO_LAST_TICK(timer_id)                                    \
+    if ((timer_id) >= 0 && (timer_id) < timer_count) {                 \
+        loopWhileTimers[timer_id].start_time = millis() - loopWhileTimers[timer_id].duration; \
+    }
+
+/* //how to use
+int myTimer = createTimer(5000);  // 5-second timer
+
+void loop() {
+    LOOP_WHILE_TIMER(myTimer, 500, {
+        Serial.println("Tick!");
+    });
+
+    // To pause:
+    // PAUSE_TIMER(myTimer);
+
+    // To resume:
+    // RESUME_TIMER(myTimer);
+
+    // To reset:
+    // RESET_TIMER(myTimer);
+}
+
+*/
 
 
 
