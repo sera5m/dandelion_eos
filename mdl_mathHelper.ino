@@ -4,16 +4,250 @@
 //noooooo that would bne too fucking hard wouldn't it - sera5m 12/1/2024
 //update: it's 3 days later. IT GETS WORSE. WAY WORSE. ASM HELL. I'M IN HELLLLLLLLLLL
 
+
 //notes on hardware of the esp32:
 //fpu: the fpu is absolute garbage. like. faster than me, but still MISERABLY bad for a fpu. (functionally useless proscessor) i'm a person with a soul. and i deserve to not suffer like this. i mean i've had worse life experiences but....
 //the cpu or fpu doesn't support division natively. why? that's like. the most normal thing to have. 
 //this is wildly different than normal asm. fuck with this at your own peril, AND PERIL YOU WILL GET. 
 
 
+
+
+//miniproscess for freerots.
+//think of this like a setup layer for program proscesses as opposed to using a direct freerots. 
+//NOTE: NOT PINNED TO CORE BY DEFAULT UNLESS FLAG
+
+
+class OSProcess {
+public:
+    struct Config {
+        std::string name;
+        bool create_window = false;
+        WindowCfg window_cfg;
+        bool pin_to_core = false;
+        int core_id = 0;
+        uint16_t stack_size = 4096;  // More realistic minimum for C++ tasks
+        UBaseType_t priority = tskIDLE_PRIORITY + 1;
+        bool start_focused = false;  // New: Default focus state
+    };
+
+    // Factory method with background awareness
+    static std::shared_ptr<OSProcess> create(const Config& cfg) {
+        auto proc = std::make_shared<OSProcess>(cfg);
+        std::lock_guard<std::mutex> lock(process_mutex);
+        
+        // Add to process registry
+        auto& registry = processes();
+        registry.erase(
+            std::remove_if(registry.begin(), registry.end(),
+                [](const auto& p) { return p.expired(); }),
+            registry.end()
+        );
+        registry.emplace_back(proc);
+        
+        // Set focus if configured
+        if(cfg.start_focused) setFocused(proc);
+        
+        return proc;
+    }
+
+    // Improved input handling with long-press detection
+    static void handleGlobalInput(const UserInput& input) {
+        static std::chrono::steady_clock::time_point back_press_time;
+        static constexpr auto long_press_duration = std::chrono::seconds(10);
+
+        std::lock_guard<std::mutex> lock(process_mutex);
+        
+        if(input.key == 0x232B) { // Back key
+            if(input.isDown) {
+                back_press_time = std::chrono::steady_clock::now();
+            } else {
+                auto duration = std::chrono::steady_clock::now() - back_press_time;
+                if(duration > long_press_duration) {
+                    emergencyReturnToMain();
+                    return;
+                }
+            }
+        }
+
+        if(auto focused = focused_process.lock()) {
+            focused->handleInput(input);
+        }
+    }
+
+    // Enhanced process control
+    void start(bool auto_focus = true) {
+        if(!task_handle && execution_code) {
+            xTaskCreatePinnedToCore(
+                taskRouter, 
+                config.name.c_str(),
+                config.stack_size,
+                this,
+                config.priority,
+                &task_handle,
+                config.pin_to_core ? config.core_id : tskNO_AFFINITY
+            );
+            
+            if(auto_focus) setFocused(shared_from_this());
+        }
+    }
+
+    void stop() {
+        if(task_handle) {
+            vTaskDelete(task_handle);
+            task_handle = nullptr;
+            
+            // Automatically cleanup window
+            if(window) {
+                unregisterWindow(window.get());
+                window.reset();
+            }
+            
+            // Remove from registry
+            std::lock_guard<std::mutex> lock(process_mutex);
+            auto& registry = processes();
+            registry.erase(
+                std::remove_if(registry.begin(), registry.end(),
+                    [this](const auto& p) { return p.lock().get() == this; }),
+                registry.end()
+            );
+        }
+    }
+
+    // Window management
+    void createWindow() {
+        if(!window) {
+            window = std::make_unique<Window>(config.name, config.window_cfg);
+            registerWindow(window.get());
+        }
+    }
+
+    void destroyWindow() {
+        if(window) {
+            unregisterWindow(window.get());
+            window.reset();
+        }
+    }
+
+    // Focus management
+    void setBackground() {
+        std::lock_guard<std::mutex> lock(process_mutex);
+        if(focused_process.lock().get() == this) {
+            focused_process.reset();
+        }
+        destroyWindow();
+    }
+
+private:
+    // Static members for process management
+    static inline std::vector<std::weak_ptr<OSProcess>> processes_registry;
+    static inline std::weak_ptr<OSProcess> focused_process;
+    static inline std::mutex process_mutex;
+
+    // Instance members
+    Config config;
+    TaskHandle_t task_handle = nullptr;
+    std::function<void()> execution_code;
+    std::unordered_map<uint16_t, std::function<void()>> input_handlers;
+    std::unique_ptr<Window> window;
+
+    // Private implementation
+    explicit OSProcess(const Config& cfg) : config(cfg) {
+        if(config.create_window) {
+            createWindow();
+        }
+        
+        // Default safety bindings
+        bindInput(0x232B, [this]{ 
+            if(window) destroyWindow();
+            setBackground();
+        });
+    }
+
+    static void taskRouter(void* param) {
+        auto* proc = static_cast<OSProcess*>(param);
+        if(proc->execution_code) {
+            proc->execution_code();
+        }
+        
+        // Automatically stop process when execution completes
+        proc->stop();
+        vTaskDelete(nullptr);
+    }
+
+    static void emergencyReturnToMain() {
+        // Implementation for system-wide emergency return
+    }
+};
+
+/* //this used to be the array or whatever
+std::vector<std::shared_ptr<OSProcess>> osProcessArray;
+std::shared_ptr<OSProcess> FocusedOSProcess;
+//GLOBAL REF FOCUSED osproscess: while multiple os proscesses may be on screen at once, only one may accept input at once.                        be sure to have each osproscess accept the  BACK key. (todo: holding back for 10 seconds goes back to main screen reguardless of task or position to avoid stupid crap from happening)
+// Example Usage
+*/
+
+
+
+/*
+void createDemoProcess() {
+    OSProcess::Config cfg{
+        .name = "Demo",
+        .create_window = true,
+        .priority = 2
+    };
+
+    auto proc = OSProcess::create(cfg);
+    
+    proc->setExecutionCode([]{
+        while(true) {
+            // Process main loop
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    });
+
+    proc->bindInput(0x2191, []{ 
+        Serial.println("Custom up handler!");
+    });
+
+    proc->start();
+    OSProcess::setFocused(proc);
+}
+
+
+void startBackgroundService() {
+    OSProcess::Config cfg{
+        .name = "SensorService",
+        .stack_size = 8192,
+        .priority = tskIDLE_PRIORITY + 2,
+        .start_focused = false  // Explicitly background
+    };
+
+    auto service = OSProcess::create(cfg);
+    
+    service->setExecutionCode([]{
+        while(true) {
+            // Read sensors and process data
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    });
+
+    service->start(false);  // Don't focus
+}
+*/
+
+
+
+
+
+
+
+
+
 //tip on asm use:
 //define in this order. BASE STRUCTS AND FUNCTION NAMES. THEN extern cpp, starting inline asm. THEN end asm and add implimentations. i think. i figured this out in a day.
 
-struct Vector3 {
+struct Vector3 { //todo: fix it. not sure if it works right but whatever i guess
     int16_t x; // Scaled to 2 decimal places
     int16_t y; // Scaled to 2 decimal places
     int16_t z; // Scaled to 2 decimal places
@@ -23,89 +257,6 @@ struct Vector3 {
     float magnitude() const; // Magnitude calculation
 };
 
-
-
-
-
-//TODO:REMOVE THE ASM
-
-//chatgpt helped me with this one because god knows i can't do this shit. alone or with about 6 people
-
-// Assembly function definitions
-extern "C++" { //start inline asm
-    void Vector3_ctor(Vector3* self, float xVal, float yVal, float zVal) {
-        //take the regular vector as the input and assign to stuff?
-        int16_t xInt = static_cast<int16_t>(xVal * 100);
-        int16_t yInt = static_cast<int16_t>(yVal * 100);
-        int16_t zInt = static_cast<int16_t>(zVal * 100);
-
-        asm volatile( //allocate vars into asm
-            "s16i %1, %0, 0\n" // Store x
-            "s16i %2, %0, 2\n" // Store y
-            "s16i %3, %0, 4\n" // Store z
-            :
-            : "r"(self), "r"(xInt), "r"(yInt), "r"(zInt));
-    }
-
-float Vector3_magnitude(const Vector3* self) {
-    int32_t result;  // Use 32-bit integer for intermediate calculations
-
-    asm volatile(
-        // Load x, y, z values from the struct (16-bit integers)
-        //probably bad
-
-        "l16ui a2, %1, 0\n"      // Load x
-        "l16ui a3, %1, 2\n"      // Load y
-        "l16ui a4, %1, 4\n"      // Load z
-
-
-//mul is mull here
-        // Calculate x^2 + y^2 + z^2
-        "mull a5, a2, a2\n"      // x^2
-        "mull a6, a3, a3\n"      // y^2
-        "add a5, a5, a6\n"       // x^2 + y^2
-        "mull a6, a4, a4\n"      // z^2
-        "add a5, a5, a6\n"       // x^2 + y^2 + z^2
-
-        // Integer square root approximation (optimized for larger values)
-        "movi a6, 0\n"           // Initialize result = 0
-        "movi a7, 0x4000\n"      // Initialize bit = 1 << 14 (16-bit safe)
-//TODO: OUTPUT THIS AS INT32. because i'm overflowing i16. given the maximum value of input: 16...... 16*100=1,600 then 1600.... 1600^2= 2,560,000...and the max int16 value is 32767, the max for 32bit is 2.14 billion. so move all this to 32 bit calcs.
-// because 32 bit int math is a lot faster than f32. we don't even have to do digit prescision!! yay. BECAUSE NOT ONLY DO I HAVE TO DO CALC AND PRECALC IN ASM. WHAT A GREAT WAY TO SPEND A WENDESDAY MORNING. 
-//maybe i can fix this sometime. maybe tomorrow
-
-//start doing square root stuff. i want to kill myself honestly. just yuck
-//i don't know how this works. it like.. does a loop of stuff to add stuff together to make the answer ion know
-
-        "1:\n"                   // sqrt_loop
-        "blt a7, a5, 2f\n"       // If bit < sum, exit loop
-        "add a8, a6, a7\n"       // temp = result + bit
-        "bge a5, a8, 3f\n"       // If sum >= temp, update result
-        "j 4f\n"                 // Otherwise, skip update
-
-        "3:\n"                   // sqrt_update
-        "sub a5, a5, a8\n"       // sum -= temp
-        "or a6, a6, a7\n"        // result |= bit
-
-        "4:\n"                   // sqrt_skip
-        "srli a7, a7, 2\n"       // bit >>= 2
-        "j 1b\n"                 // Repeat loop
-
-        "2:\n"                   // sqrt_done
-        "mov %0, a6\n"           // Store final result in output
-
-        : "=r"(result)           // Output
-        : "r"(self)              // Input
-        : "a2", "a3", "a4", "a5", "a6", "a7", "a8" // Clobbered registers
-    );
-
-    // Scale back the result by dividing by 100 to account for the initial scaling
-    return static_cast<float>(result) / 100.0f;
-} //just realized i implimented this wrong, gotta out f32. because... i don't know. i just don't. bits add i guess?
-
-//meow meow meow meow meow meow meow meow meow meow meow meow meow meow meow meow meowmeowmeowmeowmeoowwwwmeowmeowmeowmraaameowmeowmeowwwwmraaaammmmmmrmmrmrmrmmrmrmmamamaaaa
-
-}//ends the inline asm
 
 // Implementations
 Vector3::Vector3() : x(0), y(0), z(0) {} //output this fuckshit.
@@ -217,7 +368,7 @@ void deleteRateLimit(int id) {
     }
 }
 
-//to use: deleteRateLimit(myRateLimiter);
+
 
   //oughhhh it's a function to limit the rate you can enter it
 #define RATE_LIMIT(id, interval_ms, on_success, not_unlocked_yet)       \
@@ -452,23 +603,7 @@ int createLoopWhileTimer(unsigned long duration_ms) {
     }
 
 /* //how to use
-int myTimer = createTimer(5000);  // 5-second timer
-
-void loop() {
-    LOOP_WHILE_TIMER(myTimer, 500, {
-        Serial.println("Tick!");
-    });
-
-    // To pause:
-    // PAUSE_TIMER(myTimer);
-
-    // To resume:
-    // RESUME_TIMER(myTimer);
-
-    // To reset:
-    // RESET_TIMER(myTimer);
-}
-
+WARNING CREEATE A USER GUIDE. I DON'T REMEMBER HOW IT WORKS
 */
 
 

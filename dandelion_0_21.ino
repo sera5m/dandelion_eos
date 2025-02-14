@@ -2,14 +2,19 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
 
+//esp32 specifiic
 #include "esp_pm.h"
 #include "esp_wifi.h"
 #include "esp_bt.h"
 #include "esp_sleep.h"
 #include "esp_system.h" 
+
+//freerots
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <mutex>
 #include "HardwareSerial.h" 
+//arduino shi
 #include <Wire.h>
 #include <time.h>
 #include <stdio.h>
@@ -30,6 +35,10 @@
 //define pins for scl. 
 #define SDA_PIN 27
 #define SCL_PIN 26
+
+
+#define INT_PIN 25  //d on the esp32
+
 
 #include "mdl_mathHelper.ino" //add in my critical math helper functions that add vec3 and stuff
 //#include "asm_helpies.s"
@@ -79,6 +88,7 @@ Madgwick filter;
 
 //important other libraries
 #include <iostream>
+#include <PCF8574.h>// Rob Tillaart's PCF8574 library, not adafruit!!
 
 
 #include <Adafruit_Sensor.h>
@@ -95,10 +105,12 @@ Madgwick filter;
 #include "mdl_pwr_mngr.ino"
 #include "mdl_timeKeeping.ino"  //the clock is ticking
 #include "mdl_diagnosticTools.ino"
+#include "labyrinth.ino" //apps
 
 
-
-
+//more shit
+#include <cstdlib>  // For rand()
+#include <ctime>    // For seeding rand()
 
 /*
 Uncomment and set up if you want to use custom pins for the SPI communication
@@ -146,8 +158,8 @@ void taskUpdateHeartRate(void *pvParameters);
 // Setup!!!
 void setup() {
 
-  //have the stupid math shit working, in the motion sensor
-   initializeSampleCache();
+  
+srand(time(NULL)); // Seed RNG
 
 //config wifi and bluetooth to be off
   WiFi.mode(WIFI_OFF);  // Turn off Wi-Fi
@@ -170,8 +182,16 @@ SPI.endTransaction();
  screen_on();  // Call to initialize the screen with proper SPI settings
 
 
-
-
+pcf.begin();//init i/o expander
+  // Set P0–P5 as inputs with pull-up resistors
+  for (int i = 0; i < 6; i++) {
+    pcf.pinMode(i, INPUT_PULLUP);
+  }
+    // Attach interrupt to INT pin
+  pinMode(INT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(INT_PIN), handleInterrupt, FALLING);
+}
+//note: don't add polling, this is interrupt based
 
 
   delay(1);

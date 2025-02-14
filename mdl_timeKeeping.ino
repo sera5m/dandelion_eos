@@ -125,20 +125,6 @@ int calculateUserTimeZoneOffset(enum country userCountry, enum months currentMon
 }
 
 
-/*
-struct tm is defined like this by default in the code for the esp32 because apparently it's slightly unix compatable or whatever
-extern struct tm {
-  int tm_sec;   // Seconds
-  int tm_min;   // Minutes
-  int tm_hour;  // Hours
-  int tm_mday;  // Day of the month
-  int tm_mon;   // Month (0-11)
-  int tm_year;  // Year (since 1900)
-  int tm_wday;  // Day of the week (0-6)
-  int tm_yday;  // Day of the year (0-365)
-  int tm_isdst; // Daylight saving time flag
-};
-*/
 
 //struct for time in a nice human readable format
 struct FriendlyTime {
@@ -149,6 +135,35 @@ struct FriendlyTime {
     int minute;
     int second;
 };
+
+
+//the folllowing code is to be ticked once per minutes so that allar,/timer whatever the fuck can be ran efficiently without a freerots task
+void onMinuteTick() {
+    static FriendlyTime lastTime = {0};
+    FriendlyTime currentTime;
+    GetFriendlyTime(time(nullptr), UserTimeZoneOffset, currentTime);
+
+    if (currentTime.minute != lastTime.minute) {
+        checkAlarms(currentTime);
+        checkTimers(currentTime); // Now properly checking timers
+        lastTime = currentTime;
+    }
+}
+
+
+// Attach to RTC or system clock
+void setupTimeEvents() {
+    // Example: Use ESP32 timer (adjust for your hardware)
+    esp_timer_create_args_t timerArgs = {
+        .callback = [](void* arg) { onMinuteTick(); },
+        .arg = nullptr,
+        .name = "minute_tick"
+    };
+    esp_timer_handle_t timerHandle;
+    esp_timer_create(&timerArgs, &timerHandle);
+    esp_timer_start_periodic(timerHandle, 60 * 1000000); // 60 seconds
+}
+
 
 
 //todo make sure i have timezones working right, and daylight savings (daylight savings really shouldn't exist, ugh. why was it ever created)
@@ -341,7 +356,7 @@ FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) 
 
 //**********************************************************************************************************************************************
 //alarm features
-//(repeating timers idk)
+//alarms repeat on a daily basis
 //********************************************************************************************************************************************
 
 
@@ -349,7 +364,8 @@ FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) 
 
 struct CustomAlarm {
     bool isEnabled = false;
-    FriendlyTime time;
+    uint8_t hour; 
+    uint8_t minute;
     uint8_t activeDays = 0b00000000; // 8-bit bitmask for days
     int loudness = 50; // Default 50%
     bool flashLed = false;
@@ -434,17 +450,18 @@ void alarmTask(void *parameter) {
 }
 
 
-// Stack size for the alarm task
-constexpr uint16_t AlarmAssignBytes = 512; 
+#define MAX_ALARMS 10
+CompactAlarm alarms[MAX_ALARMS];
+uint8_t alarmCount = 0;
 
-void checkAlarmsWithTask(CustomAlarm *alarms, int numAlarms, int currentDay, int currentHour, int currentMinute) {
-    for (int i = 0; i < numAlarms; i++) {
-        if (isAlarmTime(alarms[i], currentDay, currentHour, currentMinute)) {
-            BaseType_t result = xTaskCreate(alarmTask, "AlarmTask", AlarmAssignBytes, &alarms[i], tskIDLE_PRIORITY, NULL);
-            if (result != pdPASS) {
-                // Handle task creation failure
-                Serial.println("Failed to create AlarmTask");
-            }
+// Check all alarms
+void checkAlarms(const FriendlyTime &now) {
+    uint8_t dayBit = 1 << now.day; // Current day bitmask
+    for (int i = 0; i < alarmCount; i++) {
+        if ((alarms[i].activeDays & dayBit) && 
+            alarms[i].hour == now.hour && 
+            alarms[i].minute == now.minute) {
+            triggerAlarm(i);
         }
     }
 }
@@ -524,86 +541,79 @@ void TimerFinish() {
 
 
 
+
+// Timer class
 class Timer {
-
-
-private: //private******************************************************
-
+private:
     Preferences preferences;
-    String timerName; //TODO: USE CHAR INSTERAD OF STRING
+    char timerName[32]; // Replacing String with char[] to reduce heap fragmentation
 
-    unsigned long startTime = 0;     // Time when the timer started
-    unsigned long duration = 0;      // Original duration in milliseconds
-    unsigned long remainingTime = 0; // Time left when paused or modified
+    unsigned long startTime = 0;
+    unsigned long duration = 0;
+    unsigned long remainingTime = 0;
     bool running = false;
     bool paused = false;
 
     esp_timer_handle_t timerHandle = nullptr;
 
-void saveToNVS() {
-    preferences.begin("timers", false);
-    preferences.putULong((timerName + "_remaining").c_str(), remainingTime);
-    preferences.putULong((timerName + "_duration").c_str(), duration);
-    preferences.putBool((timerName + "_running").c_str(), running);
-    preferences.putBool((timerName + "_paused").c_str(), paused);
-    preferences.end();
-}
+    void saveToNVS() {
+        preferences.begin("timers", false);
+        preferences.putULong((String(timerName) + "_remaining").c_str(), remainingTime);
+        preferences.putULong((String(timerName) + "_duration").c_str(), duration);
+        preferences.putBool((String(timerName) + "_running").c_str(), running);
+        preferences.putBool((String(timerName) + "_paused").c_str(), paused);
+        preferences.end();
+    }
 
-void loadFromNVS() {
-    preferences.begin("timers", false);
-    remainingTime = preferences.getULong((timerName + "_remaining").c_str(), 0);
-    duration = preferences.getULong((timerName + "_duration").c_str(), 0);
-    running = preferences.getBool((timerName + "_running").c_str(), false);
-    paused = preferences.getBool((timerName + "_paused").c_str(), false);
-    preferences.end();
-}
+    void loadFromNVS() {
+        preferences.begin("timers", false);
+        remainingTime = preferences.getULong((String(timerName) + "_remaining").c_str(), 0);
+        duration = preferences.getULong((String(timerName) + "_duration").c_str(), 0);
+        running = preferences.getBool((String(timerName) + "_running").c_str(), false);
+        paused = preferences.getBool((String(timerName) + "_paused").c_str(), false);
+        preferences.end();
+    }
 
-void clearFromNVS() {
-    preferences.begin("timers", false);
-    String key = timerName + "_remaining";
-    preferences.remove(key.c_str());
-    key = timerName + "_duration";
-    preferences.remove(key.c_str());
-    key = timerName + "_running";
-    preferences.remove(key.c_str());
-    key = timerName + "_paused";
-    preferences.remove(key.c_str());
-    preferences.end();
-}
+    void clearFromNVS() {
+        preferences.begin("timers", false);
+        preferences.remove((String(timerName) + "_remaining").c_str());
+        preferences.remove((String(timerName) + "_duration").c_str());
+        preferences.remove((String(timerName) + "_running").c_str());
+        preferences.remove((String(timerName) + "_paused").c_str());
+        preferences.end();
+    }
 
     void setupTimer(unsigned long ms) {
-        if (timerHandle != nullptr) {
+        if (timerHandle) {
             esp_timer_stop(timerHandle);
             esp_timer_delete(timerHandle);
         }
 
         esp_timer_create_args_t timerArgs = {
-            .callback = [](void* arg) {
-                static_cast<Timer*>(arg)->onTimerFinish(); //cast to the timer on it finishing
-            },
-            .arg = this, //pointer for args,default void but context aware?
-            .name = "user_timer" //default name
+            .callback = [](void* arg) { static_cast<Timer*>(arg)->onTimerFinish(); },
+            .arg = this,
+            .name = "user_timer"
         };
         esp_timer_create(&timerArgs, &timerHandle);
-        esp_timer_start_once(timerHandle, ms * 1000); // Set timer in microseconds
+        esp_timer_start_once(timerHandle, ms * 1000);
     }
 
     void onTimerFinish() {
         running = false;
         paused = false;
         clearFromNVS();
-        TimerFinish(); // Trigger the callback
+        TimerFinish();
     }
 
-
-//public**********************************************
 public:
-    Timer(const String& name) : timerName(name) {
+    Timer(const char* name) {
+        strncpy(timerName, name, sizeof(timerName) - 1);
+        timerName[sizeof(timerName) - 1] = '\0';
         loadFromNVS();
     }
 
     ~Timer() {
-        if (timerHandle != nullptr) {
+        if (timerHandle) {
             esp_timer_stop(timerHandle);
             esp_timer_delete(timerHandle);
         }
@@ -615,12 +625,13 @@ public:
         remainingTime = duration;
         running = true;
         paused = false;
+        startTime = millis();
         saveToNVS();
         setupTimer(duration);
     }
 
     void stop() {
-        if (timerHandle != nullptr) {
+        if (timerHandle) {
             esp_timer_stop(timerHandle);
             esp_timer_delete(timerHandle);
             timerHandle = nullptr;
@@ -632,10 +643,10 @@ public:
 
     void pause() {
         if (running && !paused) {
-            remainingTime = remainingTime - (millis() - startTime);
+            remainingTime = max(remainingTime - (millis() - startTime), 0UL);
             paused = true;
             running = false;
-            if (timerHandle != nullptr) {
+            if (timerHandle) {
                 esp_timer_stop(timerHandle);
                 esp_timer_delete(timerHandle);
                 timerHandle = nullptr;
@@ -658,40 +669,25 @@ public:
         if (paused || running) {
             remainingTime += seconds * 1000;
             saveToNVS();
-            if (running) {
-                setupTimer(remainingTime);
-            }
+            if (running) setupTimer(remainingTime);
         }
     }
 
     void subtractTime(unsigned long seconds) {
         if (paused || running) {
-            remainingTime = max(remainingTime, seconds * 1000);
+            remainingTime = (remainingTime > (seconds * 1000)) ? (remainingTime - (seconds * 1000)) : 0;
             saveToNVS();
-            if (running) {
-                setupTimer(remainingTime);
-            }
+            if (running) setupTimer(remainingTime);
         }
     }
 
-  unsigned long getSecondsLeft() {
-        if (running) {
-            return max((remainingTime - (millis() - startTime)) / 1000, 0UL);
-        }
-        return remainingTime / 1000;
+    unsigned long getSecondsLeft() {
+        return running ? max((remainingTime - (millis() - startTime)) / 1000, 0UL) : remainingTime / 1000;
     }
 
-    unsigned long getOriginalDuration() {
-        return duration / 1000;
-    }
-
-    bool isRunning() {
-        return running;
-    }
+    unsigned long getOriginalDuration() { return duration / 1000; }
+    bool isRunning() { return running; }
 };
-
-
-
 
 
 

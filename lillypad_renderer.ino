@@ -10,8 +10,7 @@
 //little alert icons
 //jpeg+png+bmp
 
-//basic effects: fake static,washout,blinking
-//a class for vector drawings (uses ug8lib) that attatches to canvas. vect drawings just use a few simple lines and cubes. we save them on the setup of the drawing object, with it storing the commands on start? idk how to do this outside of vague ideas.
+//at attatches to canvas. vect drawings just use a few simple lines and cubes. we save them on the setup of the drawing object, with it storing the commands on start? idk how to do this outside of vague ideas.
 //crude animations [involves placing objects on the canvas, with objects being an image or "generated vector drawing"] 
 
 //optimize update cycle
@@ -199,50 +198,50 @@ void updateContent(const std::string& newContent) {
 }
 private:
     // Helper: Draw word-wrapped text
-    void drawText(const char* text) {
-        int charWidth = 6 * config.textsize;    // Adjusted for dynamic text size
-        int charHeight = 8 * config.textsize;
+void drawText(const char* text) {
+    static int charWidth = 6 * config.textsize; // Calculate once
+    static int charHeight = 8 * config.textsize;
 
-        int cursorX = config.x + 2;  // Padding
-        int cursorY = config.y + 2;
+    int cursorX = config.x + 2;  // Padding
+    int cursorY = config.y + 2;
 
-        const char* wordStart = text;
-        char word[32]; // Temporary buffer for the current word (adjust size as needed)
-        int wordIndex = 0;
+    const char* wordStart = text;
+    char word[32]; // Temporary buffer for the current word
+    int wordIndex = 0;
 
-        while (*text) {
-            if (*text == ' ' || *(text + 1) == '\0') { // End of word or end of string
-                // Copy word into buffer
-                wordIndex = text - wordStart + (*(text + 1) == '\0' ? 1 : 0);
-                if (wordIndex >= sizeof(word)) {
-                    Serial.println("Error: Word too long for buffer.");
-                    break; // Prevent overflow
-                }
-
-                strncpy(word, wordStart, wordIndex); // Copy word into buffer
-                word[wordIndex] = '\0'; // Null-terminate
-
-                int wordWidth = wordIndex * charWidth;
-
-                // Wrap to next line if word doesn't fit
-                if (cursorX + wordWidth > config.x + config.width - 2) {
-                    cursorX = config.x + 2;
-                    cursorY += charHeight;
-                    if (cursorY + charHeight > config.y + config.height - 2) {
-                        break;  // Text overflow
-                    }
-                }
-
-                // Render word
-                tft.setCursor(cursorX, cursorY);
-                tft.print(word);
-                cursorX += wordWidth + charWidth; // Include space after word
-
-                wordStart = text + 1;  // Move to next word
+    while (*text) {
+        if (*text == ' ' || *(text + 1) == '\0') { // End of word or end of string
+            // Copy word into buffer
+            wordIndex = text - wordStart + (*(text + 1) == '\0' ? 1 : 0);
+            if (wordIndex >= sizeof(word)) {
+                Serial.println("Error: Word too long for buffer.");
+                break; // Prevent overflow
             }
-            ++text;
+
+            strncpy(word, wordStart, wordIndex); // Copy word into buffer
+            word[wordIndex] = '\0'; // Null-terminate
+
+            int wordWidth = wordIndex * charWidth;
+
+            // Wrap to next line if word doesn't fit
+            if (cursorX + wordWidth > config.x + config.width - 2) {
+                cursorX = config.x + 2;
+                cursorY += charHeight;
+                if (cursorY + charHeight > config.y + config.height - 2) {
+                    break;  // Text overflow
+                }
+            }
+
+            // Render word
+            tft.setCursor(cursorX, cursorY);
+            tft.print(word);
+            cursorX += wordWidth + charWidth; // Include space after word
+
+            wordStart = text + 1;  // Move to next word
         }
+        ++text;
     }
+}
 
 
 //global window reg
@@ -316,18 +315,6 @@ void updateLockScreen() {
     timeWindow.updateContent(timeString); // Update time window
 }
 
-/*
-void updateLockscreenTime(int hour, int minute, int second) {
-    std::string timeStr = (hour < 10 ? "0" : "") + std::to_string(hour) + ":" + (minute < 10 ? "0" : "") + std::to_string(minute);
-    timeWindow.updateContent(timeStr); // Update time window
 
-    std::string secondStr = (second < 10 ? "0" : "") + std::to_string(second);
-    heartRateWindow.updateContent(secondStr); // Update heart rate window (using seconds for simplicity)
-}
-
-void updateLockscreenTemperature(float temperature) {
-    tempWindow.updateContent(std::to_string((int)temperature) + "C"); // Update temperature window
-}
-*/
 
 #endif
