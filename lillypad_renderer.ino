@@ -70,35 +70,121 @@ struct CanvasCfg {
 //******************************************************************************************************************************************************
 
 
-// kina like the window struct setup, but not identical because it takes a parent
-
+// A DrawableElement represents any element (text or shape) drawn on the canvas.
+struct DrawableElement {
+    int layer;  // Lower layer drawn first, higher layers drawn on top
+    std::function<void()> drawFunc; // Lambda that draws this element
+};
 
 // Canvas class definition
-// Canvas class definition
+
 class Canvas {
 public:
+    // Position and size of the canvas on screen (relative to parent window if needed)
     int x, y, width, height;
     uint16_t bgColor, borderColor;
     
+    // Flag to indicate if canvas needs updating.
+    bool canvasDirty = true;
+    bool borderless;  //now takes borderless from struct
 
+    // Container for drawable elements on this canvas.
+    std::vector<DrawableElement> drawElements;
+    
+    // Reference to parent window (if any)
+    Window* parentWindow;
+    
+    // Constructor: initializes from a CanvasCfg structure and assigns parent pointer.
     Canvas(const CanvasCfg& cfg, Window* parent)
-    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
-
+        : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),
+          bgColor(cfg.bgColor), borderColor(cfg.borderColor),
+          parentWindow(parent) {}
+    
+    // Clear the canvas area
     void clear() {
-        // Use the config directly
+        // Fill the canvas area with the background color.
+        // Note: if you need clipping, ensure tft supports it or implement it yourself.
         tft.fillRect(x, y, width, height, bgColor);
+        canvasDirty = true;
     }
+    
+    // Adds a text line to the canvas.
+    // (No wrapping—if the text extends beyond the canvas, it is simply clipped.)
+    void addTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope
+            tft.setTextColor(textColor);
+            // Set the cursor relative to canvas origin.
+            tft.setCursor(x + posX, y + posY);
+            tft.print(text);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+    
+    // Adds a basic shape: example for drawing a rectangle.
+    // (You can add similar helper functions for circles, lines, triangles, etc.)
+    void addRectangle(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope
+            // Draw a filled rectangle at the given position relative to the canvas.
+            tft.fillRect(x + posX, y + posY, w, h, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+    
+    // Draws the canvas: first draws the canvas background (and border if not borderless),
+    // then sorts and draws the drawable elements by layer.
+    void draw() {
+          unsigned long startTime = millis(); //start time for the frame
+        // Clear canvas area
+        tft.fillRect(x, y, width, height, bgColor);
+        if (!borderless) {
+    tft.drawRect(x, y, width, height, borderColor);
+       }
+        
+        // Sort drawable elements by layer (lowest first)
+        std::sort(drawElements.begin(), drawElements.end(), [](const DrawableElement &a, const DrawableElement &b) {
+            return a.layer < b.layer;
+        });
+        
+        // Draw each element
+        for (auto &elem : drawElements) {
+            elem.drawFunc();
+        }
+    lastFrameTime = millis() - startTime; //end of frame
+    canvasDirty = false; //now it's clean
+    }
+    
+    // A simple function to determine borderless state.
+    bool borderless() const {
+        // If borderless is desired, return true.
+        // (Alternatively, you can store a borderless flag in this class.)
+        return false; // For now, assume border should be drawn.
+    }
+    
+    // Optionally update canvas only if dirty
+    void update() {
+    unsigned long now = millis();
+    if (canvasDirty || (now - lastUpdateTime >= updateInterval)) {
+        draw();
+        lastUpdateTime = now;
+    }
+}
 
-    int getWidth() const { return width; }
-    int getHeight() const { return height; }
 
-private:
-    CanvasCfg config;
-    Window* parentWindow; //ref to parent window. [should i add reparenting??]
+ private:
+
+unsigned long lastUpdateTime = 0;   // in ms
+unsigned int updateInterval = 100;    // default update rate (ms) for canvas
+unsigned int lastFrameTime = 0;       // duration of last canvas draw
+
+
 
 };
-
-
 
 //****************************************************************************************************************************************
 
@@ -110,33 +196,25 @@ private:
 
 //******************************************************************************************************************************************************
 
-//have the windows treated as objects this time instead of just functions. makes referencing much more reliable lol
-
-//todo:
-//windows should get better text wrapping and scroll boxes
-
 class Window {
 public:
+    std::string name;       // Window's name
+    WindowCfg config;       // Window configuration
+    std::string content;    // Full text content (may be longer than visible area)
 
-    std::string name;  // Window's name
-    WindowCfg config; //take config
-    std::string content; //take string off this
+    // List of canvases attached to this window
+    std::vector<Canvas*> canvases;
 
-    //std vector is kina like dynamic arrays
-    std::vector<Canvas*> canvases;  // List of canvases attached to this window
+    int WinUpdateMS = 500;  // update interval in ms
+    bool dirty = false;     // needs redraw flag
 
+    // NEW: Scrolling members:
+    int scrollOffset = 0;                // Vertical scroll offset in pixels
+    std::vector<String> wrappedLines;    // Wrapped text lines for rendering
 
-    //other internal variables for the windows themselves
-    int WinUpdateMS=500; //this window should update every n miliseconds. this is the variable and it can be dynamically set with a reference to this window by attatched proscesses.
-    bool dirty = false;  // does window need redraw
-
-
-
-       // Constructor
+    // Constructor
     Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")
-        : name(windowName), config(cfg), content(initialContent) {}
-
-
+      : name(windowName), config(cfg), content(initialContent) {}
 
     // Destructor: Clean up canvases
     ~Window() {
@@ -145,124 +223,145 @@ public:
         }
     }
 
-
-
-  //add a canvas to this window.
-void addCanvas(const CanvasCfg& cfg) {
-    if (cfg.parentWindow != this) {
-        Serial.println("Error: Canvas parent does not match this window.");
-        return; 
+    // Add a canvas to this window
+    void addCanvas(const CanvasCfg& cfg) {
+        if (cfg.parentWindow != this) {
+            Serial.println("Error: Canvas parent does not match this window.");
+            return;
+        }
+        Canvas* newCanvas = new Canvas(cfg, this);
+        canvases.push_back(newCanvas);
     }
-    Canvas* newCanvas = new Canvas(cfg, this);  // create new canvas and assign it to this window
-    //keyword new tells the program i'm creating a new object and to give it some memory. 
-    canvases.push_back(newCanvas);  // add the canvas to the std vector (arr)
-}
 
+    // Update the window's content and mark as dirty
+    void updateContent(const std::string& newContent) {
+        if (content != newContent) {
+            content = newContent;
+            dirty = true;
+            draw(); // immediate redraw
+        }
+    }
 
+    // Scroll functions: call these from your input handling code
+    void scrollUp(int pixels) {
+        scrollOffset -= pixels;
+        if (scrollOffset < 0) scrollOffset = 0;
+        dirty = true;
+        // Mark all child canvases as dirty
+        for (Canvas* c : canvases) {
+            c->canvasDirty = true;
+        }
+    }
+    void scrollDown(int pixels) {
+        int totalTextHeight = wrappedLines.size() * (8 * config.textsize);
+        int maxOffset = (totalTextHeight > config.height - 4) ? totalTextHeight - (config.height - 4) : 0;
+        scrollOffset += pixels;
+        if (scrollOffset > maxOffset) scrollOffset = maxOffset;
+        dirty = true;
+        for (Canvas* c : canvases) {
+            c->canvasDirty = true;
+        }
+    }
 
-    // Draws the window with its content
+    // Draws the window and its text content, then updates child canvases if they're visible.
     void draw() {
-      if (dirty) {
-        // Clear the window interior
+          unsigned long startTime = millis();
+        // Clear the window area
         tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
-
-        // Draw the window outline
-        tft.drawRect(config.x, config.y, config.width, config.height, config.borderColor);
+        if (!config.borderless)
+            tft.drawRect(config.x, config.y, config.width, config.height, config.borderColor);
 
         // Set text properties
         tft.setTextColor(config.text_color);
-        tft.setTextSize(config.textsize); //we will need to be able to draw multiple strings to this. I'd really like dynamic size set and multi string support
+        tft.setTextSize(config.textsize);
 
-        // Render content as word-wrapped text
-        drawText(content.c_str()); //try replacing this with char sometime
+        // Update wrapped lines from full content
+        updateWrappedLines();
 
-                dirty = false; //drawn,now clean
-                }
-    }
+        // Calculate text metrics and draw only visible lines
+        int charHeight = 8 * config.textsize;  // approximate text height per line
+        int visibleLines = (config.height - 4) / charHeight;  // available lines in window
+        int startLine = scrollOffset / charHeight;
+        int y = config.y + 2 - (scrollOffset % charHeight);
 
-
-
-
-//clear the window
-void clear() {
-    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
-}
-
-
-void updateContent(const std::string& newContent) {
-    if (content != newContent) { //check to see if it matches. if it does, don't update it
-        content = newContent;
-        dirty = true; //k it's dirty so go draw that stuff!
-        draw(); //draw it now
-    }
-}
-private:
-    // Helper: Draw word-wrapped text
-void drawText(const char* text) {
-    static int charWidth = 6 * config.textsize; // Calculate once
-    static int charHeight = 8 * config.textsize;
-
-    int cursorX = config.x + 2;  // Padding
-    int cursorY = config.y + 2;
-
-    const char* wordStart = text;
-    char word[32]; // Temporary buffer for the current word
-    int wordIndex = 0;
-
-    while (*text) {
-        if (*text == ' ' || *(text + 1) == '\0') { // End of word or end of string
-            // Copy word into buffer
-            wordIndex = text - wordStart + (*(text + 1) == '\0' ? 1 : 0);
-            if (wordIndex >= sizeof(word)) {
-                Serial.println("Error: Word too long for buffer.");
-                break; // Prevent overflow
-            }
-
-            strncpy(word, wordStart, wordIndex); // Copy word into buffer
-            word[wordIndex] = '\0'; // Null-terminate
-
-            int wordWidth = wordIndex * charWidth;
-
-            // Wrap to next line if word doesn't fit
-            if (cursorX + wordWidth > config.x + config.width - 2) {
-                cursorX = config.x + 2;
-                cursorY += charHeight;
-                if (cursorY + charHeight > config.y + config.height - 2) {
-                    break;  // Text overflow
-                }
-            }
-
-            // Render word
-            tft.setCursor(cursorX, cursorY);
-            tft.print(word);
-            cursorX += wordWidth + charWidth; // Include space after word
-
-            wordStart = text + 1;  // Move to next word
+        for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
+            tft.setCursor(config.x + 2, y);
+            tft.print(wrappedLines[i]);
+            y += charHeight;
         }
-        ++text;
+            lastFrameTime = millis() - startTime;
+    dirty = false;
+
+        // Update/draw each canvas only if it's at least partially within the window.
+        for (Canvas* c : canvases) {
+            // Calculate the canvas's absolute position relative to the window.
+            int canvasAbsX = config.x + c->x;
+            int canvasAbsY = config.y + c->y;
+            // Check if the canvas is completely off-screen relative to the window.
+            if ((canvasAbsX + c->width) < config.x || canvasAbsX > (config.x + config.width) ||
+                (canvasAbsY + c->height) < config.y || canvasAbsY > (config.y + config.height)) {
+                continue;  // Skip drawing this canvas if it's entirely off-screen.
+            }
+            c->update();  // Update/draw the canvas.
+        }
     }
-}
+
+private:
+
+unsigned long lastUpdateTime = 0;  // in ms
+unsigned int updateInterval = 500; // can be dynamic (WinUpdateMS)
+unsigned int lastFrameTime = 0;    // duration of last draw
 
 
-//global window reg
+
+
+    // Wrap the full content into lines that fit the window width.
+    // This simplistic approach uses a fixed-width estimation.
+    void updateWrappedLines() {
+        wrappedLines.clear();
+
+        // Convert content (std::string) to an Arduino String for easier manipulation.
+        String textStr = String(content.c_str());
+        int charWidth = 6 * config.textsize;
+        int maxCharsPerLine = (config.width - 4) / charWidth;
+        int len = textStr.length();
+        String currentLine = "";
+        int i = 0;
+        while (i < len) {
+            // Get next word (words separated by a space)
+            int spaceIndex = textStr.indexOf(' ', i);
+            if (spaceIndex == -1) spaceIndex = len;
+            String word = textStr.substring(i, spaceIndex);
+            if (currentLine.length() + word.length() + (currentLine.length() > 0 ? 1 : 0) > maxCharsPerLine) {
+                // Push current line and start a new one
+                wrappedLines.push_back(currentLine);
+                currentLine = "";
+            }
+            if (currentLine.length() > 0) {
+                currentLine += " ";
+            }
+            currentLine += word;
+            i = spaceIndex + 1;
+        }
+        if (currentLine.length() > 0) {
+            wrappedLines.push_back(currentLine);
+        }
+    }
+};
+
+// Global window registry (if needed)
 std::vector<std::unique_ptr<Window>> windowRegistry;
 
-//funct to reg a window TODO: automatically run this if it isn't
 void registerWindow(std::unique_ptr<Window> win) {
     windowRegistry.push_back(std::move(win));
 }
 
-//unregister a window and all it's child components if destroyed: this may need to remove canvases idk
 void unregisterWindow(Window* win) {
     windowRegistry.erase(
-        std::remove_if(
-            windowRegistry.begin(),
-            windowRegistry.end(),
+        std::remove_if(windowRegistry.begin(), windowRegistry.end(),
             [&](const std::unique_ptr<Window>& w) { return w.get() == win; }),
         windowRegistry.end());
 }
-
-}; //the end of the window class
 
 
 

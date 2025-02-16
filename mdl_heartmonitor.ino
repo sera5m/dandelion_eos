@@ -16,21 +16,7 @@ extern int currentHour;
 extern int currentMinute;
 extern int currentSecond;
 
-/*
-define the following functions:
 
--check user presence
--heart rate (ignore junk data)
--is sensor secured on arm?
--denoising
--averaging heart rate
--store 1 data point per minute for averaging on hard storage (eg: [timestamp] avghr: [value]) as simple data. note that the datapoints for every few seconds are kept in ram though and can be streamed to a phone continuously if enabled, uses bt module (a send packet function not in this module)
--activity detection (excersize,rest, sleep, etc)
--use of blood oxygenation data, (elaborate on purposes)
--user calibration for watch, for the purpose of knowing mood or whatever i don't know really
-
-
-*/
 // Declare the global variables here
 float usertemperature; // Global variable, no extern needed unless used in another file
 // Global variable for user temperature. this is the USERS temperature as of what the infared sensor says. DO NOT CONFUSE WITH DEVICETEMP!
@@ -47,177 +33,263 @@ int HR_walkingThresHold=100;
 int HR_excersiseThresHold=140;
 int HR_excessiveHR=180;
 
+//---------------------------------------------------
+// Heart Rate Processing State
+//---------------------------------------------------
+const byte RATE_SIZE = 9;
+byte rates[RATE_SIZE] = {0};  // circular buffer for recent BPM readings
+byte rateSpot = 0;          // current index in the circular buffer
+unsigned long lastBeat = 0; // timestamp of the last beat
+float beatsPerMinute = 0;   // instantaneous BPM
+int beatAvg = 0;            // moving average BPM (heart rate)
+int AVG_HR = 0;             // global average heart rate, updated per beat
+int16_t HRminAverage = 1;   // for storing a one-minute average heart rate
+bool isFirstBeat = true;
+long lastValidBPM = 0;      // used for smoothing rapid changes
 
-// Sensor state
-bool isWorn;
-const byte RATE_SIZE = 9; // Increase this for more averaging. 4 is good.
-byte rates[RATE_SIZE]; // Array of heart rates
-byte rateSpot = 0;
-long lastBeat = 0; // Time at which the last beat occurred
-float beatsPerMinute;
-int beatAvg; //should be the user's average heart rate
+// Minimum time (in ms) between beats to avoid false detection
+const unsigned long MIN_BEAT_INTERVAL = 400;
 
-// Minimum average heart rate storage
-int16_t HRminAverage = 1; // This sensor will average your heart rate each minute, then add it to storage once per minute for health tracking (1440 samples per day)
+//---------------------------------------------------
+// IR Signal Denoising (Moving Average Filter)
+//---------------------------------------------------
+const int FILTER_SIZE = 5;
+long irValueBuffer[FILTER_SIZE] = {0};
+int filterIndex = 0;
 
-//i'll have to tick this every little while to guess what the user is doing. 
+long denoiseIR(long irValue) {
+  irValueBuffer[filterIndex] = irValue;
+  filterIndex = (filterIndex + 1) % FILTER_SIZE;
+  long sum = 0;
+  for (int i = 0; i < FILTER_SIZE; i++) {
+    sum += irValueBuffer[i];
+  }
+  return sum / FILTER_SIZE;
+}
 
+//---------------------------------------------------
+// Blood Oxygen Processing Variables
+//---------------------------------------------------
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
+typedef uint16_t BOType;
+#else
+typedef uint32_t BOType;
+#endif
+
+// Variables for averaging blood oxygen values
+unsigned long lastBOAvgTime = 0;  // time of last 10-sec average
+int boSum = 0;
+int boCount = 0;
+int minuteBOBuffer[10] = {0};     // holds 10 one-minute averages
+int boMinuteIndex = 0;
+unsigned long lastTenMinuteTime = 0;
+const int BO_THRESHOLD = 95;      // example threshold for low SpO2 warning
+
+//---------------------------------------------------
+// Function Declarations
+//---------------------------------------------------
+int hr_guess_usr_activity(int bpm);
+void checkBodyTemp();
+void HRsensorSetup();
+void Log_heartRateData();
+bool checkForBeat(long irValue);
+void updateSensors();
+
+//---------------------------------------------------
+// Function Definitions
+//---------------------------------------------------
+
+// Given the average BPM (beatAvg), guess user activity level (0 to 5).
+// 0: below sleep threshold, 1: sleep to resting, 2: resting, 3: walking/exercise, 4: exercise, 5: excessive.
 int hr_guess_usr_activity(int bpm) {
-    if (beatAvg < HR_walkingThresHold) { //cut this in half through the middle to half if comparisons
-        if (beatAvg < HR_sleepThresHold) {
-            return 0; // Below sleep threshold
-        } else if (beatAvg < HR_restingThresHold) {
-            return 1; // Between sleep and resting threshold
-        } else {
-            return 2; // Between resting and walking threshold
-        }
+  if (bpm < HR_WALKING_THRESHOLD) {
+    if (bpm < HR_SLEEP_THRESHOLD) {
+      return 0; // Below sleep threshold
+    } else if (bpm < HR_RESTING_THRESHOLD) {
+      return 1; // Between sleep and resting threshold
     } else {
-        if (beatAvg < HR_excersiseThresHold) {
-            return 3; // Between walking and exercise threshold
-        } else if (beatAvg < HR_excessiveHR) {
-            return 4; // Between exercise and excessive heart rate
-        } else {
-            return 5; // Above excessive heart rate
-        }
+      return 2; // Between resting and walking threshold
     }
+  } else {
+    if (bpm < HR_EXERCISE_THRESHOLD) {
+      return 3; // Between walking and exercise threshold
+    } else if (bpm < HR_EXCESSIVE_THRESHOLD) {
+      return 4; // Between exercise and excessive heart rate
+    } else {
+      return 5; // Above excessive heart rate
+    }
+  }
 }
 
-
-void checkbodytemp()
-{
-    // Now just assign a new value to the global variable
-    usertemperature = particleSensor.readTemperature();
-
-    // Print the temperature in Celsius
-    Serial.print("temperatureC=");
-    Serial.print(usertemperature, 2);  // Using 2 decimals for low precision
-
-    // If you want to use Fahrenheit, you can calculate it like this:
-    // float usertemperatureF = particleSensor.readTemperatureF(); 
-
-    Serial.println();
+// Reads the temperature from the sensor and prints it.
+void checkBodyTemp() {
+  // Read sensor temperature (Celsius)
+  float usertemperature = particleSensor.readTemperature();
+  Serial.print("Temperature (C)= ");
+  Serial.println(usertemperature, 2);
 }
 
-
-
-void HRsensorSetup()
-{
-
-  // Initialize sensor
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) //Use default I2C port, 400kHz speed
-  {
-    Serial.println("MAX30105 was not found. Please check wiring/power. ");
-    while (1);
+// Sensor initialization: sets up the MAX30105 sensor with appropriate settings.
+void HRsensorSetup() {
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    Serial.println("MAX30105 was not found. Please check wiring/power.");
+    while (1);  // halt if sensor is not found
   }
   Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
 
-  particleSensor.setup(); //Configure sensor with default settings
-  particleSensor.setPulseAmplitudeRed(0x0A); //Turn Red LED to low to indicate sensor is running
-  particleSensor.setPulseAmplitudeGreen(0); //Turn off Green LED
+  if (enableBloodOxygen) {
+    // Configure sensor for blood oxygen mode (Red + IR)
+    byte ledBrightness  = 60;
+    byte sampleAverage  = 4;
+    byte ledMode        = 2;      // Use Red + IR LEDs
+    byte sampleRate     = 100;
+    int pulseWidth      = 411;
+    int adcRange        = 4096;
+    particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
+  } else {
+    // Default heart rate-only configuration
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+  }
 }
 
+// Log heart rate data into a HeartRateData struct. (Extend this function to store or send the data.)
+void Log_heartRateData() {
+  HeartRateData data;
+  data.year    = 2024;         // Replace with real-time values as available
+  data.month   = 10;
+  data.day     = 5;
+  data.hour    = currentHour;
+  data.minute  = currentMinute;
+  data.second  = currentSecond;
+  data.heartRate = beatAvg;     // Using the averaged heart rate
 
-
-
-
-
-void Log_heartrateData(int16_t HRminAverage) //call this once per min, i guess. may be out of date for modifications to mdl time keeping mods and log changes
-{
-    HeartRateData data;
-
-    // Fill with current timestamp values from the external variables
-    data.year = 2024;       // Example: fixed year (replace with actual time function if available)
-    data.month = 10;        // Example month (October, replace with actual value if needed)
-    data.day = 5;           // Example day (replace with actual date if needed)
-    data.hour = currentHour;   // External variable for the current hour
-    data.minute = currentMinute; // External variable for the current minute
-    data.second = currentSecond; // External variable for the current second
-    data.heartRate = beatAvg;  // Use beatAvg as the heart rate value
+  // For example, print the logged data (or store/send it as needed)
+  Serial.print("Logged HR Data: ");
+  Serial.print(data.year); Serial.print("-");
+  Serial.print(data.month); Serial.print("-");
+  Serial.print(data.day); Serial.print(" ");
+  Serial.print(data.hour); Serial.print(":");
+  Serial.print(data.minute); Serial.print(":");
+  Serial.print(data.second);
+  Serial.print(" HR=");
+  Serial.println(data.heartRate);
 }
 
-int AVG_HR=1; //the average heart rate
-#define FILTER_SIZE 5  // Define the size of the window for moving average
-#define MIN_BEAT_INTERVAL 400  // Minimum time (in ms) between beats to avoid false positives
-
-
-long irValueBuffer[FILTER_SIZE] = {0};  // Buffer to hold IR values for denoising
-int bufferIndex = 0;
-long lastValidBPM = 0;  // Store the last BPM that was considered valid
-bool isFirstBeat = true;  // Track the first beat for initialization
-
-// Function to denoise IR values using a moving average
-long denoiseIR(long irValue) {
-    irValueBuffer[bufferIndex++] = irValue;
-    bufferIndex %= FILTER_SIZE;
-
-    long sum = 0;
-    for (int i = 0; i < FILTER_SIZE; i++) {
-        sum += irValueBuffer[i];
-    }
-    return sum / FILTER_SIZE;
+// Dummy beat detection: returns true if the denoised IR value is above a set threshold.
+bool checkForBeat(long irValue) {
+  return (irValue > 50000);
 }
 
-void updateheartrate() {
-    long rawIRValue = particleSensor.getIR();
-    long irValue = denoiseIR(rawIRValue);  // Apply denoising
-
-    long currentTime = millis();
-    
-    // Beat detection logic
-    if (checkForBeat(irValue) == true) {
-        long delta = currentTime - lastBeat;
+// updateSensors(): sample the sensor, update heart rate and, if enabled, blood oxygen.
+void updateSensors() {
+  // ----------------- Heart Rate Processing -----------------
+  long rawIRValue = particleSensor.getIR();
+  long irValue = denoiseIR(rawIRValue);
+  unsigned long currentTime = millis();
+  
+  if (checkForBeat(irValue)) {
+    unsigned long delta = currentTime - lastBeat;
+    if (delta > MIN_BEAT_INTERVAL) {
+      lastBeat = currentTime;
+      beatsPerMinute = 60.0 / (delta / 1000.0);
+      if (beatsPerMinute > 20 && beatsPerMinute < 255) {
+        rates[rateSpot++] = (byte)beatsPerMinute;
+        rateSpot %= RATE_SIZE;
         
-        // Reject beats that are too close together to avoid false positives
-        if (delta > MIN_BEAT_INTERVAL) {
-            lastBeat = currentTime;
-            beatsPerMinute = 60 / (delta / 1000.0);
-
-            // Filter unreasonable BPM values
-            if (beatsPerMinute < 255 && beatsPerMinute > 20) {
-                rates[rateSpot++] = (byte)beatsPerMinute; // Store this reading
-                rateSpot %= RATE_SIZE;
-
-                // Take average of the last readings
-                beatAvg = 0;
-                for (byte x = 0; x < RATE_SIZE; x++) {
-                    beatAvg += rates[x];
-                }
-                beatAvg /= RATE_SIZE;
-
-                // Smooth out large jumps in BPM by limiting the rate of change
-                if (!isFirstBeat) {
-                    if (abs(beatAvg - lastValidBPM) > 10) {
-                        beatAvg = lastValidBPM + ((beatAvg - lastValidBPM) * 0.5);  // Smoothing jump
-                    }
-                } else {
-                    isFirstBeat = false;
-                }
-
-                lastValidBPM = beatAvg;  // Store this BPM as the last valid one
-            }
+        // Calculate moving average
+        int sum = 0;
+        for (byte i = 0; i < RATE_SIZE; i++) {
+          sum += rates[i];
         }
+        beatAvg = sum / RATE_SIZE;
+        
+        // Apply smoothing (if not first beat)
+        if (!isFirstBeat && abs(beatAvg - lastValidBPM) > 10) {
+          beatAvg = lastValidBPM + ((beatAvg - lastValidBPM) * 0.5);
+        } else {
+          isFirstBeat = false;
+        }
+        lastValidBPM = beatAvg;
+      }
     }
-/*
-    // Output results
-    Serial.print("IR=");
-    Serial.print(irValue);  // Output the denoised IR value
-    Serial.print(", BPM=");
-    Serial.print(beatsPerMinute);
-    Serial.print(", Avg BPM=");
-    Serial.print(beatAvg);
-    */
-     AVG_HR=beatAvg; //SET THE var for ext use
-
-    if (irValue < 50000){
-        Serial.print(" No finger?");
-        AVG_HR = 0;
-
-    Serial.println();
+  }
+  
+  // Update global average heart rate
+  AVG_HR = beatAvg;
+  
+  // Print status if no finger is detected
+  if (irValue < 50000) {
+    Serial.println("No finger?");
+    AVG_HR = 0;
+  }
+  
+  // ----------------- Blood Oxygen Processing -----------------
+  if (enableBloodOxygen) {
+    // Get the red LED value needed for SpO₂ calculation
+    uint32_t rawRedValue = particleSensor.getRed();
+    
+    // Use static buffers local to this function for 100-sample batches.
+    static BOType irBOBuffer[100];
+    static BOType redBOBuffer[100];
+    static int boBufferIndex = 0;
+    
+    // Save the current sample
+    irBOBuffer[boBufferIndex] = (BOType)irValue;
+    redBOBuffer[boBufferIndex] = (BOType)rawRedValue;
+    boBufferIndex++;
+    
+    // When we have 100 samples, process them.
+    if (boBufferIndex >= 100) {
+      int32_t spo2;
+      int8_t validSPO2;
+      int32_t dummyHR;
+      int8_t validHR;
+      maxim_heart_rate_and_oxygen_saturation(irBOBuffer, 100, redBOBuffer,
+                                               &spo2, &validSPO2, &dummyHR, &validHR);
+      boBufferIndex = 0;  // reset index for next batch
+      
+      // Accumulate SpO₂ values for averaging over 10 seconds.
+      boSum += spo2;
+      boCount++;
+      unsigned long now = millis();
+      if (now - lastBOAvgTime >= 10000) { // Every 10 seconds
+        int tenSecAvg = boSum / boCount;
+        static int minuteSum = 0;
+        static int minuteCount = 0;
+        minuteSum += tenSecAvg;
+        minuteCount++;
+        
+        // Reset 10-sec accumulators
+        boSum = 0;
+        boCount = 0;
+        lastBOAvgTime = now;
+        
+        if (minuteCount >= 6) { // Roughly one minute of data
+          int minuteAvg = minuteSum / minuteCount;
+          minuteBOBuffer[boMinuteIndex] = minuteAvg;
+          boMinuteIndex = (boMinuteIndex + 1) % 10;
+          minuteSum = 0;
+          minuteCount = 0;
+          
+          // Every 10 minutes, average the minute averages.
+          if (now - lastTenMinuteTime >= 600000) {
+            int sum10 = 0;
+            for (int i = 0; i < 10; i++) {
+              sum10 += minuteBOBuffer[i];
+            }
+            int tenMinAvg = sum10 / 10;
+            if (tenMinAvg < BO_THRESHOLD) {
+              Serial.println("Warning: Blood Oxygen level low!");
+            }
+            lastTenMinuteTime = now;
+          }
+        }
+      }
+    }
+  }
 }
-}
-
-
-
 
 #endif // mdl_heartmonitor_H
 

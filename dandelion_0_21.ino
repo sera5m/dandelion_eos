@@ -55,7 +55,7 @@ Preferences preferences;
 
 
 //heartrate
-#include "MAX30105.h"
+#include "MAX30105.h" //sparkfun lib
 #include "heartRate.h"
 #include "spo2_algorithm.h"//aw lawd
 MAX30105 particleSensor;//particle sensor object
