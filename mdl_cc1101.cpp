@@ -84,9 +84,34 @@ Radio radio3 = new RadioModule();
 
 
 
+//scan this crap i guess dude.
 
+void rfScanTick() {
+    Serial.println(F("[CC1101] Scanning for signals..."));
+    float strongestRSSI = -1000; // Start with a very low RSSI
+    float detectedFreq = 0.0;
+    
+    for (float freq = 300.0; freq <= 928.0; freq += 0.1) {  // Adjust step size as needed
+        radio.setFrequency(freq);
+        delay(10); // Allow time for stabilization
+        float rssi = radio.getRSSI();
+        
+        if (rssi > strongestRSSI) {
+            strongestRSSI = rssi;
+            detectedFreq = freq;
+        }
+    }
 
-
+    if (strongestRSSI > -1000) { // If any signal was detected
+        Serial.print(F("[CC1101] Strongest Signal at: "));
+        Serial.print(detectedFreq);
+        Serial.print(F(" MHz with RSSI: "));
+        Serial.print(strongestRSSI);
+        Serial.println(F(" dBm"));
+    } else {
+        Serial.println(F("[CC1101] No significant signals detected."));
+    }
+}
 
 
 

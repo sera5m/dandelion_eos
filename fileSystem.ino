@@ -352,7 +352,7 @@ struct TimedDataPoint{
     uint16_t value;     // ADC reading (0-4095)--may be treated as raw 
     uint16_t HoldTime; //ANOLOGUE USE: duration that this datapoint stays up in microseconds.      DIGITAL USE: wait x frequency cycles till you do the next datapoint. 
 
-};//if holdtime is 0, whatever software you're using to enterperet the datapoint defaults holdtime=0 to the frequency
+}; __attribute__((packed));//if holdtime is 0, whatever software you're using to enterperet the datapoint defaults holdtime=0 to the frequency
 
 
 //header for custom file. stores data from sensors in the following format. snapshots of anologue data at a certain frequency.
@@ -387,6 +387,38 @@ uint64_t creationTime; //metadata for creation time,
 
 
 // Define buffer size (how many data points per batch write)
+
+
+//MORE HEADERS for the rf and radio
+
+struct RFSettings { //metadata for rf transmisssion
+  double carrierFrequency;
+  double bitRate;
+  double rxBandwidth;
+  double freqDeviation;
+  double outputPower;
+  uint16_t syncWord;
+} __attribute__((packed));
+
+
+
+// Header including RF settings
+struct RTDPFHeader {  //not for general TDPF, this is for
+  double frequency;
+  DataFlavor dataFlavor = DataFlavor::digital;
+  uint64_t creationTime;
+  RFSettings rfSettings;
+} __attribute__((packed));
+
+
+//todo: find a way to optionally put this into the TDPF, where this is added along with the header. you'll also have to have the file name be "radio timed datapoint file". 
+//effectively should store the same data format becase of whatever. 
+//i'd consider just storing the raw data as numbers or whatever, but i don't think there's one best way to do this. to my knoledge the cc1101 radiofrequency would be a lowwer bit width than 16. which is a big difference with the amount of data it stores...
+
+
+
+//todo CRITICAL: note: this is an inneficient way to store datapackets, TDPF should only be used for stuff you don't understand, osciliscope data, or anything that doesn't fit a KNOWN type of packet info
+
 
 #define STREAM_WRITER_BUFFER_SIZE 50
 #define STREAM_READER_BUFFER_SIZE 32
