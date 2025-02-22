@@ -19,6 +19,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <SPI.h>  // Include the SPI library
+#include "SPI.h" //is this spi lib the same or a different one lol
 #include <stdbool.h>
 
 #define SPI_CLK_SPEED 56000000 // 56 MHz. very high! may increase power use
@@ -26,13 +27,14 @@
 
 // Pin definitions for spi
 #define SCLK_PIN 18
-#define MOSI_PIN 23
-#define MISO_PIN  19 
+#define MOSI_PIN 23 //may also be called poci on some devices
+#define MISO_PIN  19 //may also be called pico 
 #define DC_PIN   12
-#define CS_PIN   13
+#define CS_PIN   13//also called ss
+
 #define RST_PIN  14
 
-//define pins for scl. 
+//define pins for i2c 
 #define SDA_PIN 27
 #define SCL_PIN 26
 
@@ -41,7 +43,7 @@
 
 
 #include "mdl_mathHelper.ino" //add in my critical math helper functions that add vec3 and stuff
-//#include "asm_helpies.s"
+
 
 #include <Preferences.h> // Library for handling NVS non volitile storage
 Preferences preferences;
@@ -81,7 +83,7 @@ Madgwick filter;
 //hardware.
 //#include "FS.h" //doesn't work out here needs to be in storage module?????
 #include <SD.h> //currently defaulting to the esp32 version. in other versions of the soft we may need to use a different lib
-#include "SPI.h"
+
 #include "fileSystem.ino"
 #include <nvs_flash.h>
 #include <nvs.h>
@@ -127,6 +129,7 @@ int cs = -1;
 #include <vector>
 #include <stdint.h> // For int8_t
 #define uS_TO_S_FACTOR 1000000ULL /* Conversion factor for micro seconds to seconds */
+#define megahertz 1000000 //because it's unclear seeing like 6 zeroes elsewhere
  int currentHour = 0;
  int currentMinute = 0;
  int currentSecond = 0;
@@ -170,7 +173,7 @@ srand(time(NULL)); // Seed RNG
   
 
   // Initialize SPI
-  SPI.begin();
+ 
   SPI.begin(SCLK_PIN, MISO_PIN, MOSI_PIN, CS_PIN);
   SPI.beginTransaction(SPISettings(40000000, MSBFIRST, SPI_MODE0));  // 40 MHz SPI clock speed
 SPI.endTransaction();

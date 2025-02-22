@@ -18,7 +18,7 @@
 //NOTE: NOT PINNED TO CORE BY DEFAULT UNLESS FLAG
 
 
-class OSProcess {
+class OSProcess { //this shouldn't create a window, probably. leave that up to the user to do it. i guess. eh it's probably fine
 public:
     struct Config {
         std::string name;
@@ -432,28 +432,6 @@ Serial.println(light_on ? "Light ON" : "Light OFF");
 
 
 
-//funny progress bar for that old tech feel
-#define PROGRESS_BAR(current, total, width)                    \ 
-    do {                                                       \
-        Serial.print("[");                                     \
-        int progress = (current * width) / total;              \
-        for (int i = 0; i < width; i++)                        \
-            Serial.print(i < progress ? "#" : "-");            \
-        Serial.println("]");                                   \
-    } while (0)
-
-
-
-
-//to use
-/*
-for (int i = 0; i <= 100; i += 10) {
-    PROGRESS_BAR(i, 100, 20);
-    delay(500);
-}
-
-*/
-
 //counter. you enter and run this counter for whatever the fuck you need to count how many times you enter it. because you gotta count things
 
 #define CREATE_COUNTER() createCounter()
@@ -524,19 +502,44 @@ REPEAT_X(5, {
 */
 
  //do stuff with delay x times
-#define REPEAT_X_WITH_DELAY(times, delay_ms, on_exec)  \
-    do {                                          \
-        for (int i = 0; i < (times); i++) {       \
-            on_exec;                              \
-            delay(delay_ms);                      \
-        }                                         \
-    } while (0)
+#define REPEAT_X_WITH_DELAY(times, interval, on_exec)   \
+    static int __repeat_count = 0;                        \
+    static unsigned long __last_time = 0;                 \
+    if (__repeat_count < (times)) {                       \
+        if (millis() - __last_time >= (interval)) {       \
+            __last_time = millis();                       \
+            on_exec;                                      \
+            __repeat_count++;                             \
+        }                                                 \
+    }
 
 //example
 /*
-REPEAT_X_WITH_DELAY(3, 1000, {
-    Serial.println("Delayed Hello!");
-});
+
+    REPEAT_X_WITH_DELAY(5, 1000, Serial.println("Non-blocking Hello!"));
+}
+
+*/
+
+
+
+//ultrahigh speed repeat with delay-uses microseconds
+#define REPEAT_X_WITH_US_DELAY(times, interval_us, on_exec)  \
+    static int __repeat_count_us = 0;                          \
+    static unsigned long __last_time_us = 0;                   \
+    if (__repeat_count_us < (times)) {                         \
+        if (micros() - __last_time_us >= (interval_us)) {      \
+            __last_time_us = micros();                         \
+            on_exec;                                           \
+            __repeat_count_us++;                               \
+        }                                                      \
+    }
+
+/* //use:
+
+    REPEAT_X_WITH_US_DELAY(3, 500, Serial.println("Microsecond Hello!"));
+
+
 */
 
 //uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh

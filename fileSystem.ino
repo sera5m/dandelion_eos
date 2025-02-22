@@ -275,6 +275,7 @@ fileType GetFileType(const std::string& Extension) {
         {"jpg", image},
         {"bmp", image},
         {"ico", image},
+        {"TDPF", audio}, // data point file ascociated with signal replication in sensors
         {"cmer", enterperatable}, // Mercury file
         {"cfg", config} // Plaintext configs
     };
@@ -338,4 +339,197 @@ void writeFileMetadata(fs::FS &fs, const char *path, const char *key, const char
 }
 */
 
+enum DataFlavor{
+  analog,
+  digital
+}
+
+//way to record the datapoints with some custom extensions
+
+//ADPF components
+
+struct TimedDataPoint{ 
+    uint16_t value;     // ADC reading (0-4095)--may be treated as raw 
+    uint16_t HoldTime; //ANOLOGUE USE: duration that this datapoint stays up in microseconds.      DIGITAL USE: wait x frequency cycles till you do the next datapoint. 
+
+};//if holdtime is 0, whatever software you're using to enterperet the datapoint defaults holdtime=0 to the frequency
+
+
+//header for custom file. stores data from sensors in the following format. snapshots of anologue data at a certain frequency.
+//think of this like a wav file for arbitrary sensor data for the radio's and rf and such
+
+
+struct TDPFHeader{ 
+double frequency; //any frequency you want, really only used for digital data storage
+DataFlavor dataFlavor = DataFlavor::digital; //the flavor of data this file stores. changes how it's enterpereted.
+uint64_t creationTime; //metadata for creation time,
+//uint8_t bitDepth; //todo: impliment bit depth in the actual datastorage. important only for digital because for anal log 0x0000002 is just 2, but for digital it's very different. probably
+}
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------
+//use: the file should contain the anolog data points with amplitude and time. the value for timedDataPoint should be a nonzero value on input 
+
+//use cases: the file can be used for playing back any form of datapoints digital or anologue. computers use hex, so a number and a value are the exact same
+//when using anologue type, the file just treats the value as the intensity, and outputs a signal for that len of time to an dac circut.
+//for digital filetype, the 
+
+//playback should be handled in each component that requires it
+//example:
+//pin: [digital: plays digital data on a certain frequency, eg value 1=0x3f, value 2=0x4f, frequency is 10hz, so the device plays each of them for 0.1 seconds. ]
+//pin: [anolog: plays datapoints into that pin or device. ]
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+//streaming the file: just go one after the other with a delay of either tick or holdtime
+
+
+
+// Define buffer size (how many data points per batch write)
+
+#define STREAM_WRITER_BUFFER_SIZE 50
+#define STREAM_READER_BUFFER_SIZE 32
+
+class TimedDataPointStreamWriter {
+private:
+    fs::FS &fs;
+    String filePath;
+    TimedDataPoint buffer1[STREAM_WRITER_BUFFER_SIZE];  
+    TimedDataPoint buffer2[STREAM_WRITER_BUFFER_SIZE];  
+    TimedDataPoint* activeBuffer;
+    TimedDataPoint* writeBuffer;
+    int bufferIndex = 0;  
+    bool writingInProgress = false;
+    bool headerWritten = false;
+
+    void swapBuffers() {
+        TimedDataPoint* temp = activeBuffer;
+        activeBuffer = writeBuffer;
+        writeBuffer = temp;
+        bufferIndex = 0;  
+    }
+
+    void writeBufferToFile() {
+        if (writingInProgress) return;
+        writingInProgress = true;
+
+        File file = fs.open(filePath, FILE_APPEND);
+        if (!file) {
+            Serial.println("Failed to open file for appending.");
+            writingInProgress = false;
+            return;
+        }
+        file.write((uint8_t*)writeBuffer, sizeof(TimedDataPoint) * STREAM_WRITER_BUFFER_SIZE);
+        file.close();
+
+        writingInProgress = false;
+    }
+
+public:
+    TimedDataPointStreamWriter(fs::FS &fs, const String& path) : fs(fs), filePath(path) {
+        activeBuffer = buffer1;
+        writeBuffer = buffer2;
+    }
+
+    bool createFile(TDPFHeader header) {
+        File file = fs.open(filePath, FILE_WRITE);
+        if (!file) return false;
+
+        file.write((uint8_t*)&header, sizeof(TDPFHeader));
+        file.close();
+        headerWritten = true;
+        return true;
+    }
+
+    void writeData(TimedDataPoint newData) {
+        if (!headerWritten) {
+            Serial.println("Error: Header must be written before data.");
+            return;
+        }
+        activeBuffer[bufferIndex++] = newData;
+        if (bufferIndex >= STREAM_WRITER_BUFFER_SIZE) {
+            swapBuffers();
+            writeBufferToFile();  
+        }
+    }
+
+    void flush() {
+        if (bufferIndex > 0) {
+            File file = fs.open(filePath, FILE_APPEND);
+            if (file) {
+                file.write((uint8_t*)activeBuffer, sizeof(TimedDataPoint) * bufferIndex);
+                file.close();
+            }
+            bufferIndex = 0;
+        }
+    }
+};
+
+class StreamReader {
+private:
+    fs::FS &fs;
+    String filePath;
+    File file;
+    TDPFHeader header;
+    TimedDataPoint buffer[STREAM_READER_BUFFER_SIZE];
+    size_t numEntries = 0;
+    bool headerRead = false;
+
+public:
+    StreamReader(fs::FS &fs, const String& path) : fs(fs), filePath(path) {}
+
+    bool open() {
+        file = fs.open(filePath, FILE_READ);
+        if (!file) return false;
+
+        if (file.read((uint8_t*)&header, sizeof(TDPFHeader)) == sizeof(TDPFHeader)) {
+            headerRead = true;
+        }
+        return headerRead;
+    }
+
+    void close() {
+        if (file) file.close();
+    }
+
+    bool readNextBlock() {
+        if (!file || !file.available()) return false;
+
+        size_t bytesRead = file.read((uint8_t*)buffer, sizeof(TimedDataPoint) * STREAM_READER_BUFFER_SIZE);
+        numEntries = bytesRead / sizeof(TimedDataPoint);
+        return numEntries > 0;
+    }
+
+    TimedDataPoint* getBuffer() {
+        return buffer;
+    }
+
+    size_t getNumEntries() {
+        return numEntries;
+    }
+
+    TDPFHeader getHeader() {
+        return header;
+    }
+};
+
+// Example usage
+/*
+StreamReader reader(SD, "/datafile.tdp");
+if (reader.open()) {
+    Serial.printf("Frequency: %.2f, Flavor: %d\n", reader.getHeader().frequency, reader.getHeader().dataFlavor);
+    while (reader.readNextBlock()) {
+        TimedDataPoint* data = reader.getBuffer();
+        size_t count = reader.getNumEntries();
+        for (size_t i = 0; i < count; i++) {
+            Serial.printf("Value: %d, HoldTime: %d\n", data[i].value, data[i].holdTime);
+        }
+    }
+    reader.close();
+}
+*/
+
+
 #endif
+

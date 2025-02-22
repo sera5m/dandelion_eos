@@ -1,5 +1,25 @@
 
 
+//common rf frequencies
+
+//2-fsk
+//two frequencies to represent 0 and 1
+//low power
+
+
+//4fsk
+//2-fsk but with 4 channels but more complex decoding
+
+
+
+
+
+
+
+
+
+
+
 
 /*
   RadioLib CC1101 Settings Example
