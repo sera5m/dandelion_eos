@@ -85,7 +85,7 @@ DEFINED AS, in order
 5
 6:
 7: data manipulation
-8: flow controll
+8: flow controll: 0x8000, 0x8001, 0x
 9
 a
 b

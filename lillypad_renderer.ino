@@ -59,6 +59,18 @@ struct CanvasCfg {
      uint16_t bgColor = 0x0000, borderColor = 0xFFFF;
       Window* parentWindow = nullptr;
 };
+
+
+
+struct PixelDat{ //wanna draw a shitton of individual pixels with no care for efficiency? (i assume used for graphing)
+int posX;
+int posY;
+uint16_t color;
+int layer;
+};
+
+
+
 //end forward dependencies
 
 
@@ -72,7 +84,7 @@ struct CanvasCfg {
 
 // A DrawableElement represents any element (text or shape) drawn on the canvas.
 struct DrawableElement {
-    int layer;  // Lower layer drawn first, higher layers drawn on top
+    uint layer;  // Lower layer drawn first, higher layers drawn on top
     std::function<void()> drawFunc; // Lambda that draws this element
 };
 
@@ -89,7 +101,7 @@ public:
     bool borderless;  //now takes borderless from struct
 
     // Container for drawable elements on this canvas.
-    std::vector<DrawableElement> drawElements;
+    std::vector<DrawableElement> drawElements; //replace with function ptr in future
     
     // Reference to parent window (if any)
     Window* parentWindow;
@@ -110,10 +122,10 @@ public:
     
     // Adds a text line to the canvas.
     // (No wrapping—if the text extends beyond the canvas, it is simply clipped.)
-    void addTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
+    void AddTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope
+        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope. call this function with your text to draw it
             tft.setTextColor(textColor);
             // Set the cursor relative to canvas origin.
             tft.setCursor(x + posX, y + posY);
@@ -122,28 +134,185 @@ public:
         drawElements.push_back(element);
         canvasDirty = true;
     }
-    
-    // Adds a basic shape: example for drawing a rectangle.
-    // (You can add similar helper functions for circles, lines, triangles, etc.)
-    void addRectangle(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+
+
+
+
+//draw shapes **********************************************************************************
+//********************these are shapes the user should be calling to draw in canvas,each one should be set to it's own layer-non automatically set as of now, cope. plus you get more controll**********************************************
+
+ void AddLine(int posX0, int posY0, int posX1, int posY1, uint16_t color, int layer = 0){
+ DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+
+        // Check if it's a vertical line
+        if (posX0 == posX1) {
+            tft.drawFastVLine(x + posX0, y + std::min(posY0, posY1), std::abs(posY1 - posY0), color);
+        }
+        // Check if it's a horizontal line
+        else if (posY0 == posY1) {
+            tft.drawFastHLine(x + std::min(posX0, posX1), y + posY0, std::abs(posX1 - posX0), color);
+        }
+        // Otherwise, draw a normal angled line
+        else {
+            tft.drawLine(x + posX0, y + posY0, x + posX1, y + posY1, color);
+        }
+    };
+        drawElements.push_back(element);
+        canvasDirty = true;
+}
+  //adafruit has optimized line drawing and normal line drawing, for an angular one it's drawLine,
+  // for a perfectly vertical or horizontal line it's  drawFastVLine or drawFastHLine. fortunately they take simular args, so here i've switched between them
+
+
+
+
+    void AddPixel(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope
-            // Draw a filled rectangle at the given position relative to the canvas.
-            tft.fillRect(x + posX, y + posY, w, h, color);
+        element.drawFunc = [=]() { //call this to draw
+        tft.drawPixel(x + posX, y + posY, color); //args, posx posy, color
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+
+//TODO: SHOULD HAVE PROPER IMPLIMENTATION FROM STRUCT PIXELDAT
+//draw multiple pixels on multiple layers
+    void AddPixels(int posX, int posY, int w, int h, uint16_t color, int layer = 0) { //replace with an array here
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.drawPixel(x + posX, y + posY, color); //args, posx posy, color //replace with for array
         };
         drawElements.push_back(element);
         canvasDirty = true;
     }
     
+
+
+ // drawing a rectangle.
+
+//draw filled rect
+    void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.fillRect(x + posX, y + posY, w, h, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+    
+//draw a rect, not filled.
+    void AddRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.drawRect(x + posX, y + posY, w, h, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+
+ //roundeded rectangles
+
+
+
+//DRAW ROUNDED rect,filled
+    void AddRFRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.fillRoundRect(x + posX, y + posY, w, h, r, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+    
+//draw a rounded rect, not filled.
+    void AddRRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.drawRoundRect(x + posX, y + posY, w, h, r, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+
+
+//tri,hollow
+    void AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+         tft.drawTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+//filled triangle
+    void AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+         tft.fillTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+//circles
+//cirlces are drawn with radius r around centerpoint xy pos with color
+
+//filled circle
+    void AddFCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.fillCircle(x + posX, y + posY, r, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+    
+//draw a ciurcle, not filled.
+    void AddCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
+        DrawableElement element;
+        element.layer = layer;
+        element.drawFunc = [=]() { //call this to draw
+        tft.drawCircle(x + posX, y + posY, r, color);
+        };
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
+
+
+
+
+//back to main draw logic for canvas here
+
+
+
     // Draws the canvas: first draws the canvas background (and border if not borderless),
     // then sorts and draws the drawable elements by layer.
-    void draw() {
+    void Draw() {
           unsigned long startTime = millis(); //start time for the frame
         // Clear canvas area
         tft.fillRect(x, y, width, height, bgColor);
         if (!borderless) {
-    tft.drawRect(x, y, width, height, borderColor);
+    tft.DrawRect(x, y, width, height, borderColor);
        }
         
         // Sort drawable elements by layer (lowest first)
@@ -185,6 +354,8 @@ unsigned int lastFrameTime = 0;       // duration of last canvas draw
 
 
 };
+
+
 
 //****************************************************************************************************************************************
 
@@ -267,9 +438,9 @@ public:
     void draw() {
           unsigned long startTime = millis();
         // Clear the window area
-        tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
-        if (!config.borderless)
-            tft.drawRect(config.x, config.y, config.width, config.height, config.borderColor);
+        tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the window with the background color
+        if (!config.borderless) //if window not borderless
+            tft.drawRect(config.x, config.y, config.width, config.height, config.borderColor); //draw the rectangle outline
 
         // Set text properties
         tft.setTextColor(config.text_color);
@@ -381,39 +552,6 @@ void unregisterWindow(Window* win) {
 //default groupings are groups of default windows to put on the screen in some conditions, saving you time from having to manually add one of each window to the screen [lock screen,app screen, etc]
 ///***************************************************************************************************************************************************************************************************************************************************************
 
-
-//
-
-//variables used in this function to drawscreen
-// Global variables for time access
-extern int currentHour;
-extern int currentMinute;
-extern int currentSecond;
-extern float temperature;
-extern int AVG_HR;
-
-// Define a little window group we can set for the lock screen
-// Quick, dirty, effective
-#define defaultWinGroup_lockscreen \
-//as of jan 2, 2025, it should be  x,y,w,h,auto align?,wrap?,textsize,borderkess?, border color,bgcolor,txt color, new text to write
-Window timeWindow("Time", WindowCfg{14, 34, 100, 40, false, true, 2,false, 0xFFFF, 0x0000, 0x07FF}); \
-Window tempWindow("Temperature", WindowCfg{10, 0, 100, 30, false, true, 1, true, 0xFFFF, 0x0000, 0x558F}); \
-Window heartRateWindow("Heart Rate", WindowCfg{100, 120, 50, 30, false, true, 1,false, 0xFFFF, 0x0000, 0xB000}); \
-
-// TODO: With the clock module overhaul, this section will need a lot of fixes.
-
-void updateLockScreen() {
-    heartRateWindow.updateContent(std::to_string(AVG_HR)); // Update heart rate window
-    tempWindow.updateContent(std::to_string(IMU.getTemp())); // Update temperature window (updated to use the sensor inside the imu for reduced hardare cost.)
-
-    // Format time as "hh:mm:ss" by converting time into hh:mm:ss
-    std::string timeString = 
-        (currentHour < 10 ? "0" : "") + std::to_string(currentHour) + ":" +  // Ensure 2 digits for hour
-        (currentMinute < 10 ? "0" : "") + std::to_string(currentMinute) + ":" +  // Ensure 2 digits for minute
-        (currentSecond < 10 ? "0" : "") + std::to_string(currentSecond);  // Ensure 2 digits for second
-    timeWindow.updateContent(timeString); // Update time window
-}
-
-
+//NONE NOW, WE NOW USE APPLICATIONS FOR THIS
 
 #endif

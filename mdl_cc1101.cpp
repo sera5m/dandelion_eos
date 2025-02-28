@@ -76,7 +76,7 @@
 Radio radio3 = new RadioModule();
 */
 
-
+//tip: set addr with "radio.setNodeAddress(0x01, 1);"
 
 
 //add recieve transmit functionality here later.  i'll do it after i can actually save packets to ram and/or microsd
@@ -86,7 +86,7 @@ Radio radio3 = new RadioModule();
 
 //scan this crap i guess dude.
 
-void rfScanTick() {
+void rfScanTick() { //call every n ms to scan for whatever's around
     Serial.println(F("[CC1101] Scanning for signals..."));
     float strongestRSSI = -1000; // Start with a very low RSSI
     float detectedFreq = 0.0;

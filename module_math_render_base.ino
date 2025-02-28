@@ -64,7 +64,7 @@ void screen_reset() {
 
 
 void screen_startup() {
-  //not having serial here because it needs to be setup in the main code anyway
+  //not having serial cfg here because it needs to be setup in the main code anyway
    //SPI.begin(SCLK_PIN, MISO, MOSI_PIN, CS_PIN);
    //SPI.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));  // Set SPI speed to 40 MHz
   tft.begin();
