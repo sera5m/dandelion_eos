@@ -342,7 +342,7 @@ void writeFileMetadata(fs::FS &fs, const char *path, const char *key, const char
 enum DataFlavor{
   analog,
   digital
-}
+};
 
 //way to record the datapoints with some custom extensions
 
@@ -364,7 +364,7 @@ double frequency; //any frequency you want, really only used for digital data st
 DataFlavor dataFlavor = DataFlavor::digital; //the flavor of data this file stores. changes how it's enterpereted.
 uint64_t creationTime; //metadata for creation time,
 //uint8_t bitDepth; //todo: impliment bit depth in the actual datastorage. important only for digital because for anal log 0x0000002 is just 2, but for digital it's very different. probably
-}
+};
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------
 //use: the file should contain the anolog data points with amplitude and time. the value for timedDataPoint should be a nonzero value on input 
@@ -561,6 +561,44 @@ if (reader.open()) {
     reader.close();
 }
 */
+
+//data packets for the cc1101 (put here to centralize storage stuff)
+struct fskFHeader {
+    uint32_t frequency;       // Frequency in Hz
+    uint64_t timestamp;       // Unix timestamp when logging started
+    uint8_t modulation;       // 0 = FSK, 1 = GFSK
+    uint16_t deviation;       // Frequency deviation (Hz)
+    uint32_t symbolRate;      // Symbol rate (Baud)
+    uint8_t packetFormat;     // 0 = Fixed, 1 = Variable length
+    uint16_t preambleLen;     // Preamble length in bits
+    uint8_t syncWord[2];      // Sync word (usually 16-bit)
+    uint8_t reserved[6];      // Future expansion
+};
+
+//each packet with it's data
+struct fskPacket {
+    uint64_t rxTimestamp;  // Timestamp when the packet was received
+    uint8_t length;        // Packet length
+    uint8_t data[255];     // Packet data (Max CC1101 packet size is 255 bytes)
+    uint8_t rssi;         // Received Signal Strength Indicator (RSSI)
+    uint8_t crcOk;        // 1 = CRC passed, 0 = CRC failed
+};
+
+struct gfskFHeader {
+    uint32_t frequency;      // Frequency in Hz
+    uint64_t timestamp;      // Unix timestamp (time of recording)
+    uint8_t  modulation;     // GFSK settings (deviation, shaping, etc.)
+    uint8_t  bandwidth;      // Channel filter bandwidth
+    uint8_t  datarate;       // Symbol rate in kbps
+    uint8_t  syncWord[4];    // Sync word (for easier identification)
+    uint8_t  reserved[8];    // Reserved space for future expansion
+};
+
+struct gfskPacket {
+    uint64_t timestamp;   // Packet timestamp (relative to start)
+    uint16_t length;      // Packet length
+    uint8_t  data[255];   // Packet payload (adjustable size)
+};
 
 
 #endif

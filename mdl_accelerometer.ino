@@ -1,17 +1,17 @@
 #ifndef mdl_accelerometer_H
 #define mdl_accelerometer_H
 
-
+extern  MPU6500 IMU;  //import extern imu object stfu
 // Constants for sampling
-#define SAMPLE_RATE_HZ 10  // 10 Hz (100ms per sample)
-#define BUFFER_SIZE 20     // 2 seconds of data (10 Hz * 2s)
+#define IMU_SAMPLE_RATE_HZ 10  // 10 Hz (100ms per sample)
+#define IMU_CircularBufferSize 20     // 2 seconds of data (10 Hz * 2s)
 
 struct AccelSample {
     float x, y, z;       // Raw accelerometer data (in g's)
     float magnitude;     // Filtered magnitude of acceleration
 };
 
-AccelSample accelBuffer[BUFFER_SIZE];  // Circular buffer for accelerometer data
+AccelSample accelBuffer[IMU_CircularBufferSize];  // Circular buffer for accelerometer data
 int bufferIndex = 0;                   // Current position in the buffer
 
 // Low-pass filter smoothing factor
@@ -30,13 +30,13 @@ void updateAccelBuffer(float x, float y, float z) {
     float filteredMagnitude = lowPassFilter(rawMagnitude, previousValue);
 
     accelBuffer[bufferIndex] = { x, y, z, filteredMagnitude };
-    bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
+    bufferIndex = (bufferIndex + 1) % IMU_CircularBufferSize;
 }
 
 // Check if the sample at index is a local peak.
 bool isPeak(int index) {
-    int prev = (index - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-    int next = (index + 1) % BUFFER_SIZE;
+    int prev = (index - 1 + IMU_CircularBufferSize) % IMU_CircularBufferSize;
+    int next = (index + 1) % IMU_CircularBufferSize;
     return (accelBuffer[index].magnitude > accelBuffer[prev].magnitude) &&
            (accelBuffer[index].magnitude > accelBuffer[next].magnitude);
 }
@@ -49,12 +49,12 @@ int lastStepIndex = -1;    // Index of the last detected step
 int countSteps() {
     int stepCount = 0;
 
-    for (int i = 0; i < BUFFER_SIZE; i++) {
+    for (int i = 0; i < IMU_CircularBufferSize; i++) {
         if (isPeak(i) && accelBuffer[i].magnitude > stepThreshold) {
             // Ensure steps are spaced appropriately (e.g., at least 0.5 seconds apart)
-            // Using sample indices: (SAMPLE_RATE_HZ / 2) samples = 0.5s
+            // Using sample indices: (IMU_SAMPLE_RATE_HZ / 2) samples = 0.5s
             if (lastStepIndex == -1 ||
-                ((i - lastStepIndex + BUFFER_SIZE) % BUFFER_SIZE) >= (SAMPLE_RATE_HZ / 2)) {
+                ((i - lastStepIndex + IMU_CircularBufferSize) % IMU_CircularBufferSize) >= (IMU_SAMPLE_RATE_HZ / 2)) {
                 stepCount++;
                 lastStepIndex = i;
                 // Update threshold dynamically using a smoothing approach.
@@ -69,7 +69,7 @@ int countSteps() {
 // isFacingUp: Returns true if the latest y-axis reading is 0.75g or greater.
 bool isFacingUp() {
     // Use the most recent sample in the circular buffer.
-    int lastIndex = (bufferIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+    int lastIndex = (bufferIndex - 1 + IMU_CircularBufferSize) % IMU_CircularBufferSize;
     return (accelBuffer[lastIndex].y >= 0.75);
 }
 

@@ -3,7 +3,9 @@
 #ifndef LILLYPAD_RENDERER_H
 #define LILLYPAD_RENDERER_H
 
-
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
+#include <memory>
 
 //todo:
 
@@ -27,13 +29,15 @@
 //this is the window handler for dandelionn. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
 //this module handles window creation and draw calls. version 4, now with performance enhancements. :3
 
-
+#include "module_math_render_base.ino" //i hate this verbose name
+extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 
 //forward declare all possible dependencies/child of window before we use them
 
 class Canvas;  // forward declaration 
 class Window; //do i have to define the window class?
+class WindowManager; //only make one of these on os start
 //include the struct dependencies of children
 
 
@@ -48,6 +52,7 @@ struct WindowCfg {
     int textsize=1; //default text size inside this window
     bool borderless=false;
     uint16_t borderColor, bgColor, text_color; // Colors -add defaults
+    uint16_t UpdateRateMs=500;//update every how many ms?
 }; 
 
 
@@ -70,9 +75,9 @@ int layer;
 };
 
 
-
 //end forward dependencies
 
+//todo: ALL THE UPDATE RATE TICKS/WHATEVER ARE THE WRONG VAR NAMES! THEY DO NOT AGREE! MAKE THEM MATCH! this will mean the damn things won't do shit unless i make it work
 
 //****************************************************************************************************************************************
 
@@ -144,15 +149,15 @@ public:
  void AddLine(int posX0, int posY0, int posX1, int posY1, uint16_t color, int layer = 0){
  DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
 
         // Check if it's a vertical line
         if (posX0 == posX1) {
-            tft.drawFastVLine(x + posX0, y + std::min(posY0, posY1), std::abs(posY1 - posY0), color);
+            tft.drawFastVLine(x + posX0, y + std::min(posY0, posY1), std::abs(posY1 - posY0), color); //x,y,len,color-should be void drawFastVLine(uint16_t x0, uint16_t y0, uint16_t length, uint16_t color); make sure params agree with bit sizes
         }
         // Check if it's a horizontal line
         else if (posY0 == posY1) {
-            tft.drawFastHLine(x + std::min(posX0, posX1), y + posY0, std::abs(posX1 - posX0), color);
+            tft.drawFastHLine(x + std::min(posX0, posX1), y + posY0, std::abs(posX1 - posX0), color); //void drawFastVLine(uint16_t x0, uint16_t y0, uint16_t length, uint16_t color); params need to agree w bit size
         }
         // Otherwise, draw a normal angled line
         else {
@@ -171,7 +176,7 @@ public:
     void AddPixel(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.drawPixel(x + posX, y + posY, color); //args, posx posy, color
         };
         drawElements.push_back(element);
@@ -180,18 +185,21 @@ public:
 
 
 
-//TODO: SHOULD HAVE PROPER IMPLIMENTATION FROM STRUCT PIXELDAT
+
 //draw multiple pixels on multiple layers
-    void AddPixels(int posX, int posY, int w, int h, uint16_t color, int layer = 0) { //replace with an array here
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
-        tft.drawPixel(x + posX, y + posY, color); //args, posx posy, color //replace with for array
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-    
+  void AddPixels(const std::vector<PixelDat>& pixels) { //takes an array of pixel pos
+    DrawableElement element;
+    element.layer = pixels.empty() ? 0 : pixels[0].layer; // Default to layer 0 if empty
+
+    element.drawFunc = [&]() { // Lambda to draw all pixels
+        for (const auto& pixel : pixels) {
+            tft.drawPixel(x + pixel.posX, y + pixel.posY, pixel.color);
+        }
+    };
+
+    drawElements.push_back(element);
+    canvasDirty = true;
+  }
 
 
  // drawing a rectangle.
@@ -200,7 +208,7 @@ public:
     void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.fillRect(x + posX, y + posY, w, h, color);
         };
         drawElements.push_back(element);
@@ -211,7 +219,7 @@ public:
     void AddRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.drawRect(x + posX, y + posY, w, h, color);
         };
         drawElements.push_back(element);
@@ -228,7 +236,7 @@ public:
     void AddRFRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.fillRoundRect(x + posX, y + posY, w, h, r, color);
         };
         drawElements.push_back(element);
@@ -239,7 +247,7 @@ public:
     void AddRRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.drawRoundRect(x + posX, y + posY, w, h, r, color);
         };
         drawElements.push_back(element);
@@ -253,7 +261,7 @@ public:
     void AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
          tft.drawTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
         };
         drawElements.push_back(element);
@@ -265,7 +273,7 @@ public:
     void AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
          tft.fillTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
         };
         drawElements.push_back(element);
@@ -280,7 +288,7 @@ public:
     void AddFCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.fillCircle(x + posX, y + posY, r, color);
         };
         drawElements.push_back(element);
@@ -291,7 +299,7 @@ public:
     void AddCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=]() { //call this to draw
+        element.drawFunc = [&]() { //call this to draw
         tft.drawCircle(x + posX, y + posY, r, color);
         };
         drawElements.push_back(element);
@@ -312,7 +320,7 @@ public:
         // Clear canvas area
         tft.fillRect(x, y, width, height, bgColor);
         if (!borderless) {
-    tft.DrawRect(x, y, width, height, borderColor);
+    tft.drawRect(x, y, width, height, borderColor);
        }
         
         // Sort drawable elements by layer (lowest first)
@@ -328,18 +336,23 @@ public:
     canvasDirty = false; //now it's clean
     }
     
+    /*
     // A simple function to determine borderless state.
-    bool borderless() const {
+    bool IsBorderless() const { //todo! fix: borderless is a declared input param. why do we need this? just do if else for borderless in the canvas
+
         // If borderless is desired, return true.
         // (Alternatively, you can store a borderless flag in this class.)
         return false; // For now, assume border should be drawn.
     }
-    
+    */
+
+
+
     // Optionally update canvas only if dirty
     void update() {
     unsigned long now = millis();
-    if (canvasDirty || (now - lastUpdateTime >= updateInterval)) {
-        draw();
+    if (canvasDirty || (now - lastUpdateTime >= TryUpdateInterval)) {
+        Draw();
         lastUpdateTime = now;
     }
 }
@@ -348,13 +361,12 @@ public:
  private:
 
 unsigned long lastUpdateTime = 0;   // in ms
-unsigned int updateInterval = 100;    // default update rate (ms) for canvas
+unsigned int TryUpdateInterval = 100;    // default update rate (ms) for canvas
 unsigned int lastFrameTime = 0;       // duration of last canvas draw
 
 
 
 };
-
 
 
 //****************************************************************************************************************************************
@@ -376,7 +388,7 @@ public:
     // List of canvases attached to this window
     std::vector<Canvas*> canvases;
 
-    int WinUpdateMS = 500;  // update interval in ms
+    int UpdateTickMs = UpdateTimeMs;  // update interval in ms-take from config now! yay i think
     bool dirty = false;     // needs redraw flag
 
     // NEW: Scrolling members:
@@ -393,6 +405,9 @@ public:
             delete canvas;
         }
     }
+
+    //todo: add update rate change function (must also talk to the window manager's update interval tracker)
+
 
     // Add a canvas to this window
     void addCanvas(const CanvasCfg& cfg) {
@@ -480,7 +495,7 @@ public:
 private:
 
 unsigned long lastUpdateTime = 0;  // in ms
-unsigned int updateInterval = 500; // can be dynamic (WinUpdateMS)
+unsigned int UpdateTickMs = 500; // can be dynamic (UpdateTickMs)
 unsigned int lastFrameTime = 0;    // duration of last draw
 
 
@@ -518,25 +533,84 @@ unsigned int lastFrameTime = 0;    // duration of last draw
             wrappedLines.push_back(currentLine);
         }
     }
+}; //todo: modify to aggree with the global win manager inst
+
+
+//track windows and their update intervals-used in window manager with data pushed from class window
+struct WindowAndUpdateInterval {
+    Window* window;   // Pointer to the window
+    int updateTickMs; // Update interval in milliseconds
+
+    // Constructor to initialize both values
+    WindowAndUpdateInterval(Window* win): window(win), updateTickMs(win->WinUpdateMS) {} //break the update tick rate off here to point to the window itself to modify it's update rate? meow meowww
+}; //todo: it's not taking class window right? 
+
+
+
+//*************************************************************************************
+//                        window manager
+//handles windows and updating. just create a background osproscess with this in it. todo: how to run this
+
+class WindowManager {
+public:
+        // Global list of windows with their update intervals
+    std::vector<WindowAndUpdateInterval> windowRegistry;
+
+    // Register a new window
+    void registerWindow(Window* win) {
+        windowRegistry.emplace_back(win);  // Adds window with its update interval
+    }
+
+    // Unregister a window
+    void unregisterWindow(Window* win) { 
+        windowRegistry.erase(
+            std::remove_if(windowRegistry.begin(), windowRegistry.end(),
+                [&](const WindowAndUpdateInterval& entry) { return entry.window == win; }),
+            windowRegistry.end());
+            //todo: clear from screen and notify it's parent OSProscess if it has one
+    }
+
+    // Clear all windows
+    void clearAllWindows() {
+        windowRegistry.clear(); //todo: actually make sure they get cleared from the screen too
+    }
+
+
+    // Get all windows (returns a vector of Window pointers)
+    std::vector<Window*> getAllWindows() {
+        std::vector<Window*> allWindows;
+        for (auto& entry : windowRegistry) {
+            allWindows.push_back(entry.window);
+        }
+        return allWindows; //ALL the windows
+    }
+
+    // Get window by name (returns a pointer to the window or nullptr if not found)
+    Window* getWindowByName(const std::string& windowName) { //look through reg to find it
+        for (auto& entry : windowRegistry) {
+            if (entry.window->name == windowName) {
+                return entry.window;
+            }
+        }
+        return nullptr;  // If not found
+    }
+
+    // Update all windows based on their tick intervals
+    void updateAllWindows() {
+        for (auto& entry : windowRegistry) {
+            if (millis() % entry.updateTickMs == 0) { // Check if it's time to update--todo: only run if dirty
+                entry.window->draw();
+            }
+        }
+    }
 };
 
-// Global window registry (if needed)
-std::vector<std::unique_ptr<Window>> windowRegistry;
-
-void registerWindow(std::unique_ptr<Window> win) {
-    windowRegistry.push_back(std::move(win));
-}
-
-void unregisterWindow(Window* win) {
-    windowRegistry.erase(
-        std::remove_if(windowRegistry.begin(), windowRegistry.end(),
-            [&](const std::unique_ptr<Window>& w) { return w.get() == win; }),
-        windowRegistry.end());
-}
+//todo: make a str that's "trackerupdaterwindowfuckyou" ptr window,updaterate in ms
 
 
 
 
+//tips: to get win by name use "Window* myWindow = windowManager.getWindowByName("Window1");" w/ the name :)
 
 
 

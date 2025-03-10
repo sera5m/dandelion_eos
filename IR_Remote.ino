@@ -1,3 +1,4 @@
+/*
 #ifndef IR_Remote_C
 #define IR_Remote_C
 
@@ -41,3 +42,4 @@ void DTA_EMIT(uint8_t pin, SensorAnalogDataPoint* data, int sampleCount) {
 
 
 #endif
+*/

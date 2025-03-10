@@ -1,89 +1,10 @@
-#ifndef mdl_userinput_C
-#define mdl_userinput_C
+#ifndef mdl_userinput_ino
+#define mdl_userinput_ino
 
 
-//do i just include whatever files
-#include "lillypad_renderer.ino"
+#include <PCF8574.h>
 
 
-
-
-#define MAX_KEYS 6  // Maximum number of keys to track at once. device has 6 physical keys fuck off
-extern std::shared_ptr<OSProcess> FocusedOSProcess=nullptr; //get the external reference of the os's focused window//
-
-
-
-
-
-
-enum hardwareButtons { //the 6 physical buttons the shit has
-  Up,
-  Down,
-  Left,
-  Right,
-  Enter,
-  Back
-}; //p0-p5
-
-constexpr uint16_t BUTTON_MAPPING[] = { //os-defined mapping to map said buttons to unicode
-  0x2191, // ↑ Up Arrow
-  0x2193, // ↓ Down Arrow
-  0x2190, // ← Left Arrow
-  0x2192, // → Right Arrow
-  0x23CE, // ⏎ enter/sel
-  0x232B  // ⌫ Back/backspace
-};
-
-
-//  store button states
-bool buttonStates[6] = {false};
-
-
-
-
-volatile bool interruptFlag = false;
-
-// Interrupt Service Routine (ISR)
-void IRAM_ATTR handleInterrupt() {
-  interruptFlag = true;
-}
-
-// UserInput struct
-struct UserInput {
-    uint8_t type;     // Device Type (e.g., Keyboard, Mouse)
-    uint8_t device;   // Specific Device ID
-    uint16_t key;     // Unicode key value
-    bool isDown;      // True if pressed, False if released
-};
-
-// Function to send input to the focused process
-void OnUserInput(const UserInput& input) {
-  if (FocusedOSProcess && FocusedOSProcess->captureInput) {
-    FocusedOSProcess->handleInput(input);
-  }
-}
-
-// Handle button presses and map them to Unicode
-void OnButtonPush(bool isDown, hardwareButtons button) {
-  UserInput input;
-  input.type = 0xF1; // Mark as physical input from the actual watch
-  input.device = 0;  // Internal buttons
-  input.key = BUTTON_MAPPING[button]; 
-  input.isDown = isDown;
-
-  OnUserInput(input); // Send to OS Process
-}
-
-// Poll the button states
-void PollButtons() {
-  for (int i = 0; i < 6; i++) {
-    bool newState = (pcf.digitalRead(i) == LOW); // Active LOW
-    if (newState != buttonStates[i]) {
-      buttonStates[i] = newState;
-      OnButtonPush(newState, static_cast<hardwareButtons>(i));
-    }
-  }
-}
 
 //todo: if the back button is held for ten seconds, exit this and go back
 

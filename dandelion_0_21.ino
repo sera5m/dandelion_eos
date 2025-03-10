@@ -1,4 +1,6 @@
 #include <Arduino.h>
+
+//screen
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
 
@@ -12,7 +14,7 @@
 //freerots
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <mutex>
+#include <mutex> 
 #include "HardwareSerial.h" 
 //arduino shi
 #include <Wire.h>
@@ -44,7 +46,7 @@
 
 #include "mdl_mathHelper.ino" //add in my critical math helper functions that add vec3 and stuff
 
-
+#include <memory>
 #include <Preferences.h> // Library for handling NVS non volitile storage
 Preferences preferences;
 
@@ -52,7 +54,7 @@ Preferences preferences;
 #include <WiFi.h>
 #include "esp_bt.h"
 //#include "esp_bt_main.h"   // Required for esp_bluedroid functions
-#include "esp_bt_device.h" // Optional if you need Bluetooth device functions
+#include "esp_bt_device.h" // Optional  Bluetooth device functions
 
 
 
@@ -91,7 +93,8 @@ Madgwick filter;
 //important other libraries
 #include <iostream>
 #include <PCF8574.h>// Rob Tillaart's PCF8574 library, not adafruit!!
-
+PCF8574 PCF_01(0x38); //yes it's this idk
+//todo:declare pcf object
 
 #include <Adafruit_Sensor.h>
 
@@ -185,15 +188,17 @@ SPI.endTransaction();
  screen_on();  // Call to initialize the screen with proper SPI settings
 
 
-pcf.begin();//init i/o expander
-  // Set P0–P5 as inputs with pull-up resistors
-  for (int i = 0; i < 6; i++) {
+pcf.begin(); //init i/o expander
+
+// Set P0–P5 as inputs with pull-up resistors
+for (int i = 0; i < 6; i++) {
     pcf.pinMode(i, INPUT_PULLUP);
-  }
-    // Attach interrupt to INT pin
-  pinMode(INT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(INT_PIN), handleInterrupt, FALLING);
 }
+
+// Attach interrupt to INT pin
+pinMode(INT_PIN, INPUT_PULLUP);
+attachInterrupt(digitalPinToInterrupt(INT_PIN), handleInterrupt, FALLING);
+
 //note: don't add polling, this is interrupt based
 
 
@@ -296,6 +301,8 @@ if (!SD.begin()) { // Check if the SD card initialization is successful
 xTaskCreatePinnedToCore(taskUpdateHeartRate,"HRSENSOR",2048,NULL,1,NULL,1);
 //xTaskCreatePinnedToCore(taskPmeterUpdate,"pmeter",8192,NULL,1,NULL,1);
 //setup ends here
+
+
 }
 
 
@@ -303,82 +310,7 @@ void loop() {
   //nothing for now
 }
 
-//pedometer turned off because it's so laggy it's horrid
-/*
-void taskPmeterUpdate(void *pvParameters) {
-  (void)pvParameters;  // Avoid unused parameter warning
+//you put updates here
 
-  while (true) {
-    // Update sensor data
-    //    update_IMU();
-   // int steps = countSteps();
-   Serial.println("vector magnitude");
-Vector3 v(3.0f, 4.0f, 0.0f);  // This should result in a magnitude of 5.0
-Serial.print("x: "); Serial.println(v.x);
-Serial.print("y: "); Serial.println(v.y);
-Serial.print("z: "); Serial.println(v.z);
-float magnitude = v.magnitude();
-Serial.print("Magnitude: "); Serial.println(magnitude);
-
-// Should print )
-    // Print step count
-   // Serial.print("Steps detected: ");
-    //Serial.println(steps);
-
-Serial.print("Free heap: ");
-Serial.println(esp_get_free_heap_size());
-
-  
-    vTaskDelay(200 / portTICK_PERIOD_MS);  // Delay for n ms before next update.
-  }
-}
-*/
-
-// Task for drawing to the screen (Core 0)
-void taskDrawScreen(void *pvParameters) {
-  (void)pvParameters; // Avoid unused parameter warning
-
-  while (true) {
- 
-updateLockScreen(); //update the lock screen,but window hander module does it 
-    vTaskDelay(750 / portTICK_PERIOD_MS);  // Delay for 100ms before next update
-    
-  }
-}
-
-// Task for updating sensors and clock (Core 1)
-void taskUpdateSensors(void *pvParameters) {
-  (void)pvParameters; // Avoid unused parameter warning
-
-  while (true) {
-    // Update sensor data
-   
-   //replacement of temperature sensor with the mpu-s temperature reader
-       temperature=IMU.getTemp(); //USING THE fstimu lib, get device temp. replaces tmp 102 sensor to save a few bucks. 
- //i should print this to screen to get a debug,honestly
- Serial.println(IMU.getTemp());
- 
-    // Update time
-    //updateStoredTime();  // Function to update time (currentHour, currentMinute, currentSecond)
-   //updateheartrate();//commented out, this sensor needs to run faster
-    vTaskDelay(500 / portTICK_PERIOD_MS);  // Delay for 500ms before next update
-
-
-//void printIMUdata();
-    
- 
-  }
-}
-
-// Task for updating heart rate 
-void taskUpdateHeartRate(void *pvParameters) {
-  (void)pvParameters;  // Avoid unused parameter warning
-
-  while (true) {
-    // Update sensor data
-    updateheartrate(); // Make sure this function is defined elsewhere
-    vTaskDelay(10 / portTICK_PERIOD_MS);  // Delay for 10ms before next update. this is stupidly fast
-  }
-}
 
 //update_IMU(); //update motion sensor and it's samples, CALL EVERY 50ms

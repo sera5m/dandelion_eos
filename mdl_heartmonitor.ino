@@ -27,11 +27,11 @@ float usertemperature; // Global variable, no extern needed unless used in anoth
 
 //thresHolds of heart rate. (all ints) for various activities. should be exposed to the user to let em config
 //TODO: expose these for the user and load em from hard storage if they're there!
-int HR_sleepThresHold=45;
-int HR_restingThresHold=65;
-int HR_walkingThresHold=100;
-int HR_excersiseThresHold=140;
-int HR_excessiveHR=180;
+int HR_WALKING_THRESHOLD = 100;
+int HR_SLEEP_THRESHOLD = 45;
+int HR_RESTING_THRESHOLD = 65;
+int HR_EXERCISE_THRESHOLD = 140;
+int HR_EXCESSIVE_THRESHOLD = 180;
 
 //---------------------------------------------------
 // Heart Rate Processing State
@@ -70,11 +70,9 @@ long denoiseIR(long irValue) {
 //---------------------------------------------------
 // Blood Oxygen Processing Variables
 //---------------------------------------------------
-#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-typedef uint16_t BOType;
-#else
-typedef uint32_t BOType;
-#endif
+
+typedef uint32_t BOType; //def bloodoxygen datatime as uint32, but we can use 16 bit if absolutely needed
+
 
 // Variables for averaging blood oxygen values
 unsigned long lastBOAvgTime = 0;  // time of last 10-sec average
@@ -84,7 +82,7 @@ int minuteBOBuffer[10] = {0};     // holds 10 one-minute averages
 int boMinuteIndex = 0;
 unsigned long lastTenMinuteTime = 0;
 const int BO_THRESHOLD = 95;      // example threshold for low SpO2 warning
-
+bool enableBloodOxygen=false;
 //---------------------------------------------------
 // Function Declarations
 //---------------------------------------------------

@@ -1,273 +1,271 @@
 #ifndef MDL_MATH_HELPER_H
 #define MDL_MATH_HELPER_H
+
+//include the other stuff we need
+#include "lillypad_renderer.ino" //because task creation has window req
+
+#include <memory>
+#include <string>
+#include <mutex>
+
 //this module is made to provide arduino the half dozen math things it doesn't natively support because god fucking help me why woulnd't we have basics like vector 3? 
 //noooooo that would bne too fucking hard wouldn't it - sera5m 12/1/2024
 //update: it's 3 days later. IT GETS WORSE. WAY WORSE. ASM HELL. I'M IN HELLLLLLLLLLL
-
+//note to past self: why did you even try inline asm? just make better code. i mean i'm not gonna do it. oh wait, i have to
+//shut tufuick up
 
 //notes on hardware of the esp32:
 //fpu: the fpu is absolute garbage. like. faster than me, but still MISERABLY bad for a fpu. (functionally useless proscessor) i'm a person with a soul. and i deserve to not suffer like this. i mean i've had worse life experiences but....
 //the cpu or fpu doesn't support division natively. why? that's like. the most normal thing to have. 
-//this is wildly different than normal asm. fuck with this at your own peril, AND PERIL YOU WILL GET. 
 
 
 
+
+//forward class declare so no bugs you vill eat ze bugs
+class OSProscess; 
+class OSProcessHandlerService; 
+//i am this fucking close
+
+
+ //yummy yummy import user input
+//fuck you, i'm being lazy and moving user input into here to not deal with stupid fucking errors
+
+
+
+
+#define MAX_KEYS 6  // Maximum number of keys to track at once. device has 6 physical keys fuck off
+
+bool AllowSimotaneousKeypress=true; //i'll need this later-does nothing yet. also how to spell????
+
+
+enum hardwareButtons { //the 6 physical buttons the shit has
+  Up,
+  Down,
+  Left,
+  Right,
+  Enter,
+  Back
+}; //p0-p5
+
+constexpr uint16_t BUTTON_MAPPING[] = { //os-defined mapping to map said buttons to unicode
+  0x2191, // ↑ Up Arrow
+  0x2193, // ↓ Down Arrow
+  0x2190, // ← Left Arrow
+  0x2192, // → Right Arrow
+  0x23CE, // ⏎ enter/sel
+  0x232B  // ⌫ Back/backspace
+};
+
+
+//  store button states
+bool buttonStates[6] = {false}; //you should use a bitmask for this and change to physicalbuttonstates
+
+
+
+
+volatile bool interruptFlag = false; //allow interupt use? i don't remember the purpose
+
+// Interrupt Service Routine (ISR)
+void IRAM_ATTR handleInterrupt() {
+  interruptFlag = true; // Indicate that a button press occurred
+}
+
+
+// UserInput struct
+struct UserInput {
+    uint8_t type;     // Device Type (e.g., Keyboard, Mouse, some dickhead on their phone)
+    uint8_t device;   // Specific Device ID. 000000000 for the buttons on the physical device
+    uint16_t key;     // Unicode key value
+    bool isDown;      // True if pressed, False if released. no fucking shit
+    uint16_t MS_HeldDown; //how long it was held down before being released [max 655s=11 mins. if they hold it longer, they're fucking insane]
+};
+
+// Handle button presses and map them to Unicode
+void OnButtonPush(bool isDown, hardwareButtons button) {
+  UserInput input;
+  input.type = 0xF0; // Mark as physical input from the actual watch buttons-note: doccument this
+  input.device = 0;  // Internal buttons
+  input.key = BUTTON_MAPPING[button]; //buttons are keys. kina
+  input.isDown = isDown; //duhhhhhhhhhhhhh
+ //
+  OnUserInput(input); // what does this do
+}
+
+void PollButtons() {
+  for (int i = 0; i < 6; i++) {
+    bool newState = (pcf.digitalRead(i) == LOW); // Active LOW
+    if (newState != buttonStates[i]) {
+      buttonStates[i] = newState;
+      // Trigger interrupt for input handling
+      handleInterrupt(); // set the interrupt flag
+    }
+  }
+}
+
+
+
+
+
+
+
+
+/*
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⣤⣤⣤⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣠⡶⡿⢿⣿⣛⣟⣿⡿⢿⢿⣷⣦⡀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢰⣯⣷⣿⣿⣿⢟⠃⢿⣟⣿⣿⣾⣷⣽⣺⢆⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⣿⢿⣾⢧⣏⡴⠀⠈⢿⣘⣿⢿⣿⣿⣿⣿⡆⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢹⣿⢠⡶⠒⢶⠀⠀⣠⠒⠒⠢⡀⢿⣿⣿⣿⡇⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣿⣿⠸⣄⣠⡾⠀⠀⠻⣀⣀⡼⠁⢸⣿⣿⣿⣿⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⠀⠀
+⠀⠀⠀⠀⠀⢰⣿⣿⠀⠀⠀⡔⠢⠤⠔⠒⢄⠀⠀⢸⣿⣿⣿⣿⡇⠀⠀
+⠀⠀⠀⠀⠀⢸⣿⣿⣄⠀⠸⡀⠀⠀⠀⠀⢀⡇⠠⣸⣿⣿⣿⣿⡇⠀⠀
+⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⣦⣮⣉⢉⠉⠩⠄⢴⣾⣿⣿⣿⣿⡇⠀⠀⠀
+⠀⠀⠀⠀⠀⢸⣿⣿⢻⣿⣟⢟⡁⠀⠀⠀⠀⢇⠻⣿⣿⣿⣿⣿⠀⠀⠀
+⠀⠀⠀⠀⠀⢸⠿⣿⡈⠋⠀⠀⡇⠀⠀⠀⢰⠃⢠⣿⡟⣿⣿⢻⠀⠀⠀
+⠀⠀⠀⠀⠀⠸⡆⠛⠇⢀⡀⠀⡇⠀⠀⡞⠀⠀⣸⠟⡊⠁⠚⠌⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⡍⠨⠊⣒⠴⠀⡇⡴⠋⡋⢐⠐⠅⡀⠐⢠⠕⠂⢂⠀
+        ohmagah 
+*/
 
 //miniproscess for freerots.
 //think of this like a setup layer for program proscesses as opposed to using a direct freerots. 
 //NOTE: NOT PINNED TO CORE BY DEFAULT UNLESS FLAG
 
 
-class OSProcess { //this shouldn't create a window, probably. leave that up to the user to do it. i guess. eh it's probably fine
-public:
-    struct Config {
+//to check: does focus remove window? it should not. a task being a background task should do that instead
+
+class OSProcess: 
+public: std::enable_shared_from_this<OSProscess>{ //std enable exposes os proscess refs for ext ref
+
+    struct OSPConfig {
         std::string name;
-        bool create_window = false;
-        WindowCfg window_cfg;
-        bool pin_to_core = false;
-        int core_id = 0;
-        uint16_t stack_size = 4096;  // More realistic minimum for C++ tasks
-        UBaseType_t priority = tskIDLE_PRIORITY + 1;
-        bool start_focused = false;  // New: Default focus state
+        bool create_window = false; //auto make win?
+        WindowCfg window_cfg; //win cfg
+        bool pin_to_core = false; 
+        int core_id = 0; //only relavent forpintocore
+        uint32_t stack_size = 4096;  
+        UBaseType_t priority = tskIDLE_PRIORITY + 1; //todo: is this really this high priority?
+        bool start_focused = false; 
+        bool isBackground=false; //new tasks not background by defualt-don't focus and have no window. must not be backgroudn to take input
+        //todo: default define background tasks? unfocused tasks aren't automatically background ones, they can still be on screen
+        
     };
 
-    // Factory method with background awareness
-    static std::shared_ptr<OSProcess> create(const Config& cfg) {
+    static std::shared_ptr<OSProcess> create(const OSPConfig& cfg) { 
         auto proc = std::make_shared<OSProcess>(cfg);
-        std::lock_guard<std::mutex> lock(process_mutex);
-        
-        // Add to process registry
-        auto& registry = processes();
-        registry.erase(
-            std::remove_if(registry.begin(), registry.end(),
-                [](const auto& p) { return p.expired(); }),
-            registry.end()
-        );
-        registry.emplace_back(proc);
-        
-        // Set focus if configured
-        if(cfg.start_focused) setFocused(proc);
-        
+        OSProcessHandlerService::registerProcess(proc);
+        if (cfg.start_focused) {
+            OSProcessHandlerService::setFocused(proc);
+        }
         return proc;
     }
 
-    // Improved input handling with long-press detection
-    static void handleGlobalInput(const UserInput& input) {
-        static std::chrono::steady_clock::time_point back_press_time;
-        static constexpr auto long_press_duration = std::chrono::seconds(10);
-
-        std::lock_guard<std::mutex> lock(process_mutex);
-        
-        if(input.key == 0x232B) { // Back key
-            if(input.isDown) {
-                back_press_time = std::chrono::steady_clock::now();
-            } else {
-                auto duration = std::chrono::steady_clock::now() - back_press_time;
-                if(duration > long_press_duration) {
-                    emergencyReturnToMain();
-                    return;
-                }
-            }
-        }
-
-        if(auto focused = focused_process.lock()) {
-            focused->handleInput(input);
-        }
-    }
-
-    // Enhanced process control
     void start(bool auto_focus = true) {
-        if(!task_handle && execution_code) {
-            xTaskCreatePinnedToCore(
-                taskRouter, 
-                config.name.c_str(),
-                config.stack_size,
-                this,
-                config.priority,
-                &task_handle,
-                config.pin_to_core ? config.core_id : tskNO_AFFINITY
-            );
-            
-            if(auto_focus) setFocused(shared_from_this());
-        }
-    }
+        if (!OSProcessHandlerService::hasEnoughMemory(config.stack_size)) return; //do we have memory? if not, fuck you,no proscess
 
-    void stop() {
-        if(task_handle) {
+        if (!task_handle) { // Step 2: Check if the task has already been created (i.e., task_handle is not initialized)
+            xTaskCreatePinnedToCore(taskRouter,OSPConfig.name.c_str(),OSPConfig.stack_size,this,OSPConfig.priority,&task_handle,OSPConfig.pin_to_core ?OSPConfig.core_id : tskNO_AFFINITY); //create new tas w conf
+            if (auto_focus){ OSProcessHandlerService::setFocused(shared_from_this()); /*if the task is set to autofocus, notify the os handler service to focus in */ 
+            }//ifautofocus
+        } //thandle
+      
+      //call create window here to create and start it, but only if bool createwindow is true, and windowcfg is valid
+        //TODO!!!!!!!!!!!!! CREATE THE FUCKING DINWODW NOW BTICH
+      
+    }//voidstart
+
+
+    void stop() { //stopit! and delete
+        if (task_handle) {
             vTaskDelete(task_handle);
             task_handle = nullptr;
-            
-            // Automatically cleanup window
-            if(window) {
-                unregisterWindow(window.get());
-                window.reset();
-            }
-            
-            // Remove from registry
-            std::lock_guard<std::mutex> lock(process_mutex);
-            auto& registry = processes();
-            registry.erase(
-                std::remove_if(registry.begin(), registry.end(),
-                    [this](const auto& p) { return p.lock().get() == this; }),
-                registry.end()
-            );
+            OSProcessHandlerService::unregisterProcess(shared_from_this());
+            //also delete the task's window if valid here
         }
     }
 
-    // Window management
-    void createWindow() {
-        if(!window) {
-            window = std::make_unique<Window>(config.name, config.window_cfg);
-            registerWindow(window.get());
-        }
-    }
 
-    void destroyWindow() {
-        if(window) {
-            unregisterWindow(window.get());
-            window.reset();
-        }
-    }
+  bool setProcBackground(bool isBG){ //needs to be able to be remotely called too 
+  //1. delete and dereg the current window from the lillypad graphics thing
+  //2. set unfocused
+  //3. tell the os proscess handler this one is in the background now
+  //4. throttle update rate (once we impliment update rates)
+  }
 
-    // Focus management
-    void setBackground() {
-        std::lock_guard<std::mutex> lock(process_mutex);
-        if(focused_process.lock().get() == this) {
-            focused_process.reset();
-        }
-        destroyWindow();
-    }
+  void TakeUsrInput(const UserInput& input){ //take the user input and do that
+  //no logic yet-needs to take the user input intertupt passed to it from the os proscess manager
+  }//put it in a lambadia or something that the proscess can handle with it's own custom code-because i havea to remember that the os priscess is just a fucking wrapper!
+
+
+
+
 
 private:
-    // Static members for process management
-    static inline std::vector<std::weak_ptr<OSProcess>> processes_registry;
-    static inline std::weak_ptr<OSProcess> focused_process;
-    static inline std::mutex process_mutex;
-
-    // Instance members
-    Config config;
-    TaskHandle_t task_handle = nullptr;
-    std::function<void()> execution_code;
-    std::unordered_map<uint16_t, std::function<void()>> input_handlers;
-    std::unique_ptr<Window> window;
-
-    // Private implementation
-    explicit OSProcess(const Config& cfg) : config(cfg) {
-        if(config.create_window) {
-            createWindow();
-        }
-        
-        // Default safety bindings
-        bindInput(0x232B, [this]{ 
-            if(window) destroyWindow();
-            setBackground();
-        });
-    }
+    explicit OSProcess(constOSPConfig& cfg) :OSPConfig(cfg) {}
 
     static void taskRouter(void* param) {
         auto* proc = static_cast<OSProcess*>(param);
-        if(proc->execution_code) {
+        if (proc->execution_code) {
             proc->execution_code();
         }
-        
-        // Automatically stop process when execution completes
         proc->stop();
-        vTaskDelete(nullptr);
     }
 
-    static void emergencyReturnToMain() {
-        // Implementation for system-wide emergency return
-    }
+   OSPConfig OSPConfig; 
+    TaskHandle_t task_handle = nullptr;
+    std::function<void()> execution_code;
 };
 
-/* //this used to be the array or whatever
-std::vector<std::shared_ptr<OSProcess>> osProcessArray;
-std::shared_ptr<OSProcess> FocusedOSProcess;
-//GLOBAL REF FOCUSED osproscess: while multiple os proscesses may be on screen at once, only one may accept input at once.                        be sure to have each osproscess accept the  BACK key. (todo: holding back for 10 seconds goes back to main screen reguardless of task or position to avoid stupid crap from happening)
-// Example Usage
-*/
+class OSProcessHandlerService {
+public:
 
 
+    static void registerProcess(std::shared_ptr<OSProcess> proc) {
+        std::lock_guard<std::mutex> lock(process_mutex);
+        processes.emplace_back(proc);
+    }
 
-/*
-void createDemoProcess() {
-    OSProcess::Config cfg{
-        .name = "Demo",
-        .create_window = true,
-        .priority = 2
-    };
+    static void unregisterProcess(std::shared_ptr<OSProcess> proc) {
+        std::lock_guard<std::mutex> lock(process_mutex);
+        processes.erase(
+            std::remove_if(processes.begin(), processes.end(),
+                [&proc](const auto& p) { return p.lock() == proc; }),
+            processes.end()
+        );
+    }
 
-    auto proc = OSProcess::create(cfg);
-    
-    proc->setExecutionCode([]{
-        while(true) {
-            // Process main loop
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-    });
+    static bool hasEnoughMemory(uint32_t stack_size) {
+        return xPortGetFreeHeapSize() > (stack_size + 64); //mem and fudging
+    }
 
-    proc->bindInput(0x2191, []{ 
-        Serial.println("Custom up handler!");
-    });
-
-    proc->start();
-    OSProcess::setFocused(proc);
-}
+    static void setFocused(std::shared_ptr<OSProcess> proc) { //route input to here now
+        std::lock_guard<std::mutex> lock(process_mutex);
+        focused_process = proc;
+    }
 
 
-void startBackgroundService() {
-    OSProcess::Config cfg{
-        .name = "SensorService",
-        .stack_size = 8192,
-        .priority = tskIDLE_PRIORITY + 2,
-        .start_focused = false  // Explicitly background
-    };
-
-    auto service = OSProcess::create(cfg);
-    
-    service->setExecutionCode([]{
-        while(true) {
-            // Read sensors and process data
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-    });
-
-    service->start(false);  // Don't focus
-}
-*/
+// Function to send input to the focused process. 
+  void OnUserInput(const UserInput& input) { //todo: check if this works
+  if (focused_processs !=null); //if proc valid we can capture user in
+  //do user input logic! route the userinput from this funct to it! todo: does nothing yet!! 
+  //will need to just take this input and route to focused rposcess if valid
+  }
 
 
+private:
+    static inline std::vector<std::weak_ptr<OSProcess>> processes;
+    static inline std::weak_ptr<OSProcess> focused_process;
+    static inline std::mutex process_mutex;
+};
 
-
-
-
-
-
-
-//tip on asm use:
-//define in this order. BASE STRUCTS AND FUNCTION NAMES. THEN extern cpp, starting inline asm. THEN end asm and add implimentations. i think. i figured this out in a day.
 
 struct Vector3 { //todo: fix it. not sure if it works right but whatever i guess
     int16_t x; // Scaled to 2 decimal places
     int16_t y; // Scaled to 2 decimal places
     int16_t z; // Scaled to 2 decimal places
 
-    Vector3(); // Default constructor
-    Vector3(float xVal, float yVal, float zVal); // Float constructor
-    float magnitude() const; // Magnitude calculation
 };
 
-
-// Implementations
-Vector3::Vector3() : x(0), y(0), z(0) {} //output this fuckshit.
-
-Vector3::Vector3(float xVal, float yVal, float zVal) {
-    Vector3_ctor(this, xVal, yVal, zVal); // Assembly function
-}
-
-float Vector3::magnitude() const {
-    return Vector3_magnitude(this); // Call external assembly function
-}
 
 
 
@@ -306,7 +304,7 @@ float FastNormalizeAngle_radians(float angle) {
 //faster approximations for trig functions for 3d rendering- all math in radians unless explicitly specified. 
 
 //lookup tables for full degrees, use lerp for half degrees-BEST USED FOR RENDERING! DO NOT USE IN YOUR CALCULATORS! THIS IS 2 DIGIT PRESCISION!
-
+//todo: include the lut if i really need but i don't think i need it so i'll do this later(never)
 
 
 //various macros
@@ -329,7 +327,7 @@ float FastNormalizeAngle_radians(float angle) {
 //can autogen ids
 //memory:
 //ASSUMED 4 bytes per counter (unsigned long unlock_time)
-//warning:each rate limit called increases ram use! 
+//warning:each rate limit called increases ram use! by a few bytes
 
 
 // Struct for rate limit counters
@@ -544,7 +542,8 @@ REPEAT_X(5, {
 
 //uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 
-//NAMING FUCKED UP HERE FIX ITtypedef struct {
+//NAMING FUCKED UP HERE FIX IT
+typedef struct loopwhiletimercreateinfo {
     unsigned long start_time;
     unsigned long duration;
     bool active;

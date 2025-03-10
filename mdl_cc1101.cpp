@@ -82,7 +82,7 @@ Radio radio3 = new RadioModule();
 //add recieve transmit functionality here later.  i'll do it after i can actually save packets to ram and/or microsd
 
 
-
+/*
 
 //scan this crap i guess dude.
 
@@ -128,7 +128,7 @@ void rfScanTick() { //call every n ms to scan for whatever's around
 
 //examples of setting runtime for radiolib
 
-/*
+
   // carrier frequency:                   434.0 MHz
   // bit rate:                            32.0 kbps
   // frequency deviation:                 60.0 kHz

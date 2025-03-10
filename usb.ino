@@ -9,7 +9,7 @@ struct RubberDuckySequencedDatapoint{ //simple datapoints that work in sequence-
 char key;
 uint16_t downtime; //how long to hold the key down, ms
 int timefromstart; //ms from start to do this
-}
+};
   
 
 //todo: load and drop files from internal scr to here-> host pc

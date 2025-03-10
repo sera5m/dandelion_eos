@@ -42,7 +42,7 @@
 #define SPI_FREQUENCY 40000000  // 40 MHz 
 
 // Define the TFT display object with the SSD1351 chipset
-Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, CS_PIN, DC_PIN, RST_PIN);
+Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, CS_PIN, DC_PIN, RST_PIN); 
 
 
 void set_orientation(uint8_t rotation);
