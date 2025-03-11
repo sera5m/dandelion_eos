@@ -40,7 +40,9 @@ class Window; //do i have to define the window class?
 class WindowManager; //only make one of these on os start
 //include the struct dependencies of children
 
-
+//userspace graphics config import do not delete this or the whole system will fuck up
+extern bool AreGraphicsEnabled = true;//userconfig
+extern bool isWindowHandlerAlive = false;//do not touch this in user code ever, for the window manager code only. "hey guys what if we could break the entire goddamn window manager on a whim!!!" "get the fuck outta my office"
 
 
 //declare structs and stuff of the elements of this stupid thing.
@@ -378,6 +380,15 @@ unsigned int lastFrameTime = 0;       // duration of last canvas draw
 //windows are what you call update on, so they update sub elements
 
 //******************************************************************************************************************************************************
+//remember, constructor uses 
+/*struct WindowCfg 
+    int x = 0, y = 0, width = 64, height = 64;
+    bool auto_alignment=0,wrap=1; // Align text centrally or not,wrap text
+    int textsize=1; //default text size inside this window
+    bool borderless=false;
+    uint16_t borderColor, bgColor, text_color; // Colors -
+    uint16_t UpdateRateMs=500;//update every how ms? todo: this is unclear, and windows should only update while dirty anyway. but an occasional refresh wouldn't hurt for just in case, so i've decided to make this either rate limit the update or enforce it every interval. not sure. 
+ *///DO NOT UNCOMMENT, THIS IS HERE TO SHOW YOU
 
 class Window {
 public:
@@ -389,33 +400,35 @@ public:
     std::vector<Canvas*> canvases;
 
     int UpdateTickMs = UpdateTimeMs;  // update interval in ms-take from config now! yay i think
-    bool dirty = false;     // needs redraw flag
+    bool dirty = false;     // uased as redraw flag?
 
     // NEW: Scrolling members:
     int scrollOffset = 0;                // Vertical scroll offset in pixels
-    std::vector<String> wrappedLines;    // Wrapped text lines for rendering
+    std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering
 
     // Constructor
-    Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")
-      : name(windowName), config(cfg), content(initialContent) {}
+    Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = ""): name(windowName), config(cfg), content(initialContent) {}
 
     // Destructor: Clean up canvases
-    ~Window() {
-        for (Canvas* canvas : canvases) {
-            delete canvas;
-        }
-    }
+    ~Window() {for (Canvas* canvas : canvases) {delete canvas;}canvases.clear();} //clear all the canvas instances on each window and clear
 
-    //todo: add update rate change function (must also talk to the window manager's update interval tracker)
+
+void setUpdateRate(int newRate) {
+    UpdateTickMs = newRate;
+    WindowManager::getInstance().notifyUpdateRateChange(this); //change the variable in the update rate
+}
 
 
     // Add a canvas to this window
     void addCanvas(const CanvasCfg& cfg) {
+
         if (cfg.parentWindow != this) {
-            Serial.println("Error: Canvas parent does not match this window.");
+        Serial.print("Error: Canvas parent mismatch in window: "); Serial.println(name.c_str());
+        //reject request, it's on the wrong line
             return;
         }
-        Canvas* newCanvas = new Canvas(cfg, this);
+        //safe,create new canvas+pushback
+        Canvas* newCanvas = new Canvas(cfg, this); 
         canvases.push_back(newCanvas);
     }
 
@@ -451,7 +464,7 @@ public:
 
     // Draws the window and its text content, then updates child canvases if they're visible.
     void draw() {
-          unsigned long startTime = millis();
+          unsigned long startTime = millis();//framerate counter, time counter start
         // Clear the window area
         tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the window with the background color
         if (!config.borderless) //if window not borderless
@@ -484,8 +497,8 @@ public:
             int canvasAbsX = config.x + c->x;
             int canvasAbsY = config.y + c->y;
             // Check if the canvas is completely off-screen relative to the window.
-            if ((canvasAbsX + c->width) < config.x || canvasAbsX > (config.x + config.width) ||
-                (canvasAbsY + c->height) < config.y || canvasAbsY > (config.y + config.height)) {
+            if ((canvasAbsX + c->width) < config.x || canvasAbsX > (config.x + config.width) ||(canvasAbsY + c->height) < config.y || canvasAbsY > (config.y + config.height)) {
+                //(if x> possible and y>possible)
                 continue;  // Skip drawing this canvas if it's entirely off-screen.
             }
             c->update();  // Update/draw the canvas.
@@ -495,44 +508,40 @@ public:
 private:
 
 unsigned long lastUpdateTime = 0;  // in ms
-unsigned int UpdateTickMs = 500; // can be dynamic (UpdateTickMs)
+
 unsigned int lastFrameTime = 0;    // duration of last draw
 
 
-
+//todo: line centering if i haven't done it already
 
     // Wrap the full content into lines that fit the window width.
     // This simplistic approach uses a fixed-width estimation.
-    void updateWrappedLines() {
-        wrappedLines.clear();
+    void updateWrappedLines() {  //note: i tried changing all strings to std::string, may not have been done right
 
-        // Convert content (std::string) to an Arduino String for easier manipulation.
-        String textStr = String(content.c_str());
-        int charWidth = 6 * config.textsize;
+        wrappedLines.clear(); //todo: why is this here? clear existing lines?
+
+    
+        int charWidth = 6 * config.textsize; //take text size and default width to see at any size
         int maxCharsPerLine = (config.width - 4) / charWidth;
-        int len = textStr.length();
-        String currentLine = "";
-        int i = 0;
-        while (i < len) {
-            // Get next word (words separated by a space)
-            int spaceIndex = textStr.indexOf(' ', i);
-            if (spaceIndex == -1) spaceIndex = len;
-            String word = textStr.substring(i, spaceIndex);
-            if (currentLine.length() + word.length() + (currentLine.length() > 0 ? 1 : 0) > maxCharsPerLine) {
-                // Push current line and start a new one
-                wrappedLines.push_back(currentLine);
-                currentLine = "";
-            }
-            if (currentLine.length() > 0) {
-                currentLine += " ";
-            }
-            currentLine += word;
-            i = spaceIndex + 1;
-        }
-        if (currentLine.length() > 0) {
+        
+    std::istringstream textStream(content);
+    std::string word, currentLine;
+
+    while (textStream >> word) {
+
+        if (currentLine.length() + word.length() + 1 > maxCharsPerLine) {
             wrappedLines.push_back(currentLine);
+            currentLine.clear();
         }
-    }
+
+        if (!currentLine.empty()) currentLine += " ";
+        currentLine += word;
+    } //uwrlin
+
+    if (!currentLine.empty()) wrappedLines.push_back(currentLine);
+    }//funct upd
+
+    
 }; //todo: modify to aggree with the global win manager inst
 
 
@@ -542,7 +551,10 @@ struct WindowAndUpdateInterval {
     int updateTickMs; // Update interval in milliseconds
 
     // Constructor to initialize both values
-    WindowAndUpdateInterval(Window* win): window(win), updateTickMs(win->WinUpdateMS) {} //break the update tick rate off here to point to the window itself to modify it's update rate? meow meowww
+    WindowAndUpdateInterval(Window* win): window(win), updateTickMs(win->UpdateTickMs) {} //fixed, valid update var tick
+
+//TODO: this seems to have an issue where it doesn't notify window manager. it should notify window manager. also check for mem leaks
+
 }; //todo: it's not taking class window right? 
 
 
@@ -551,29 +563,80 @@ struct WindowAndUpdateInterval {
 //                        window manager
 //handles windows and updating. just create a background osproscess with this in it. todo: how to run this
 
+//how do i make sure theres only one instance
 class WindowManager {
 public:
-        // Global list of windows with their update intervals
-    std::vector<WindowAndUpdateInterval> windowRegistry;
+
+
+// Returns pointer to the sole instance (creates if needed)
+    static WindowManager* getInstance() {
+        // Only create if graphics are enabled
+        if (!AreGraphicsEnabled) {Serial.print("Error: Graphics not enabled. WindowManager will not start.");
+        tft.setCursor(0,64);tft.fillScreen(0x0000);tft.print("err: graphics disabled"); //notify usr
+            return nullptr;//really hope this doesn't cause a memeory leak
+        }
+        // Check if instance exists; if not, reinitialize it. todo: trigger if an attempt made to reference this while not around, currently not called as of 3/11/25
+        if (!instance) {
+            instance = new WindowManager();
+        }
+        return instance;
+    }
+    
+    // Deletes the WindowManager instance after cleaning up windows.
+    static void DestroyWindowManagerInst() {
+        if (instance) {
+            instance->deleteAllWindows();
+            delete instance;
+            instance = nullptr;
+            isWindowHandlerAlive = false;
+        }
+    }
+
+
+   // Global list of windows with their update intervals GLOBAL WINDOW REG
+    std::vector<WindowAndUpdateInterval> windowRegistry; 
 
     // Register a new window
     void registerWindow(Window* win) {
         windowRegistry.emplace_back(win);  // Adds window with its update interval
     }
 
-    // Unregister a window
-    void unregisterWindow(Window* win) { 
-        windowRegistry.erase(
-            std::remove_if(windowRegistry.begin(), windowRegistry.end(),
-                [&](const WindowAndUpdateInterval& entry) { return entry.window == win; }),
-            windowRegistry.end());
-            //todo: clear from screen and notify it's parent OSProscess if it has one
+    // Unregister a window(&del)
+void unregisterWindow(Window* win) { //takes ref to window
+    if (!win) return; // Safety check
+
+    // Clear the window from the screen
+    tft.fillRect(win->config.x, win->config.y, win->config.width, win->config.height, 0x0000); // Black out area
+
+    // Notify parent process if applicable
+    if (win->config.hasParentProcess) {
+        notifyParentProcess(win);  // Assume a function exists for this TODO: IMPLIMENT THIS!
     }
 
-    // Clear all windows
-    void clearAllWindows() {
-        windowRegistry.clear(); //todo: actually make sure they get cleared from the screen too
+    // Remove from registry
+    windowRegistry.erase(
+        std::remove_if(windowRegistry.begin(), windowRegistry.end(),
+            [&](const WindowAndUpdateInterval& entry) { return entry.window == win; }),
+        windowRegistry.end());
+
+    // Delete the window
+    delete win;
+    win = nullptr;
+}
+
+
+
+
+  void clearAllWindows() {
+    for (auto& entry : windowRegistry) {
+        tft.fillRect(entry.window->config.x, entry.window->config.y, entry.window->config.width, entry.window->config.height, 0x0000); // Black out each window
+        delete entry.window;  // Delete each window
     }
+    windowRegistry.clear();  // Remove all references
+
+    tft.fillScreen(0x0000); // Black wipe the whole screen
+    }
+
 
 
     // Get all windows (returns a vector of Window pointers)
@@ -596,22 +659,91 @@ public:
     }
 
     // Update all windows based on their tick intervals
-    void updateAllWindows() {
-        for (auto& entry : windowRegistry) {
-            if (millis() % entry.updateTickMs == 0) { // Check if it's time to update--todo: only run if dirty
-                entry.window->draw();
+void updateAllWindows() {
+    unsigned long currentTime = millis();
+
+    for (auto it = windowRegistry.begin(); it != windowRegistry.end(); ) {
+        Window* win = it->window;
+
+        // Check if the window is null (invalid/dangling pointer)
+        if (!win) {
+            it = windowRegistry.erase(it);  // Remove invalid entry & continue
+            continue; 
+        }
+
+        // Ensure the window is only updated on its interval & if it's dirty
+        if (currentTime - win->lastUpdateTime >= win->UpdateTickMs) {  
+            if (win->dirty) {  
+                win->draw();
+                win->lastUpdateTime = currentTime;  
             }
         }
+
+        ++it; // Move iterator to next window (++it ignores old value for more efficiency)
     }
+}
+
+//what does this code do? makes it work. fuck you future me this is a level of headacheand migrane->
+void WindowManager::notifyUpdateRateChange(Window* targetWindow, int newUpdateRate) { //find this shit and put the new update rate in 
+    // Check if target window is in the registry
+    for (auto& entry : windowRegistry) {
+        if (entry.window == targetWindow) {
+            // Found the window; change its update rate
+            entry.updateTickMs = newUpdateRate;
+            targetWindow->UpdateTickMs = newUpdateRate;
+            Serial.print("Update rate changed for window: ");Serial.print(targetWindow->name);Serial.print(" to ");Serial.print(newUpdateRate);Serial.println("ms"); //i hate the way this looks and serial lib
+            return;  // Exit after changing the update rate
+        }
+    }
+    
+    // If not found in the registry, handle this error
+    Serial.print("Error: Window not found in registry for update rate change!"); //todo fail gracefully
+}
+
+
+
+
+
+
+  void selfDestructWinManager(){ //for when we need to delete the manager becausse some fuckshit is happening
+DestroyWindowManagerInst();//destroy this and all sub windows
+tft.setCursor(0,64);
+tft.fillScreen(0x0000); 
+tft.print("graphics disabled"); //put on screen and it should just stay like that till they restart
+Serial.print("shutting down all the fucking graphics. hope you have something to restart it later");
+
+  }
+
+
+private:
+    WindowManager() { //on create
+        isWindowHandlerAlive = true;
+        Serial.print("WindowManager created.\n"); 
+    }
+    ~WindowManager() { //on destroy
+        Serial.print("WindowManager destroyed.\n");
+        tft.setCursor(0,64);
+        tft.fillScreen(0x0000); 
+        tft.print("graphics proscess system disabled-winmgr_destr"); 
+    }
+    
+    // Disable copy/assignment
+    WindowManager(const WindowManager&) = delete;
+    WindowManager& operator=(const WindowManager&) = delete;
+    static WindowManager* instance;
 };
 
-//todo: make a str that's "trackerupdaterwindowfuckyou" ptr window,updaterate in ms
+// Initialize the static member
+WindowManager* WindowManager::instance = nullptr;
+
 
 
 
 
 //tips: to get win by name use "Window* myWindow = windowManager.getWindowByName("Window1");" w/ the name :)
 
+//to del a win, windowManager.unregisterWindow(myWindow);
+//to wipe em all use windowManager.clearAllWindows();-should work and not leak memory
 
 
 

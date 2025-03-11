@@ -175,14 +175,16 @@ public: std::enable_shared_from_this<OSProscess>{ //std enable exposes os prosce
     }//voidstart
 
 
-    void stop() { //stopit! and delete
-        if (task_handle) {
-            vTaskDelete(task_handle);
-            task_handle = nullptr;
-            OSProcessHandlerService::unregisterProcess(shared_from_this());
-            //also delete the task's window if valid here
-        }
+void stop() {
+    if (task_handle) {
+        vTaskDelete(task_handle);
+        task_handle = nullptr;
     }
+    auto self = shared_from_this(); // Ensure we have a strong reference before unregistering
+    OSProcessHandlerService::unregisterProcess(self);
+    // TODO: Delete associated window if it exists
+}
+
 
 
   bool setProcBackground(bool isBG){ //needs to be able to be remotely called too 
@@ -195,13 +197,14 @@ public: std::enable_shared_from_this<OSProscess>{ //std enable exposes os prosce
   void TakeUsrInput(const UserInput& input){ //take the user input and do that
   //no logic yet-needs to take the user input intertupt passed to it from the os proscess manager
   }//put it in a lambadia or something that the proscess can handle with it's own custom code-because i havea to remember that the os priscess is just a fucking wrapper!
-
+//user input should really be routed to whatever logic the user's implimented
 
 
 
 
 private:
-    explicit OSProcess(constOSPConfig& cfg) :OSPConfig(cfg) {}
+    explicit OSProcess(const OSPConfig& cfg) : OSPConfig(cfg), execution_code([]{}) {}
+
 
     static void taskRouter(void* param) {
         auto* proc = static_cast<OSProcess*>(param);
@@ -245,11 +248,13 @@ public:
 
 
 // Function to send input to the focused process. 
-  void OnUserInput(const UserInput& input) { //todo: check if this works
-  if (focused_processs !=null); //if proc valid we can capture user in
-  //do user input logic! route the userinput from this funct to it! todo: does nothing yet!! 
-  //will need to just take this input and route to focused rposcess if valid
-  }
+void OnUserInput(const UserInput& input) { //todo: not sure how to use this functionality, but at least the pointers shouldn't do anything weird
+    std::lock_guard<std::mutex> lock(process_mutex);
+    auto proc = focused_process.lock(); // Convert weak_ptr to shared_ptr
+    if (proc) { 
+        proc->TakeUsrInput(input); // Send input to the focused process
+    }
+}
 
 
 private:

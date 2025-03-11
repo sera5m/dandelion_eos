@@ -149,14 +149,14 @@ unsigned long frameTime = 0;      // Define and initialize
 
 
 //declare the task functions for multicore programs
-void taskDrawScreen(void *pvParameters); //render the screen using known variables
-void taskUpdateSensors(void *pvParameters); //update the sensors 
-void taskUpdateHeartRate(void *pvParameters);
+//example use: void taskDrawScreen(void *pvParameters);
+//todo:rebuild delcared task functions!
 
 
-
-
-
+//window manager needs these to live-and for user to config it.-------------reminds me of this meme, the patient needs mouse bites to live
+bool AreGraphicsEnabled = true; //you can set this one to whatever you want! it's a config var
+bool isWindowHandlerAlive = false; //not alive yet, proc obj created in setup. must be set to false here!
+//weh
 
 
 
@@ -195,7 +195,7 @@ for (int i = 0; i < 6; i++) {
     pcf.pinMode(i, INPUT_PULLUP);
 }
 
-// Attach interrupt to INT pin
+// Attach interrupt to INT pin TODO FIX THIS ITS FOR BUTTONS UWU
 pinMode(INT_PIN, INPUT_PULLUP);
 attachInterrupt(digitalPinToInterrupt(INT_PIN), handleInterrupt, FALLING);
 
@@ -248,6 +248,28 @@ delay(1);
 scanSPI();
 delay(800); // Let the user read things.
 tft.fillScreen(BLACK);
+
+
+
+
+    // Check graphics flag & ensure WindowManager exists
+    if (AreGraphicsEnabled) {
+        tft.setTextSize(1); tft.setTextColor(PEACH);tft.fillScreen(BLACK); tft.printf("starting graphical system");
+        if (!isWindowHandlerAlive) {
+            globalWindowManager = new WindowManager(); //create a new window manager object, but only one allowed!
+        }
+    } else {
+        Serial.println("Graphics are disabled, skipping WindowManager creation.)"; //todo: print to screen that it's disabled for irony
+        return 1;
+    }
+
+
+
+
+
+
+
+
 
 // Now see if the SD card is connected on the SPI
 if (!SD.begin()) { // Check if the SD card initialization is successful
@@ -305,6 +327,13 @@ xTaskCreatePinnedToCore(taskUpdateHeartRate,"HRSENSOR",2048,NULL,1,NULL,1);
 
 }
 
+//TODO: SET A TASK TO CALL THIS CODE!IT IS FUCKING CRITICAL  TOD O THIS FOR AUTOMATIC STATE RECOVERY OF THE OS IN EVENT OF FAILURE! SHOULD BE IN SOME SORT OF STATE RECOVERY TASK
+/*    //  re-check and re-create if someone "destroyed" it unexpectedly:
+    if (AreGraphicsEnabled && !isWindowHandlerAlive) {
+      Serial.println("Reinitializing WindowManager");
+        globalWindowManager = new WindowManager();//create new obj with name
+        //todo: this needs to overwrite ptr to unfuck it unless the pointer is uncreated-SHOULD do this automatically as is though???? because they should be in the same memoy space idk if itll leak fuck you bitch
+    }*/
 
 void loop() {
   //nothing for now
@@ -312,5 +341,4 @@ void loop() {
 
 //you put updates here
 
-
-//update_IMU(); //update motion sensor and it's samples, CALL EVERY 50ms
+//todo: stop feellng sad
