@@ -1,6 +1,6 @@
 #ifndef mdl_web_ino
 #define mdl_web_ino
-
+/*
 //todo: add watchdog timer and panic handler!
 //needs to see reset type
 //needs osproscess compat
@@ -147,7 +147,7 @@ public:
 
 
 //useguide-MAY BE OUT OF DATE 3/10/25
-/*
+
 vWebsiteManagerService websiteService;
 
 void setup() {

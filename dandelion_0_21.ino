@@ -154,8 +154,8 @@ unsigned long frameTime = 0;      // Define and initialize
 
 
 //window manager needs these to live-and for user to config it.-------------reminds me of this meme, the patient needs mouse bites to live
-bool AreGraphicsEnabled = true; //you can set this one to whatever you want! it's a config var
-bool isWindowHandlerAlive = false; //not alive yet, proc obj created in setup. must be set to false here!
+extern bool AreGraphicsEnabled = true; //you can set this one to whatever you want! it's a config var
+extern bool isWindowHandlerAlive = false; //not alive yet, proc obj created in setup. must be set to false here!
 //weh
 
 
@@ -256,13 +256,13 @@ tft.fillScreen(BLACK);
     if (AreGraphicsEnabled) {
         tft.setTextSize(1); tft.setTextColor(PEACH);tft.fillScreen(BLACK); tft.printf("starting graphical system");
         if (!isWindowHandlerAlive) {
-            globalWindowManager = new WindowManager(); //create a new window manager object, but only one allowed!
-        }
-    } else {
-        Serial.println("Graphics are disabled, skipping WindowManager creation.)"; //todo: print to screen that it's disabled for irony
-        return 1;
+            WindowManager = new WindowManager(); //create a new window manager object, but only one allowed!
+        }//if win manager alive
+    else {
+        Serial.println("Graphics are disabled, skipping WindowManager creation."); //todo: print to screen that it's disabled for irony
+        return;
     }
-
+    }//graphics enabled??
 
 
 
@@ -302,27 +302,6 @@ if (!SD.begin()) { // Check if the SD card initialization is successful
 
 //preboot phase done, move to standard tasks
 
- // Create task for drawing to the screen (Core 0)
-  xTaskCreatePinnedToCore(taskDrawScreen,"Draw Screen",10000,NULL,1,NULL,0);
-
-  // Create task for updating sensors and clock (Core 1)
-  xTaskCreatePinnedToCore(
-    taskUpdateSensors, // Function to be called (updating sensors)
-    "Update Sensors",  // Name of the task (for debugging)
-    10000,             // Stack size (words)
-    NULL,              // Parameters (none)
-    1,                 // Priority (1)
-    NULL,              // Task handle (none)
-    1                  // Run on Core 1
-  );
-
-
-
-
-
-xTaskCreatePinnedToCore(taskUpdateHeartRate,"HRSENSOR",2048,NULL,1,NULL,1);
-//xTaskCreatePinnedToCore(taskPmeterUpdate,"pmeter",8192,NULL,1,NULL,1);
-//setup ends here
 
 
 }
