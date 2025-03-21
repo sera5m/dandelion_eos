@@ -76,6 +76,9 @@ uint16_t color;
 int layer;
 };
 
+// Initialize the static window manager structure
+static std::unique_ptr<WindowManager> WinManagerInstance;
+
 
 //end forward dependencies
 
@@ -400,8 +403,11 @@ public:
 Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(windowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/}
 
     // Destructor: Clean up canvases
-~Window()=default; Callback2WinManager_window_deleted (); //originally had a thing to delete sub things like canvases we use smart pointers. originally had {canvases.clear();}
-    
+~Window() {
+    Callback2WinManager_window_deleted();  // Custom callback when the window is deleted
+    // Any other custom cleanup tasks
+}
+
 void MoveWindow(int newX, int newY) { //mofe from old location to new
     if (config.x == newX && config.y == newY) return; // No change, no need to update
 
@@ -526,7 +532,6 @@ void WindowScroll(int DX, int DY) { //changes in directions
 
 
 
-//todo: create a method to be able to change the position of the window itself
 
     // Draws the window and its text content, then updates child canvases if they're visible.
     void draw() {
@@ -541,8 +546,7 @@ void WindowScroll(int DX, int DY) { //changes in directions
         tft.setTextSize(config.textsize);
 
         // Update wrapped lines from full content
-        updateWrappedLines(); //todo: FUCK YOU! wrapped lines need to update ONLY if the lines are diff-also why do i not have multiple blocks of text. what the fuck was i thinking. this should use a few sets of lines in blocks. that would be even more efficient for large volumes. i love you segmentation. todo: fix this dogshit to better support he nature of wrapped lines as a motherfucking peice of shit array i swear to fucking shit dude
-
+        updateWrappedLines(); 
 
         lastFrameTime = millis() - startTime;
         dirty = false;
@@ -574,45 +578,48 @@ unsigned long lastUpdateTime = 0;  // in ms
 unsigned int lastFrameTime = 0;    // duration of last draw
 
 
-//todo: line centering if i haven't done it already
 void updateWrappedLines() {
-    static std::string lastContent = "";
+    static std::string lastContent;
     static std::vector<std::string> lastWrappedLines;
-    
-    // Avoid reprocessing if content hasn't changed
+
     if (content == lastContent) return;
-    
     lastContent = content;
+
     wrappedLines.clear();
-    
-    int charHeight = 8 * config.textsize;
     int charWidth = 6 * config.textsize;
     int maxCharsPerLine = (config.width - 4) / charWidth;
+
+    std::string_view textView(content);
+    std::string currentLine;
     
-    std::istringstream textStream(content);
-    std::string word, currentLine;
-    
-    // Break text into words and form lines
-    while (textStream >> word) {
+    size_t pos = 0;
+    while (pos < textView.size()) {
+        size_t nextSpace = textView.find(' ', pos);
+        if (nextSpace == std::string::npos) nextSpace = textView.size(); //npos doesn't mean position with a typo, it means static member const value of elem w/ greatest size
+
+        std::string_view word = textView.substr(pos, nextSpace - pos);
+        pos = nextSpace + 1;  // Move past the space
+
+        while (word.length() > maxCharsPerLine) { // Handle long words
+            wrappedLines.emplace_back(word.substr(0, maxCharsPerLine));
+            word.remove_prefix(maxCharsPerLine);
+        }
+        
         if (currentLine.length() + word.length() + 1 > maxCharsPerLine) {
             wrappedLines.push_back(currentLine);
             currentLine.clear();
         }
-        if (!currentLine.empty()) {
-            currentLine += " ";
-        }
+        if (!currentLine.empty()) currentLine += " ";
         currentLine += word;
     }
-    if (!currentLine.empty()) {
-        wrappedLines.push_back(currentLine);
-    }
-    
-    // Only redraw if lines have changed
+    if (!currentLine.empty()) wrappedLines.push_back(currentLine);
+
     if (wrappedLines != lastWrappedLines) {
         lastWrappedLines = wrappedLines;
         drawVisibleLines();
     }
 }
+
 
 void drawVisibleLines() {
     int charHeight = 8 * config.textsize;
@@ -620,12 +627,15 @@ void drawVisibleLines() {
     int visibleLines = (config.height - 4) / charHeight;
     int y = config.y + 2 - (scrollOffset % charHeight);
     
+    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); // Clear area
+    
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
         tft.setCursor(config.x + 2, y);
         tft.print(wrappedLines[i]);
         y += charHeight;
     }
 }
+
 
 
 
@@ -674,7 +684,7 @@ public:
         Serial.print("WindowManager destroyed.\n");
         tft.fillScreen(0x0000);
         tft.print("graphics system disabled");
-    }
+    }//DEStructor
 
 
 
@@ -805,7 +815,7 @@ void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
 
 
 void selfDestructWinManager(){ //for when we need to delete the manager becausse some fuckshit is happening
-    instance.reset();  // Properly destroys the singleton
+    WinManagerInstance.reset();  // Properly destroys the singleton
     clearAllWindows();
   tft.setCursor(0,64);
   tft.fillScreen(0x0000); 
@@ -818,9 +828,6 @@ private:
 //nothing really in private
 
 };
-
-// Initialize the static member
-static std::unique_ptr<WindowManager> instance;
 
 
 
