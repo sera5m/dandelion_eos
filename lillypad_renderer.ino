@@ -117,11 +117,11 @@ public:
     std::shared_ptr<Window> parentWindow;  // Now shared to avoid ownership cycles
     
     // Constructor: initializes from a CanvasCfg structure and assigns parent pointer.
-    Canvas(const CanvasCfg& cfg, Window* parent)
-        : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),
-          bgColor(cfg.bgColor), borderColor(cfg.borderColor),
-          parentWindow(parent) {}
-    
+// Window owns Canvas, Canvas just references Window (not owning)
+Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
+    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),
+      bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
+
     // Clear the canvas area
     void clear() {
         // Fill the canvas area with the background color to clear it
@@ -381,22 +381,25 @@ private:
 
 
 
-class Window {
+class Window : public std::enable_shared_from_this<Window> {
 public:
     std::string name;       // Window's name
     WindowCfg config;       // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
 
     // List of canvases attached to this window
-    std::vector<std::shared_ptr<Canvas>> canvases; ///vect of smart ptr
-
+    std::vector<std::shared_ptr<Canvas>> canvases; // Vector of smart pointers
 
   unsigned int updateIntervalMs = 100; // CONSISTENT VARIABLE NAME
   // update interval in ms-take from config now! yay i think
     bool dirty = false;     // uased as redraw flag
+unsigned long lastUpdateTime = 0;  // in ms
 
-    // NEW: Scrolling members:
-    int scrollOffset = 0;                // Vertical scroll offset in pixels
+unsigned int lastFrameTime = 0;    // duration of last draw
+
+       int scrollOffsetX=0; //scroll offsets for these windows
+        int scrollOffsetY=0;
+
     std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  
 
     // Constructor
@@ -449,7 +452,7 @@ void forceUpdate(bool updateSubComps) {//todo: toggle to NOT update offscreen ca
     if (updateSubComps) {
         for (auto& c : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
-            c->update(); //push canvas update for iterator
+            if (c) c->update(); //push canvas update for iterator-this makes sure c-> update checks for valid first
         }
     }
 }
@@ -457,13 +460,13 @@ void forceUpdate(bool updateSubComps) {//todo: toggle to NOT update offscreen ca
 void forceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
   for (auto& c : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
-            c->update(); //push canvas update for iterator
+            if (c) c->update(); //push canvas update for iterator -this makes sure c-> update checks for valid first
         }
 }
 
 void setUpdateTickRate(int newRate) {
     UpdateTickRate = newRate;
-    WindowManager::getInstance().notifyUpdateTickRateChange(this); //change the variable in the update rate
+    WindowManager::getWinManagerInstance().notifyUpdateTickRateChange(this); //change the variable in the update rate
 }
 
 
@@ -502,8 +505,9 @@ const int scrollPeriod = 100; // in ms
 //new scroll code, now supporting directions
 void WindowScroll(int DX, int DY) { //changes in directions
     // accumulate scroll deltas
-    accumDX += DX;
-    accumDY += DY;
+accumDX += DX;
+accumDY += DY;
+
     
     uint64_t now = getCurrentTimeMillis();
     if ( (now - lastScrollTime) >= scrollPeriod || abs(accumDX) >= scrollLimit || abs(accumDY) >= scrollLimit) { 
@@ -573,9 +577,6 @@ void WindowScroll(int DX, int DY) { //changes in directions
 
 private:
 
-unsigned long lastUpdateTime = 0;  // in ms
-
-unsigned int lastFrameTime = 0;    // duration of last draw
 
 
 void updateWrappedLines() {
@@ -629,11 +630,12 @@ void drawVisibleLines() {
     
     tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); // Clear area
     
-    for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
-        tft.setCursor(config.x + 2, y);
-        tft.print(wrappedLines[i]);
-        y += charHeight;
-    }
+for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
+    tft.setCursor(config.x + 2, y);
+    tft.print(wrappedLines[i].c_str());  // Convert std::string to const char* for the fucking adafruit
+    y += charHeight;
+}
+
 }
 
 
@@ -650,16 +652,17 @@ void drawVisibleLines() {
 
 //track windows and their update intervals-used in window manager with data pushed from class window
 struct WindowAndUpdateInterval {
-    std::shared_ptr<Window> window; 
+ std::weak_ptr<Window> window;
  int updateIntervalMs;
 
     WindowAndUpdateInterval(std::shared_ptr<Window> win): window(win), updateIntervalMs(win->updateIntervalMs) {} 
 
-    void updateIfValid() {
-        if (auto winPtr = window.lock()) {
-            winPtr->update();  
-        }
+void updateIfValid() {
+    if (auto winPtr = window.lock()) {  // Try to get a shared_ptr
+        winPtr->update();//meowwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
     }
+}
+
 };
 
 
@@ -678,7 +681,7 @@ public:
 
     ~WindowManager() { 
         clearAllWindows();  // Properly clean up all windows
-        instance = nullptr; // Nullify the singleton reference
+        WinManagerInstance = nullptr; // Nullify the singleton reference
         isWindowHandlerAlive = false;
 
         Serial.print("WindowManager destroyed.\n");
@@ -688,18 +691,18 @@ public:
 
 
 
-// Returns pointer to the sole instance (creates if needed)
-    static WindowManager* getInstance() {
+// Returns pointer to the sole WinManagerInstance (creates if needed)
+    static WindowManager* getWinManagerInstance() {
         // Only create if graphics are enabled
         if (!AreGraphicsEnabled) {Serial.print("Error: Graphics not enabled. WindowManager will not start.");
         tft.setCursor(0,64);tft.fillScreen(0x0000);tft.print("err: graphics disabled"); //notify usr
             return nullptr;//really hope this doesn't cause a memeory leak
         }
-        // Check if instance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
-        if (!instance) {
-            instance = new WindowManager();
+        // Check if WinManagerInstance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
+        if (!WinManagerInstance) {
+            WinManagerInstance = new WindowManager();
         }
-        return instance;
+        return WinManagerInstance;
     }
     
 
@@ -731,17 +734,14 @@ void unregisterWindow(Window* win) {
 
 
 void Callback2WinManager_window_deleted (){//todo: say which one
-Serial.print("something deleted a window.\n"); 
-
-}
+Serial.print("something deleted a window.\n"); }
 
 
 void clearAllWindows() {
   for (auto& entry : windowRegistry) {
-    tft.fillRect(entry.window->config.x, entry.window->config.y, 
-                 entry.window->config.width, entry.window->config.height, 0x0000);
-}
-    windowRegistry.clear();  // Smart pointers clean up automatically
+    tft.fillRect(entry.window->config.x, entry.window->config.y,entry.window->config.width, entry.window->config.height, 0x0000); 
+    }
+    windowRegistry.clear();  // Smart pointers clean up automatically FROM WINDOW REGISTRY
     tft.fillScreen(0x0000);  // Black wipe the whole screen
 }
 
@@ -762,13 +762,14 @@ std::vector<Window*> getAllWindows() {
     // Get window by name (returns a pointer to the window or nullptr if not found)
 std::shared_ptr<Window> getWindowByName(const std::string& windowName) {
     for (auto& entry : windowRegistry) {
-        if (entry.window->name == windowName) {
-            return entry.window; // safe, returns a shared_ptr
+        if (auto winPtr = entry.window.lock()) {
+    if (winPtr->name == windowName) {
+        return winPtr;
         }
     }
     return nullptr;  // If not found
+  }
 }
-
 
 
     // Update all windows based on their tick intervals
@@ -815,7 +816,9 @@ void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
 
 
 void selfDestructWinManager(){ //for when we need to delete the manager becausse some fuckshit is happening
-    WinManagerInstance.reset();  // Properly destroys the singleton
+    WinManagerInstance = nullptr;
+
+//TODO, MAKE SURE I'M PROPERLY KILLING SINGLETON
     clearAllWindows();
   tft.setCursor(0,64);
   tft.fillScreen(0x0000); 
