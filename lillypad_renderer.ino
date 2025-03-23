@@ -465,7 +465,7 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
 }
 
 void ResizeWindow(int newWidth, int newHeight) { 
-    if (config.x == newWidth && config.y == newHeight) return; // No change, no need to update
+    if (config.width == newWidth && config.height == newHeight) return; // No change, no need to update
 
     config.width = newWidth;
     config.height = newHeight;
@@ -552,12 +552,19 @@ accumDY += DY;
     int maxOffsetX = (totalTextWidth > config.width - 4) ? totalTextWidth - (config.width - 4) : 0;
     scrollOffsetX = std::max(0, std::min(scrollOffsetX, maxOffsetX));
         
-        // Notify components to update
-        forceUpdate(true);//push an update right goddamn now and 2 the subcomps
-        // Reset accumulators & update last time stamp
-        accumDX = 0;
+        // Reset accumulators & update last time stamp BEFORE checking limits
+        lastScrollTime = now; //we just scrolled
+        int prevOffsetX = scrollOffsetX;
+        int prevOffsetY = scrollOffsetY;
+        accumDX = 0; 
         accumDY = 0;
-        lastScrollTime = now;
+
+        // Notify components to update only if scroll changed
+        if (scrollOffsetX != prevOffsetX || scrollOffsetY != prevOffsetY) {
+            forceUpdate(true); // push an update RIGHT FUCKING NOW
+          
+        }
+
     }
 }
 
@@ -648,10 +655,15 @@ void updateWrappedLines() {
     size_t pos = 0;
     while (pos < textView.size()) {
         size_t nextSpace = textView.find(' ', pos);
-        if (nextSpace == std::string::npos) nextSpace = textView.size(); //npos doesn't mean position with a typo, it means static member const value of elem w/ greatest size
+        if (nextSpace == std::string::npos) nextSpace = textView.size();//npos doesn't mean position with a typo, it means static member const value of elem w/ greatest size
+
 
         std::string_view word = textView.substr(pos, nextSpace - pos);
-        pos = nextSpace + 1;  // Move past the space
+
+        // Prevent infinite loop by ensuring `pos` never exceeds text size
+        if (nextSpace + 1 > textView.size()) break;  
+        pos = nextSpace + 1;
+
 
         while (word.length() > maxCharsPerLine) { // Handle long words
             wrappedLines.emplace_back(word.substr(0, maxCharsPerLine));
