@@ -157,7 +157,8 @@ unsigned long frameTime = 0;      // Define and initialize
 extern bool AreGraphicsEnabled = true; //you can set this one to whatever you want! it's a config var
 extern bool isWindowHandlerAlive = false; //not alive yet, proc obj created in setup. must be set to false here!
 //weh
-
+//global inst of windowmanager
+WindowManager* windowManager = nullptr;
 
 
 
@@ -252,20 +253,24 @@ tft.fillScreen(BLACK);
 
 
 
-    // Check graphics flag & ensure WindowManager exists
-    if (AreGraphicsEnabled) {
-        tft.setTextSize(1); tft.setTextColor(PEACH);tft.fillScreen(BLACK); tft.printf("starting graphical system");
-        if (!isWindowHandlerAlive) {
-            WindowManager = new WindowManager(); //create a new window manager object, but only one allowed!
-        }//if win manager alive
-    else {
-        Serial.println("Graphics are disabled, skipping WindowManager creation."); //todo: print to screen that it's disabled for irony
-        return;
+
+
+// Check graphics flag & ensure WindowManager exists
+if (AreGraphicsEnabled) {
+    tft.setTextSize(1);
+    tft.setTextColor(PEACH);
+    tft.fillScreen(BLACK);
+    tft.printf("starting graphical system");
+
+    if (!isWindowHandlerAlive) {
+        // Create a new WindowManager object
+        windowManager = new WindowManager(); // Use the declared pointer
+        isWindowHandlerAlive = true; // Mark the WindowManager as alive
     }
-    }//graphics enabled??
-
-
-
+} else {
+    Serial.println("Graphics are disabled, skipping WindowManager creation."); //todo: print to screen that it's disabled for irony
+    return;
+}
 
 
 

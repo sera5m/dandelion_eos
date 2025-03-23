@@ -12,12 +12,12 @@
 //little alert icons
 //jpeg+png+bmp
 
-//at attatches to canvas. vect drawings just use a few simple lines and cubes. we save them on the setup of the drawing object, with it storing the commands on start? idk how to do this outside of vague ideas.
-//crude animations [involves placing objects on the canvas, with objects being an image or "generated vector drawing"] 
+//at attatches to canvas. vect draWings just use a few simple lines and cubes. we save them on the setup of the draWing object, with it storing the commands on start? idk how to do this outside of vague ideas.
+//crude animations [involves placing objects on the canvas, with objects being an image or "generated vector draWing"] 
 
 //optimize update cycle
 
-//wrap stuff around like text. just read uglib and use that stuff i guess. we can take heavy inspiration from the code.
+//WrapText stuff around like text. just read uglib and use that stuff i guess. we can take heavy inspiration from the code.
 //scroll boxes please
 //dirty flag should be improved. needs tohave autoatic draw calls
 
@@ -26,34 +26,34 @@
 
 
 
-//this is the window handler for dandelionn. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
-//this module handles window creation and draw calls. version 4, now with performance enhancements. :3
+//this is the Window handler for dandelionn. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
+//this module handles Window creation and draw calls. version 4, now with performance enhancements. :3
 
 #include "module_math_render_base.ino" //i hate this verbose name
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 
-//forward declare all possible dependencies/child of window before we use them
+//forward declare all possible dependencies/child of Window before we use them
 
 class Canvas;  // forward declaration 
-class Window; //do i have to define the window class?
+class Window; //do i have to define the Window class?
 class WindowManager; //only make one of these on os start
 //include the struct dependencies of children
 
 //userspace graphics config import do not delete this or the whole system will fuck up
  bool AreGraphicsEnabled = true;//userconfig
- bool isWindowHandlerAlive = false;//do not touch this in user code ever, for the window manager code only. "hey guys what if we could break the entire goddamn window manager on a whim!!!" "get the fuck outta my office"
+ bool IsWindowHandlerAlive = false;//do not touch this in user code ever, for the Window manager code only. "hey guys what if we could break the entire goddamn Window manager on a whim!!!" "get the fuck outta my office"
 
 //define it here, it's extern in main idk
 //declare structs and stuff of the elements of this stupid thing.
 
-// Window structure to hold window properties
+// Window structure to hold Window properties
 struct WindowCfg {
     int x = 0, y = 0, width = 64, height = 64;
-    bool auto_alignment=0,wrap=1; // Align text centrally or not,wrap text
-    int textsize=1; //default text size inside this window
+    bool AutoAlignment=0,WrapText=1; // Align text centrally or not,WrapText text
+    int TextSize=1; //default text size inside this Window
     bool borderless=false;
-    uint16_t borderColor, bgColor, text_color; // Colors -add defaults
+    uint16_t BorderColor, bgColor, wTextColor; // Colors -add defaults
     uint16_t UpdateTickRate=500;//update every how many ms?
 }; 
 
@@ -63,7 +63,7 @@ struct WindowCfg {
 struct CanvasCfg {
     int x = 0, y = 0, width = 32, height = 32;
     bool borderless=true;
-     uint16_t bgColor = 0x0000, borderColor = 0xFFFF;
+     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF;
       Window* parentWindow = nullptr;
 };
 
@@ -76,7 +76,7 @@ uint16_t color;
 int layer;
 };
 
-// Initialize the static window manager structure
+// Initialize the static Window manager structure
 static std::unique_ptr<WindowManager> WinManagerInstance;
 
 
@@ -87,7 +87,7 @@ static std::unique_ptr<WindowManager> WinManagerInstance;
 //****************************************************************************************************************************************
 
 //canvas draw logic
-//canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like windows
+//canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like Windows
 
 //******************************************************************************************************************************************************
 
@@ -102,9 +102,9 @@ struct DrawableElement {
 
 class Canvas {
 public:
-    // Position and size of the canvas on screen (relative to parent window if needed)
+    // Position and size of the canvas on screen (relative to parent Window if needed)
     int x, y, width, height;
-    uint16_t bgColor, borderColor;
+    uint16_t bgColor, BorderColor;
     
     // Flag to indicate if canvas needs updating.
     bool canvasDirty = true;
@@ -113,14 +113,14 @@ public:
     // Container for drawable elements on this canvas.
     std::vector<DrawableElement> drawElements; //replace with function ptr in future
     
-    // Reference to parent window (if any)
+    // Reference to parent Window (if any)
     std::shared_ptr<Window> parentWindow;  // Now shared to avoid ownership cycles
     
     // Constructor: initializes from a CanvasCfg structure and assigns parent pointer.
 // Window owns Canvas, Canvas just references Window (not owning)
 Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
     : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),
-      bgColor(cfg.bgColor), borderColor(cfg.borderColor), parentWindow(parent) {}
+      bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
 
     // Clear the canvas area
     void clear() {
@@ -131,11 +131,11 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
     }
     
     // Adds a text line to the canvas.
-    // (No wrapping—if the text extends beyond the canvas, it is simply clipped.)
+    // (No WrapTextping—if the text extends beyond the canvas, it is simply clipped.)
     void AddTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=, text]() { //forces string copy so it's still available for lambda after this goes outta scope. call this function with your text to draw it
+        element.drawFunc = [=, this, text]() { //forces string copy so it's still available for lambda after this goes outta scope. call this function with your text to draw it
             tft.setTextColor(textColor);
             // Set the cursor relative to canvas origin.
             tft.setCursor(x + posX, y + posY);
@@ -172,7 +172,7 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
         drawElements.push_back(element);
         canvasDirty = true;
 }
-  //adafruit has optimized line drawing and normal line drawing, for an angular one it's drawLine,
+  //adafruit has optimized line draWing and normal line draWing, for an angular one it's drawLine,
   // for a perfectly vertical or horizontal line it's  drawFastVLine or drawFastHLine. fortunately they take simular args, so here i've switched between them
 
 
@@ -207,7 +207,7 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
   }
 
 
- // drawing a rectangle.
+ // draWing a rectangle.
 
 //draw filled rect
     void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
@@ -320,12 +320,12 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
 
     // Draws the canvas: first draws the canvas background (and border if not borderless),
     // then sorts and draws the drawable elements by layer.
-        void Draw() {
+        void CanvasDraw() {
         if (canvasDirty) {
             unsigned long startTime = millis(); 
             tft.fillRect(x, y, width, height, bgColor);
             if (!borderless) {
-                tft.drawRect(x, y, width, height, borderColor);
+                tft.drawRect(x, y, width, height, BorderColor);
             }
             
             std::sort(drawElements.begin(), drawElements.end(), [](const DrawableElement &a, const DrawableElement &b) {
@@ -345,17 +345,17 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
 
 
 
-    void update() { //only updates if dirty,chexks as to not waste frames
+    void CanvasUpdate() { //only updates if dirty,chexks as to not waste frames
         unsigned long now = millis();
-        if (canvasDirty || (now - lastUpdateTime >= updateIntervalMs)) {
-            Draw();
+        if (canvasDirty || (now - lastUpdateTime >= UpdateTickRate)) {
+            CanvasDraw();
             lastUpdateTime = now;
         }
     }
 
 private:
     unsigned long lastUpdateTime = 0;
-    unsigned int updateIntervalMs = 100;  // CONSISTENT NAME
+    unsigned int UpdateTickRate = 100;  // CONSISTENT NAME
     unsigned int lastFrameTime = 0;
 };
 
@@ -363,19 +363,19 @@ private:
 //****************************************************************************************************************************************
 //todo: frametime check doesn't seem to be correctly done,check if it's done right :)
 
-//window draw logic
+//Window draw logic
 
-//windows are pannels that you can have text and attatch to a proscess to directly write to or modify. all children like widgets or canvas pannels need to be attatched to windows.
-//windows are what you call update on, so they update sub elements
+//Windows are pannels that you can have text and attatch to a proscess to directly write to or modify. all children like widgets or canvas pannels need to be attatched to Windows.
+//Windows are what you call update on, so they update sub elements
 
 //******************************************************************************************************************************************************
 //remember, constructor uses 
 /*struct WindowCfg 
     int x = 0, y = 0, width = 64, height = 64;
-    bool auto_alignment=0,wrap=1; // Align text centrally or not,wrap text
-    int textsize=1; //default text size inside this window
+    bool AutoAlignment=0,WrapText=1; // Align text centrally or not,WrapText text
+    int TextSize=1; //default text size inside this Window
     bool borderless=false;
-    uint16_t borderColor, bgColor, text_color; // Colors -
+    uint16_t BorderColor, bgColor, wTextColor; // Colors -
     uint16_t UpdateTickRate=500;//update every how ms? 
 */
 
@@ -387,28 +387,42 @@ public:
     WindowCfg config;       // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
 
-    // List of canvases attached to this window
+    // List of canvases attached to this Window
     std::vector<std::shared_ptr<Canvas>> canvases; // Vector of smart pointers
 
-  unsigned int updateIntervalMs = 100; // CONSISTENT VARIABLE NAME
+  unsigned int UpdateTickRate = 100; // CONSISTENT VARIABLE NAME
   // update interval in ms-take from config now! yay i think
     bool dirty = false;     // uased as redraw flag
 unsigned long lastUpdateTime = 0;  // in ms
 
 unsigned int lastFrameTime = 0;    // duration of last draw
 
-       int scrollOffsetX=0; //scroll offsets for these windows
-        int scrollOffsetY=0;
+       int scrollOffsetX=0; //scroll offsets for these Windows //TODO:MOVE THESE TO PRIVATE
+       int scrollOffsetY=0;
+
+      int accumDX = 0, accumDY = 0; // member var for the stupid scroll func: todo: move to private, this is awful
+
 
     std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  
 
     // Constructor
-Window(const std::string& windowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(windowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/}
+Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/}
 
     // Destructor: Clean up canvases
 ~Window() {
-    Callback2WinManager_window_deleted();  // Custom callback when the window is deleted
+    //Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted
     // Any other custom cleanup tasks
+}
+
+void forceUpdate(bool updateSubComps) {//todo: toggle to NOT update offscreen canvas comps
+    dirty = true;
+    WinDraw();  // Immediately update Window content now, FUCKING RIGHT NOW 
+    if (updateSubComps) {
+        for (auto& canvas : canvases) {
+            // Force update on each canvas (even if off-screen or timer-based)
+            if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator-this makes sure canvas-> update checks for valid first
+        }
+    }
 }
 
 void MoveWindow(int newX, int newY) { //mofe from old location to new
@@ -420,7 +434,7 @@ void MoveWindow(int newX, int newY) { //mofe from old location to new
     forceUpdate(true); // Force a redraw since the position changed
 }
 
-void animateMove(int targetX, int targetY, int steps = 5) { //move the window but try to animate it
+void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
     int stepX = (targetX - config.x) / steps;
     int stepY = (targetY - config.y) / steps;
     
@@ -446,61 +460,61 @@ void ResizeWindow(int newWidth, int newHeight) {
     forceUpdate(true); // Force a redraw since the size changed. 
 }
 
-void forceUpdate(bool updateSubComps) {//todo: toggle to NOT update offscreen canvas comps
-    dirty = true;
-    draw();  // Immediately update window content now, FUCKING RIGHT NOW
-    if (updateSubComps) {
-        for (auto& c : canvases) {
-            // Force update on each canvas (even if off-screen or timer-based)
-            if (c) c->update(); //push canvas update for iterator-this makes sure c-> update checks for valid first
-        }
-    }
-}
+
 
 void forceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
-  for (auto& c : canvases) {
+  for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
-            if (c) c->update(); //push canvas update for iterator -this makes sure c-> update checks for valid first
+            if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
         }
 }
-
+/*
 void setUpdateTickRate(int newRate) {
     UpdateTickRate = newRate;
     WindowManager::getWinManagerInstance().notifyUpdateTickRateChange(this); //change the variable in the update rate
-}
+}*/
 
 
 
-    // Add a canvas to this window
+    // Add a canvas to this Window
     void addCanvas(const CanvasCfg& cfg) {
 
         if (cfg.parentWindow != this) {
-        Serial.print("Error: Canvas parent mismatch in window: "); Serial.println(name.c_str());
+        Serial.print("Error: Canvas parent mismatch in Window: "); Serial.println(name.c_str());
         //reject request, it's on the wrong line
             return;
         }
         //safe,create new canvas+pushback-smart ptr
     auto newCanvas = std::make_shared<Canvas>(cfg, shared_from_this());
-canvases.push_back(newCanvas);
-
+    canvases.push_back(newCanvas);
     }
 
 
-    // Update the window's content and mark as dirty
+    // Update the Window's content and mark as dirty
     void updateContent(const std::string& newContent) {
         if (content != newContent) {
             content = newContent;
             dirty = true;
-            draw(); // immediate redraw
+            WinDraw(); // immediate redraw
         }
     }
-// Global or member variables governming this window s scrolligng
+// Global or member variables governming this Window s scrolligng
 int ScrollaccumDX = 0, ScrollaccumDY = 0;
-uint64_t lastScrollTime = getCurrentTimeMillis(); //incorrectlynamed
+uint64_t lastScrollTime = millis(); 
 const int scrollLimit = 3; // max scrolls per period
 const int scrollPeriod = 100; // in ms
 
-
+int calculateTotalTextWidth() {
+    int charWidth = 6 * config.TextSize; // Assuming fixed-width font
+    int maxWidth = 0;
+    for (const auto& line : wrappedLines) {
+        int lineWidth = line.length() * charWidth;
+        if (lineWidth > maxWidth) {
+            maxWidth = lineWidth;
+        }
+    }
+    return maxWidth;
+}
 
 //new scroll code, now supporting directions
 void WindowScroll(int DX, int DY) { //changes in directions
@@ -509,14 +523,14 @@ accumDX += DX;
 accumDY += DY;
 
     
-    uint64_t now = getCurrentTimeMillis();
+    uint64_t now = millis();
     if ( (now - lastScrollTime) >= scrollPeriod || abs(accumDX) >= scrollLimit || abs(accumDY) >= scrollLimit) { 
       //if you scroll a bunch of fucking times in a time period we will group scrolls together before applying them,preventing extra writes to vram. untested as of 3/17/2025
 
         // update scroll offsets
         scrollOffsetX += accumDX;
         scrollOffsetY += accumDY;
-     int totalTextHeight = wrappedLines.size() * (8 * config.textsize);  // Total height of all the wrapped text
+     int totalTextHeight = wrappedLines.size() * (8 * config.TextSize);  // Total height of all the wrapped text
     int maxOffsetY = (totalTextHeight > config.height - 4) ? totalTextHeight - (config.height - 4) : 0;
     scrollOffsetY = std::max(0, std::min(scrollOffsetY, maxOffsetY));
     
@@ -537,17 +551,17 @@ accumDY += DY;
 
 
 
-    // Draws the window and its text content, then updates child canvases if they're visible.
-    void draw() {
+    // Draws the Window and its text content, then updates child canvases if they're visible.
+    void WinDraw() {
           unsigned long startTime = millis();//framerate counter, time counter start
-        // Clear the window area
-        tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the window with the background color
-        if (!config.borderless) //if window not borderless
-            tft.drawRect(config.x, config.y, config.width, config.height, config.borderColor); //draw the rectangle outline
+        // Clear the Window area
+        tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the Window with the background color
+        if (!config.borderless) //if Window not borderless
+            tft.drawRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
 
         // Set text properties
-        tft.setTextColor(config.text_color);
-        tft.setTextSize(config.textsize);
+        tft.setTextColor(config.wTextColor);
+        tft.setTextSize(config.TextSize);
 
         // Update wrapped lines from full content
         updateWrappedLines(); 
@@ -555,18 +569,18 @@ accumDY += DY;
         lastFrameTime = millis() - startTime;
         dirty = false;
 
-        // Update/draw each canvas only if it's at least partially within the window.
+        // Update/draw each canvas only if it's at least partially within the Window.
          for (auto& canvas : canvases) { // Iterate over all canvases
          if (canvas) { // Ensure the pointer is valid
-            // Calculate the canvas's absolute position relative to the window.
-            int canvasAbsX = config.x + c->x;
-            int canvasAbsY = config.y + c->y;
-            // Check if the canvas is completely off-screen relative to the window.
-            if ((canvasAbsX + c->width) < config.x || canvasAbsX > (config.x + config.width) ||(canvasAbsY + c->height) < config.y || canvasAbsY > (config.y + config.height)) {
+            // Calculate the canvas's absolute position relative to the Window.
+            int canvasAbsX = config.x + canvas->x;
+            int canvasAbsY = config.y + canvas->y;
+            // Check if the canvas is completely off-screen relative to the Window.
+            if ((canvasAbsX + canvas->width) < config.x || canvasAbsX > (config.x + config.width) ||(canvasAbsY + canvas->height) < config.y || canvasAbsY > (config.y + config.height)) {
                 //(if x> possible and y>possible)
-                continue;  // Skip drawing this canvas if it's entirely off-screen.
+                continue;  // Skip draWing this canvas if it's entirely off-screen.
             }
-            c->update();  // Update/draw the canvas. 
+            canvas->CanvasUpdate();  // Update/draw the canvas. 
         }//end if valid statement
     }//end canvas iterator
   }//end void draw
@@ -577,8 +591,33 @@ accumDY += DY;
 
 private:
 
+void drawVisibleLines() {
+    int charHeight = 8 * config.TextSize;
+    int charWidth = 6 * config.TextSize;  // Assuming fixed-width font
+    int startLine = scrollOffsetY / charHeight;
+    int visibleLines = (config.height - 4) / charHeight;
+    int y = config.y + 2 - (scrollOffsetY % charHeight);
 
+    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); // Clear area
 
+    for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
+        std::string line = wrappedLines[i];
+
+        // Ensure horizontal scrolling by clipping the start and end of the string
+        int startChar = scrollOffsetX / charWidth;
+        int visibleChars = (config.width - 4) / charWidth;
+        
+        if (startChar < line.length()) { 
+            std::string visibleText = line.substr(startChar, visibleChars);
+            tft.setCursor(config.x + 2, y);
+            tft.print(visibleText.c_str()); //have this as a canvas string which is chars and shit fuck adafruit cmon bro
+        }
+        
+        y += charHeight;
+    }
+}
+
+//put that first then have update wrapped lines. becayse 
 void updateWrappedLines() {
     static std::string lastContent;
     static std::vector<std::string> lastWrappedLines;
@@ -587,7 +626,7 @@ void updateWrappedLines() {
     lastContent = content;
 
     wrappedLines.clear();
-    int charWidth = 6 * config.textsize;
+    int charWidth = 6 * config.TextSize;
     int maxCharsPerLine = (config.width - 4) / charWidth;
 
     std::string_view textView(content);
@@ -622,21 +661,6 @@ void updateWrappedLines() {
 }
 
 
-void drawVisibleLines() {
-    int charHeight = 8 * config.textsize;
-    int startLine = scrollOffset / charHeight;
-    int visibleLines = (config.height - 4) / charHeight;
-    int y = config.y + 2 - (scrollOffset % charHeight);
-    
-    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); // Clear area
-    
-for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
-    tft.setCursor(config.x + 2, y);
-    tft.print(wrappedLines[i].c_str());  // Convert std::string to const char* for the fucking adafruit
-    y += charHeight;
-}
-
-}
 
 
 
@@ -647,42 +671,42 @@ for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines;
 
 
 
-}; //end window obj
+}; //end Window obj
 
 
-//track windows and their update intervals-used in window manager with data pushed from class window
 struct WindowAndUpdateInterval {
- std::weak_ptr<Window> window;
- int updateIntervalMs;
+    std::weak_ptr<Window> windowWeakPtr; // Renamed to avoid conflict
+    int UpdateTickRate;
 
-    WindowAndUpdateInterval(std::shared_ptr<Window> win): window(win), updateIntervalMs(win->updateIntervalMs) {} 
+    // Constructor takes a shared_ptr and stores it as a weak_ptr
+    WindowAndUpdateInterval(std::shared_ptr<Window> Win) 
+        : windowWeakPtr(Win), UpdateTickRate(Win->UpdateTickRate) {}
 
-void updateIfValid() {
-    if (auto winPtr = window.lock()) {  // Try to get a shared_ptr
-        winPtr->update();//meowwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+    void updateIfValid() {
+        if (auto WinPtr = windowWeakPtr.lock()) {  // Try to get a shared_ptr from weak_ptr
+            WinPtr->WinDraw(); // Call WinDraw() on the Window
+        }
     }
-}
-
 };
 
 
 //*************************************************************************************
-//                        window manager
-//handles windows and updating. just create a background osproscess with this in it.
+//                        Window manager
+//handles Windows and updating. just create a background osproscess with this in it.
 //do not create more than one object in main, i've got some code to reject creation of one already exists
 
 class WindowManager {
 
 public:
     WindowManager() { 
-        isWindowHandlerAlive = true;
+        IsWindowHandlerAlive = true;
         Serial.print("WindowManager created.\n"); 
     }
 
     ~WindowManager() { 
-        clearAllWindows();  // Properly clean up all windows
+        clearAllWindows();  // Properly clean up all Windows
         WinManagerInstance = nullptr; // Nullify the singleton reference
-        isWindowHandlerAlive = false;
+        IsWindowHandlerAlive = false;
 
         Serial.print("WindowManager destroyed.\n");
         tft.fillScreen(0x0000);
@@ -700,112 +724,102 @@ public:
         }
         // Check if WinManagerInstance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
         if (!WinManagerInstance) {
-            WinManagerInstance = new WindowManager();
+            WinManagerInstance = std::make_unique<WindowManager>();
         }
-        return WinManagerInstance;
+        return WinManagerInstance.get();
     }
     
 
 
-   // Global list of windows with their update intervals GLOBAL WINDOW REG
-    std::vector<std::shared_ptr<Window>> windowRegistry;
+    std::vector<WindowAndUpdateInterval> WindowRegistry;
 
-
-    // Register a new window
-    void registerWindow(std::shared_ptr<Window> win) { 
-    windows.push_back(win); // Adds window with its update interval and places it inside the storage
+    // Register a new Window
+    void registerWindow(std::shared_ptr<Window> Win) {
+        WindowRegistry.emplace_back(Win); // Create a WindowAndUpdateInterval object
     }
 
-    // Unregister a window(&del)
-void unregisterWindow(Window* win) {
-    if (!win) return;  // Safety check
+    // Unregister a Window (& delete)
+        void unregisterWindow(Window* Win) {
+        if (!Win) return;  // Safety check
 
-    auto it = std::remove_if(windowRegistry.begin(), windowRegistry.end(),
-        [&](const std::shared_ptr<Window>& w) { return w.get() == win; });
+        auto it = std::remove_if(WindowRegistry.begin(), WindowRegistry.end(),
+            [&](const WindowAndUpdateInterval& entry) {
+                if (auto winPtr = entry.windowWeakPtr.lock()) {
+                    return winPtr.get() == Win;
+                }
+                return false;
+            });
 
-    if (it != windowRegistry.end()) {
-        windowRegistry.erase(it, windowRegistry.end());
-    }
-
-    // Clear window from screen
-    tft.fillRect(win->config.x, win->config.y, win->config.width, win->config.height, 0x0000);
-}
-
-
-
-void Callback2WinManager_window_deleted (){//todo: say which one
-Serial.print("something deleted a window.\n"); }
-
-
-void clearAllWindows() {
-  for (auto& entry : windowRegistry) {
-    tft.fillRect(entry.window->config.x, entry.window->config.y,entry.window->config.width, entry.window->config.height, 0x0000); 
-    }
-    windowRegistry.clear();  // Smart pointers clean up automatically FROM WINDOW REGISTRY
-    tft.fillScreen(0x0000);  // Black wipe the whole screen
-}
-
-
-
-
-
-    // Get all windows (returns a vector of Window pointers)
-std::vector<Window*> getAllWindows() {
-    std::vector<Window*> allWindows;
-    for (auto& entry : windowRegistry) {
-        allWindows.push_back(entry.get());  // Use .get() to extract raw pointer
-    }
-    return allWindows;
-}
-
-
-    // Get window by name (returns a pointer to the window or nullptr if not found)
-std::shared_ptr<Window> getWindowByName(const std::string& windowName) {
-    for (auto& entry : windowRegistry) {
-        if (auto winPtr = entry.window.lock()) {
-    if (winPtr->name == windowName) {
-        return winPtr;
+        if (it != WindowRegistry.end()) {
+            WindowRegistry.erase(it, WindowRegistry.end());
         }
+
+        // Clear Window from screen
+        tft.fillRect(Win->config.x, Win->config.y, Win->config.width, Win->config.height, 0x0000);
     }
-    return nullptr;  // If not found
-  }
-}
+
+/*
+void Callback2WinManager_Window_deleted (){//todo: say which one
+Serial.print("something deleted a Window.\n"); }
+*/
+
+ // Clear all Windows
+    void clearAllWindows() {
+        for (auto& entry : WindowRegistry) {
+            if (auto winPtr = entry.windowWeakPtr.lock()) {
+                tft.fillRect(winPtr->config.x, winPtr->config.y, winPtr->config.width, winPtr->config.height, 0x0000);
+            }
+        }
+        WindowRegistry.clear();  // Smart pointers clean up automatically
+        tft.fillScreen(0x0000);  // Black wipe the whole screen
+    }
+
+    // Get Window by name
+    std::shared_ptr<Window> GetWindowByName(const std::string& WindowName) {
+        for (auto& entry : WindowRegistry) {
+            if (auto winPtr = entry.windowWeakPtr.lock()) {
+                if (winPtr->name == WindowName) {
+                    return winPtr;
+                }
+            }
+        }
+        return nullptr;  // If not found
+    }
+
+    // Other members...
 
 
-    // Update all windows based on their tick intervals
+    // Update all Windows based on their tick intervals
 void updateAllWindows() {
     unsigned long currentTime = millis();
 
-    for (auto it = windowRegistry.begin(); it != windowRegistry.end(); ) {
-        auto win = *it;  // win is now a shared_ptr<Window>
-
-        if (!win) {
-            it = windowRegistry.erase(it);  // Remove invalid entry & continue
-            continue; 
-        }
-
-        if (currentTime - win->lastUpdateTime >= win->UpdateTickRate) {  
-            if (win->dirty) {  
-                win->draw();
-                win->lastUpdateTime = currentTime;  
+    for (auto it = WindowRegistry.begin(); it != WindowRegistry.end(); ) {
+        if (auto winPtr = it->windowWeakPtr.lock()) {
+            if (currentTime - winPtr->lastUpdateTime >= winPtr->UpdateTickRate) {
+                if (winPtr->dirty) {
+                    winPtr->WinDraw();
+                    winPtr->lastUpdateTime = currentTime;
+                }
             }
+            ++it;
+        } else {
+            it = WindowRegistry.erase(it);  // Remove invalid entry
         }
-
-        ++it;
     }
 }
 
 
-
 void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
-    for (auto& entry : windowRegistry) {
-        if (entry.get() == targetWindow) {
-            entry->UpdateTickRate = newUpdateTickRate;
-            Serial.print("Update rate changed for window: ");
-            Serial.print(" to ");
-            Serial.print(newUpdateTickRate);
-            Serial.println("ms");
-            return;
+    for (auto& entry : WindowRegistry) {
+        if (auto winPtr = entry.windowWeakPtr.lock()) {
+            if (winPtr.get() == targetWindow) {
+                winPtr->UpdateTickRate = newUpdateTickRate;
+                Serial.print("Update rate changed for Window: ");
+                Serial.print(" to ");
+                Serial.print(newUpdateTickRate);
+                Serial.println("ms");
+                return;
+            }
         }
     }
     Serial.print("Error: Window not found in registry!");
@@ -830,16 +844,15 @@ void selfDestructWinManager(){ //for when we need to delete the manager becausse
 private:
 //nothing really in private
 
-};
+};//end winmanager
 
 
 
 
+//tips: to get Win by name use "Window* myWindow = WindowManager.getWindowByName("Window1");" w/ the name :)
 
-//tips: to get win by name use "Window* myWindow = windowManager.getWindowByName("Window1");" w/ the name :)
-
-//to del a win, windowManager.unregisterWindow(myWindow);
-//to wipe em all use windowManager.clearAllWindows();-should work and not leak memory
+//to del a Win, WindowManager.unregisterWindow(myWindow);
+//to wipe em all use WindowManager.clearAllWindows();-should work and not leak memory
 
 
 
@@ -851,7 +864,7 @@ private:
 
 ///***************************************************************************************************************************************************************************************************************************************************************
 //operating system defaults for various types of screen setups
-//default groupings are groups of default windows to put on the screen in some conditions, saving you time from having to manually add one of each window to the screen [lock screen,app screen, etc]
+//default groupings are groups of default Windows to put on the screen in some conditions, saving you time from having to manually add one of each Window to the screen [lock screen,app screen, etc]
 ///***************************************************************************************************************************************************************************************************************************************************************
 
 //NONE NOW, WE NOW USE APPLICATIONS FOR THIS

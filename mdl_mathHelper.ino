@@ -133,128 +133,114 @@ void PollButtons() {
 
 
 //to check: does focus remove window? it should not. a task being a background task should do that instead
-
-class OSProcess: 
-public: std::enable_shared_from_this<OSProscess>{ //std enable exposes os proscess refs for ext ref
-
+class OSProcess : public std::enable_shared_from_this<OSProcess> { // Fixed class declaration
+public:
     struct OSPConfig {
-        std::string name;
-        bool create_window = false; //auto make win?
-        WindowCfg window_cfg; //win cfg
-        bool pin_to_core = false; 
-        int core_id = 0; //only relavent forpintocore
-        uint32_t stack_size = 4096;  
-        UBaseType_t priority = tskIDLE_PRIORITY + 1; //todo: is this really this high priority?
-        bool start_focused = false; 
-        bool isBackground=false; //new tasks not background by defualt-don't focus and have no window. must not be backgroudn to take input
-        //todo: default define background tasks? unfocused tasks aren't automatically background ones, they can still be on screen
-        
+        std::string Name;
+        bool CreateWindow = false;
+        WindowCfg WindowConfig;
+        bool PinToCore = false;
+        int CoreId = 0;
+        uint32_t StackSize = 4096;
+        UBaseType_t Priority = tskIDLE_PRIORITY + 1;
+        bool StartFocused = false;
+        bool IsBackground = false;
     };
 
-    static std::shared_ptr<OSProcess> create(const OSPConfig& cfg) { 
-        auto proc = std::make_shared<OSProcess>(cfg);
-        OSProcessHandlerService::registerProcess(proc);
-        if (cfg.start_focused) {
-            OSProcessHandlerService::setFocused(proc);
+    static std::shared_ptr<OSProcess> Create(const OSPConfig& config) {
+        auto process = std::make_shared<OSProcess>(config);
+        OSProcessHandlerService::RegisterProcess(process);
+        if (config.StartFocused) {
+            OSProcessHandlerService::SetFocused(process);
         }
-        return proc;
+        return process;
     }
 
-    void start(bool auto_focus = true) {
-        if (!OSProcessHandlerService::hasEnoughMemory(config.stack_size)) return; //do we have memory? if not, fuck you,no proscess
+    void Start(bool autoFocus = true) {
+        if (!OSProcessHandlerService::HasEnoughMemory(Config.StackSize)) return;
 
-        if (!task_handle) { // Step 2: Check if the task has already been created (i.e., task_handle is not initialized)
-            xTaskCreatePinnedToCore(taskRouter,OSPConfig.name.c_str(),OSPConfig.stack_size,this,OSPConfig.priority,&task_handle,OSPConfig.pin_to_core ?OSPConfig.core_id : tskNO_AFFINITY); //create new tas w conf
-            if (auto_focus){ OSProcessHandlerService::setFocused(shared_from_this()); /*if the task is set to autofocus, notify the os handler service to focus in */ 
-            }//ifautofocus
-        } //thandle
-      
-      //call create window here to create and start it, but only if bool createwindow is true, and windowcfg is valid
-        //TODO!!!!!!!!!!!!! CREATE THE FUCKING DINWODW NOW BTICH
-      
-    }//voidstart
+        if (!TaskHandle) {
+            xTaskCreatePinnedToCore(TaskRouter, Config.Name.c_str(), Config.StackSize, this, Config.Priority, &TaskHandle, Config.PinToCore ? Config.CoreId : tskNO_AFFINITY);
+            if (autoFocus) {
+                OSProcessHandlerService::SetFocused(shared_from_this());
+            }
+        }
 
-
-void stop() {
-    if (task_handle) {
-        vTaskDelete(task_handle);
-        task_handle = nullptr;
+        // TODO: Create window if Config.CreateWindow is true and Config.WindowConfig is valid
     }
-    auto self = shared_from_this(); // Ensure we have a strong reference before unregistering
-    OSProcessHandlerService::unregisterProcess(self);
-    // TODO: Delete associated window if it exists
-}
 
+    void Stop() {
+        if (TaskHandle) {
+            vTaskDelete(TaskHandle);
+            TaskHandle = nullptr;
+        }
+        auto self = shared_from_this();
+        OSProcessHandlerService::UnregisterProcess(self);
+        // TODO: Delete associated window if it exists
+    }
 
+    bool SetProcessBackground(bool isBackground) {
+        // TODO: Implement logic to change process background status
+    }
 
-  bool setProcBackground(bool isBG){ //needs to be able to be remotely called too 
-  //1. delete and dereg the current window from the lillypad graphics thing
-  //2. set unfocused
-  //3. tell the os proscess handler this one is in the background now
-  //4. throttle update rate (once we impliment update rates)
-  }
-
-  void TakeUsrInput(const UserInput& input){ //take the user input and do that
-  //no logic yet-needs to take the user input intertupt passed to it from the os proscess manager
-  }//put it in a lambadia or something that the proscess can handle with it's own custom code-because i havea to remember that the os priscess is just a fucking wrapper!
-//user input should really be routed to whatever logic the user's implimented
-
-
-
+    void TakeUserInput(const UserInput& input) {
+        // TODO: Implement user input handling
+    }
 
 private:
-    explicit OSProcess(const OSPConfig& cfg) : OSPConfig(cfg), execution_code([]{}) {}
+    explicit OSProcess(const OSPConfig& config) : Config(config), ExecutionCode([]{}) {}
 
-
-    static void taskRouter(void* param) {
-        auto* proc = static_cast<OSProcess*>(param);
-        if (proc->execution_code) {
-            proc->execution_code();
+    static void TaskRouter(void* param) {
+        auto* process = static_cast<OSProcess*>(param);
+        if (process->ExecutionCode) {
+            process->ExecutionCode();
         }
-        proc->stop();
+        process->Stop();
     }
 
-   OSPConfig OSPConfig; 
-    TaskHandle_t task_handle = nullptr;
-    std::function<void()> execution_code;
+    OSPConfig Config;
+    TaskHandle_t TaskHandle = nullptr;
+    std::function<void()> ExecutionCode;
 };
 
 class OSProcessHandlerService {
 public:
-
-
-    static void registerProcess(std::shared_ptr<OSProcess> proc) {
-        std::lock_guard<std::mutex> lock(process_mutex);
-        processes.emplace_back(proc);
+    static void RegisterProcess(std::shared_ptr<OSProcess> process) {
+        std::lock_guard<std::mutex> lock(ProcessMutex);
+        Processes.emplace_back(process);
     }
 
-    static void unregisterProcess(std::shared_ptr<OSProcess> proc) {
-        std::lock_guard<std::mutex> lock(process_mutex);
-        processes.erase(
-            std::remove_if(processes.begin(), processes.end(),
-                [&proc](const auto& p) { return p.lock() == proc; }),
-            processes.end()
+    static void UnregisterProcess(std::shared_ptr<OSProcess> process) {
+        std::lock_guard<std::mutex> lock(ProcessMutex);
+        Processes.erase(
+            std::remove_if(Processes.begin(), Processes.end(),
+                [&process](const auto& p) { return p.lock() == process; }),
+            Processes.end()
         );
     }
 
-    static bool hasEnoughMemory(uint32_t stack_size) {
-        return xPortGetFreeHeapSize() > (stack_size + 64); //mem and fudging
+    static bool HasEnoughMemory(uint32_t stackSize) {
+        return xPortGetFreeHeapSize() > (stackSize + 64);
     }
 
-    static void setFocused(std::shared_ptr<OSProcess> proc) { //route input to here now
-        std::lock_guard<std::mutex> lock(process_mutex);
-        focused_process = proc;
+    static void SetFocused(std::shared_ptr<OSProcess> process) {
+        std::lock_guard<std::mutex> lock(ProcessMutex);
+        FocusedProcess = process;
     }
 
-
-// Function to send input to the focused process. 
-void OnUserInput(const UserInput& input) { //todo: not sure how to use this functionality, but at least the pointers shouldn't do anything weird
-    std::lock_guard<std::mutex> lock(process_mutex);
-    auto proc = focused_process.lock(); // Convert weak_ptr to shared_ptr
-    if (proc) { 
-        proc->TakeUsrInput(input); // Send input to the focused process
+    static void OnUserInput(const UserInput& input) {
+        std::lock_guard<std::mutex> lock(ProcessMutex);
+        auto process = FocusedProcess.lock();
+        if (process) {
+            process->TakeUserInput(input);
+        }
     }
-}
+
+private:
+    static inline std::vector<std::weak_ptr<OSProcess>> Processes;
+    static inline std::weak_ptr<OSProcess> FocusedProcess;
+    static inline std::mutex ProcessMutex;
+};
 
 
 private:
