@@ -28,6 +28,7 @@
 
 //this is the Window handler for dandelionn. if you want low level stuff about the screen see module_math_render_base. that module handles direct controll of the screen
 //this module handles Window creation and draw calls. version 4, now with performance enhancements. :3
+//i do not know what version oim on anymore nad fu in need to die
 
 #include "module_math_render_base.ino" //i hate this verbose name
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
@@ -135,7 +136,7 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
     void AddTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [=, this, text]() { //forces string copy so it's still available for lambda after this goes outta scope. call this function with your text to draw it
+        element.drawFunc = [text, this]() { //forces explicit copy of the text so that it may be copied persistantly or whatever the fuck fuck you i hate this 
             tft.setTextColor(textColor);
             // Set the cursor relative to canvas origin.
             tft.setCursor(x + posX, y + posY);
@@ -311,6 +312,18 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
         canvasDirty = true;
     }
 
+//this is auto gennerated. fuck you. 
+void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    
+    element.drawFunc = [=, this]() { 
+        tft.drawRGBBitmap(x + posX, y + posY, bitmap, w, h);
+    };
+
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
 
 
 
