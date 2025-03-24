@@ -54,7 +54,7 @@ struct WindowCfg {
     bool AutoAlignment=0,WrapText=1; // Align text centrally or not,WrapText text
     int TextSize=1; //default text size inside this Window
     bool borderless=false;
-    uint16_t BorderColor, bgColor, wTextColor; // Colors -add defaults
+    uint16_t BorderColor, bgColor, WinTextColor; // Colors -add defaults
     uint16_t UpdateTickRate=500;//update every how many ms?
 }; 
 
@@ -133,18 +133,23 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
     
     // Adds a text line to the canvas.
     // (No WrapTextping—if the text extends beyond the canvas, it is simply clipped.)
-    void AddTextLine(int posX, int posY, const String &text, uint16_t textColor, int layer = 0) {
+    void AddTextLine(int posX, int posY, const String &text, uint8_t txtsize, uint16_t WinTextColor, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [text, this]() { //forces explicit copy of the text so that it may be copied persistantly or whatever the fuck fuck you i hate this 
-            tft.setTextColor(textColor);
-            // Set the cursor relative to canvas origin.
-            tft.setCursor(x + posX, y + posY);
-            tft.print(text);
-        };
+
+    element.drawFunc = [text,txtsize, this, posX, posY, WinTextColor]() {//force explicit copy for persistance-these xy coords are for the canvas pos
+    tft.setTextColor(WinTextColor); // Remove .get()
+    tft.setTextSize(txtsize);
+    int16_t Textx, Texty; //local vars for position of text in canvas
+    //tft.getCursor(&x, &y); //there's no function named get cursor. it would be nice if it EXISTED!!!
+    tft.setCursor(Textx + posX, Texty + posY);
+    tft.print(text.c_str());
+    };//end elem drawfunc
+
+
         drawElements.push_back(element);
         canvasDirty = true;
-    }
+    }//end addtextline
 
 
 
@@ -169,9 +174,10 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
         else {
             tft.drawLine(x + posX0, y + posY0, x + posX1, y + posY1, color);
         }
-    };
-        drawElements.push_back(element);
-        canvasDirty = true;
+    };//end drawfunc
+
+  drawElements.push_back(element);
+  canvasDirty = true;
 }
   //adafruit has optimized line draWing and normal line draWing, for an angular one it's drawLine,
   // for a perfectly vertical or horizontal line it's  drawFastVLine or drawFastHLine. fortunately they take simular args, so here i've switched between them
@@ -388,7 +394,7 @@ private:
     bool AutoAlignment=0,WrapText=1; // Align text centrally or not,WrapText text
     int TextSize=1; //default text size inside this Window
     bool borderless=false;
-    uint16_t BorderColor, bgColor, wTextColor; // Colors -
+    uint16_t BorderColor, bgColor, WinTextColor; // Colors -
     uint16_t UpdateTickRate=500;//update every how ms? 
 */
 
@@ -399,6 +405,7 @@ public:
     std::string name;       // Window's name
     WindowCfg config;       // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
+    std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  todo:move private
 
     // List of canvases attached to this Window
     std::vector<std::shared_ptr<Canvas>> canvases; // Vector of smart pointers
@@ -407,8 +414,9 @@ public:
   // update interval in ms-take from config now! yay i think
     bool dirty = false;     // uased as redraw flag
 unsigned long lastUpdateTime = 0;  // in ms
-
 unsigned int lastFrameTime = 0;    // duration of last draw
+
+    bool IsWindowShown = true;//windows are shown by default on creation
 
        int scrollOffsetX=0; //scroll offsets for these Windows //TODO:MOVE THESE TO PRIVATE
        int scrollOffsetY=0;
@@ -416,7 +424,6 @@ unsigned int lastFrameTime = 0;    // duration of last draw
       int accumDX = 0, accumDY = 0; // member var for the stupid scroll func: todo: move to private, this is awful
 
 
-    std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  
 
     // Constructor
 Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/}
@@ -427,10 +434,10 @@ Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& i
     // Any other custom cleanup tasks
 }
 
-void forceUpdate(bool updateSubComps) {//todo: toggle to NOT update offscreen canvas comps
+void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
     dirty = true;
     WinDraw();  // Immediately update Window content now, FUCKING RIGHT NOW 
-    if (updateSubComps) {
+    if (UpdateSubComps) {
         for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
             if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator-this makes sure canvas-> update checks for valid first
@@ -444,7 +451,7 @@ void MoveWindow(int newX, int newY) { //mofe from old location to new
     config.x = newX;
     config.y = newY;
     
-    forceUpdate(true); // Force a redraw since the position changed
+    ForceUpdate(true); // Force a redraw since the position changed
 }
 
 void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
@@ -454,14 +461,14 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
     for (int i = 0; i < steps; i++) {
         config.x += stepX;
         config.y += stepY;
-        forceUpdate(false);
+        ForceUpdate(false);
         delay(45); // Small delay to make animation visible
     }
     
     // Ensure final position is exact
     config.x = targetX;
     config.y = targetY;
-    forceUpdate(true);
+    ForceUpdate(true);
 }
 
 void ResizeWindow(int newWidth, int newHeight) { 
@@ -470,12 +477,12 @@ void ResizeWindow(int newWidth, int newHeight) {
     config.width = newWidth;
     config.height = newHeight;
     
-    forceUpdate(true); // Force a redraw since the size changed. 
+    ForceUpdate(true); // Force a redraw since the size changed. 
 }
 
 
 
-void forceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
+void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
   for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
             if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
@@ -561,7 +568,7 @@ accumDY += DY;
 
         // Notify components to update only if scroll changed
         if (scrollOffsetX != prevOffsetX || scrollOffsetY != prevOffsetY) {
-            forceUpdate(true); // push an update RIGHT FUCKING NOW
+            ForceUpdate(true); // push an update RIGHT FUCKING NOW
           
         }
 
@@ -573,6 +580,7 @@ accumDY += DY;
 
     // Draws the Window and its text content, then updates child canvases if they're visible.
     void WinDraw() {
+if (IsWindowShown) {//if the window is shown,draw this
           unsigned long startTime = millis();//framerate counter, time counter start
         // Clear the Window area
         tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the Window with the background color
@@ -580,7 +588,7 @@ accumDY += DY;
             tft.drawRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
 
         // Set text properties
-        tft.setTextColor(config.wTextColor);
+        tft.setTextColor(config.WinTextColor);
         tft.setTextSize(config.TextSize);
 
         // Update wrapped lines from full content
@@ -599,19 +607,34 @@ accumDY += DY;
             if ((canvasAbsX + canvas->width) < config.x || canvasAbsX > (config.x + config.width) ||(canvasAbsY + canvas->height) < config.y || canvasAbsY > (config.y + config.height)) {
                 //(if x> possible and y>possible)
                 continue;  // Skip draWing this canvas if it's entirely off-screen.
-            }
+            }//end canvas check statement
             canvas->CanvasUpdate();  // Update/draw the canvas. 
         }//end if valid statement
     }//end canvas iterator
-  }//end void draw
+  }//end of is window shown?
+    else { Serial.println("Window hidden (IsWindowShown = false)");  } //you never know. probably should remove later but... debug print statements are important
+ }//end void draw
 
 
+ void HideWindow() {
+  IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
+  tft.fillRect(config.x, config.y, config.width, config.height,0x0000);//fill the area with blackd
 
+        // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
+        // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
+    }//end hide win
+
+ void ShowWindow() {
+  IsWindowShown = true;
+  ForceUpdate(true);
+        // Optionally, instruct all sub-elements (Canvases) to show themselves.
+    }//end show window
 
 
 private:
 
 void drawVisibleLines() {
+if(IsWindowShown){
     int charHeight = 8 * config.TextSize;
     int charWidth = 6 * config.TextSize;  // Assuming fixed-width font
     int startLine = scrollOffsetY / charHeight;
@@ -624,18 +647,21 @@ void drawVisibleLines() {
         std::string line = wrappedLines[i];
 
         // Ensure horizontal scrolling by clipping the start and end of the string
-        int startChar = scrollOffsetX / charWidth;
+        int startChar = max(0,scrollOffsetX / charWidth);//clamp and div by lines
         int visibleChars = (config.width - 4) / charWidth;
         
         if (startChar < line.length()) { 
             std::string visibleText = line.substr(startChar, visibleChars);
             tft.setCursor(config.x + 2, y);
-            tft.print(visibleText.c_str()); //have this as a canvas string which is chars and shit fuck adafruit cmon bro
+        for (int j = startChar; j < startChar + visibleChars && j < line.length(); j++) {
+        tft.print(line[j]); // Print char-by-char (no substring)
         }
+      }//if start char
         
         y += charHeight;
-    }
-}
+    }//end for loop
+ }//end if check
+}//end draw visible lines
 
 //put that first then have update wrapped lines. becayse 
 void updateWrappedLines() {

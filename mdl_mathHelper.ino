@@ -133,12 +133,12 @@ void PollButtons() {
 
 
 //to check: does focus remove window? it should not. a task being a background task should do that instead
-class OSProcess : public std::enable_shared_from_this<OSProcess> { // Fixed class declaration
+class OSProcess : public std::enable_shared_from_this<OSProcess> {
 public:
     struct OSPConfig {
         std::string Name;
         bool CreateWindow = false;
-        WindowCfg WindowConfig;
+        WindowCfg WindowConfig; // Window configuration
         bool PinToCore = false;
         int CoreId = 0;
         uint32_t StackSize = 4096;
@@ -166,7 +166,11 @@ public:
             }
         }
 
-        // TODO: Create window if Config.CreateWindow is true and Config.WindowConfig is valid
+        // Create window if configured
+        if (Config.CreateWindow) {
+            WindowInstance = std::make_shared<Window>(Config.Name, Config.WindowConfig);
+            WindowInstance->forceUpdate(true); // Force initial draw
+        }
     }
 
     void Stop() {
@@ -176,15 +180,30 @@ public:
         }
         auto self = shared_from_this();
         OSProcessHandlerService::UnregisterProcess(self);
-        // TODO: Delete associated window if it exists
+
+        // Delete window if it exists
+        if (WindowInstance) {
+            WindowInstance.reset();
+        }
     }
 
     bool SetProcessBackground(bool isBackground) {
-        // TODO: Implement logic to change process background status
+        Config.IsBackground = isBackground;
+        if (WindowInstance) {
+            if (isBackground) {
+                WindowInstance->HideWindow(); // Hide window when in background
+            } else {
+                WindowInstance->ShowWindow(); // Show window when in foreground
+            }
+        }
+        return true;
     }
 
     void TakeUserInput(const UserInput& input) {
-        // TODO: Implement user input handling
+        if (WindowInstance) {
+            // Forward user input to the window (e.g., scrolling)
+            WindowInstance->WindowScroll(input.DX, input.DY);
+        }
     }
 
 private:
@@ -201,31 +220,22 @@ private:
     OSPConfig Config;
     TaskHandle_t TaskHandle = nullptr;
     std::function<void()> ExecutionCode;
+    std::shared_ptr<Window> WindowInstance; // Window instance for this process
 };
 
 class OSProcessHandlerService {
 public:
-    static void RegisterProcess(std::shared_ptr<OSProcess> process) {
-        std::lock_guard<std::mutex> lock(ProcessMutex);
-        Processes.emplace_back(process);
-    }
-
-    static void UnregisterProcess(std::shared_ptr<OSProcess> process) {
-        std::lock_guard<std::mutex> lock(ProcessMutex);
-        Processes.erase(
-            std::remove_if(Processes.begin(), Processes.end(),
-                [&process](const auto& p) { return p.lock() == process; }),
-            Processes.end()
-        );
-    }
-
-    static bool HasEnoughMemory(uint32_t stackSize) {
-        return xPortGetFreeHeapSize() > (stackSize + 64);
-    }
-
     static void SetFocused(std::shared_ptr<OSProcess> process) {
         std::lock_guard<std::mutex> lock(ProcessMutex);
+        if (FocusedProcess.lock()) {
+            // Hide the window of the previously focused process
+            FocusedProcess.lock()->SetProcessBackground(true);
+        }
         FocusedProcess = process;
+        if (process) {
+            // Show the window of the newly focused process
+            process->SetProcessBackground(false);
+        }
     }
 
     static void OnUserInput(const UserInput& input) {
@@ -243,11 +253,6 @@ private:
 };
 
 
-private:
-    static inline std::vector<std::weak_ptr<OSProcess>> processes;
-    static inline std::weak_ptr<OSProcess> focused_process;
-    static inline std::mutex process_mutex;
-};
 
 
 struct Vector3 { //todo: fix it. not sure if it works right but whatever i guess
