@@ -31,7 +31,7 @@ enum days{
 
 // Define weekdays and weekends
 const bool isWeekday[7] = { false,true, true, true, true, true, false }; // Mon-Fri: true; Sat, Sun: false (week start with sun, end w sat)
-
+/*
 
 enum months{
   jan,
@@ -191,7 +191,7 @@ void initializeRTC() {
     }
 }
 
-/*// Update the stored Unix time in NVS
+/// Update the stored Unix time in NVS
 //should get graceful faulure handling later
 void updateStoredTime() {
     struct timeval now;
@@ -202,7 +202,7 @@ void updateStoredTime() {
     preferences.putULong("unix_time", NowUnixTime);
     Serial.println("Time updated in NVS");
 }
-*/
+
 // Print the current local time
 void GetLocalTime() {
     struct tm timeinfo;
@@ -385,7 +385,7 @@ Bit 4       -> Thursday
 Bit 5       -> Friday
 Bit 6       -> Saturday
 Bit 7 (MSB) -> not used. reserved for anything in refactor
-*/
+*
 
 //user provides a boolean array (length 7) of days when sending input. [days sun to sat]
 
@@ -693,7 +693,7 @@ public:
 
 //to use this, do something like this:
 
-/*
+
 
 Timer myTimer("timer name here"); //declare an object
 
@@ -701,7 +701,7 @@ Timer myTimer("timer name here"); //declare an object
     // Start a 10-second timer
     myTimer.start(10); //start the timer
 
-*/
+
 
 
 
@@ -825,6 +825,6 @@ void printLaps() const {
 //
 
 //end the module
-
+*/
 
 #endif // MDL_TIMEKEEPING_H

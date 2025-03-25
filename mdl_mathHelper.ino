@@ -17,8 +17,8 @@
 //notes on hardware of the esp32:
 //fpu: the fpu is absolute garbage. like. faster than me, but still MISERABLY bad for a fpu. (functionally useless proscessor) i'm a person with a soul. and i deserve to not suffer like this. i mean i've had worse life experiences but....
 //the cpu or fpu doesn't support division natively. why? that's like. the most normal thing to have. 
-
-
+/*
+/*
 
 
 //forward class declare so no bugs you vill eat ze bugs
@@ -202,7 +202,7 @@ public:
     void TakeUserInput(const UserInput& input) {
         if (WindowInstance) {
             // Forward user input to the window (e.g., scrolling)
-            WindowInstance->WindowScroll(input.DX, input.DY);
+           // WindowInstance->WindowScroll(input.DX, input.DY);//not moving this anywhere. it's not right here. 
         }
     }
 
@@ -325,7 +325,7 @@ float FastNormalizeAngle_radians(float angle) {
 //ASSUMED 4 bytes per counter (unsigned long unlock_time)
 //warning:each rate limit called increases ram use! by a few bytes
 
-
+/*
 // Struct for rate limit counters
 typedef struct {
     unsigned long unlock_time;
@@ -380,7 +380,7 @@ void deleteRateLimit(int id) {
 
 //to use, copy the following and impliment with whatever logic in the main code or whatever
 
-/*
+
 
 //assign an id automatically
 static int button_press_id = -1; 
@@ -402,7 +402,6 @@ static int button_press_id = -1;
         }
     );
 //should? be the same as my do and lock for macro
-*/
 
 
 /////////////////////////////////////////////end of rate limit macro
@@ -414,12 +413,12 @@ static int button_press_id = -1;
 #define TOGGLE_STATE(state_var) (state_var = !(state_var))
 
 //to use:
-/*
+
 bool light_on = false;
 TOGGLE_STATE(light_on);
 Serial.println(light_on ? "Light ON" : "Light OFF");
 
-*/
+
 
 
 
@@ -475,7 +474,7 @@ RESET_COUNTER(myCounter, {
     Serial.println("Counter Reset!");
 });
 
-*/
+
 
 
 //****************************************************** do stuff a bunch of times-repeatx
@@ -489,11 +488,8 @@ RESET_COUNTER(myCounter, {
     } while (0)
 
 //example
-/*
-REPEAT_X(5, {
-    Serial.println("Hello!");
-});
-*/
+
+
 
  //do stuff with delay x times
 #define REPEAT_X_WITH_DELAY(times, interval, on_exec)   \
@@ -508,14 +504,14 @@ REPEAT_X(5, {
     }
 
 //example
+
+
+   // REPEAT_X_WITH_DELAY(5, 1000, Serial.println("Non-blocking Hello!"));
+
 /*
 
-    REPEAT_X_WITH_DELAY(5, 1000, Serial.println("Non-blocking Hello!"));
-}
 
-*/
-
-
+/*
 
 //ultrahigh speed repeat with delay-uses microseconds
 #define REPEAT_X_WITH_US_DELAY(times, interval_us, on_exec)  \
@@ -529,13 +525,13 @@ REPEAT_X(5, {
         }                                                      \
     }
 
-/* //use:
+ //use:
 
-    REPEAT_X_WITH_US_DELAY(3, 500, Serial.println("Microsecond Hello!"));
+    //REPEAT_X_WITH_US_DELAY(3, 500, Serial.println("Microsecond Hello!"));
 
 
-*/
 
+/*
 //uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 
 //NAMING FUCKED UP HERE FIX IT
@@ -600,10 +596,10 @@ int createLoopWhileTimer(unsigned long duration_ms) {
         loopWhileTimers[timer_id].start_time = millis() - loopWhileTimers[timer_id].duration; \
     }
 
-/* //how to use
-WARNING CREEATE A USER GUIDE. I DON'T REMEMBER HOW IT WORKS
+ //how to use
+
+
+
+
 */
-
-
-
 #endif

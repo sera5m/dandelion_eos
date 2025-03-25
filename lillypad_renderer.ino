@@ -340,7 +340,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
     // Draws the canvas: first draws the canvas background (and border if not borderless),
     // then sorts and draws the drawable elements by layer.
         void CanvasDraw() {
-        if (canvasDirty) {
+        
             unsigned long startTime = millis(); 
             tft.fillRect(x, y, width, height, bgColor);
             if (!borderless) {
@@ -356,19 +356,20 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
             }
 
             lastFrameTime = millis() - startTime;
-            canvasDirty = false;
-        }
+            
+        
     }
     
 
 
 
 
-    void CanvasUpdate() { //only updates if dirty,chexks as to not waste frames
+    void CanvasUpdate(bool force) { //only updates if dirty,chexks as to not waste frames
         unsigned long now = millis();
-        if (canvasDirty || (now - lastUpdateTime >= UpdateTickRate)) {
+        if (canvasDirty || (now - lastUpdateTime >= UpdateTickRate)|| force) {
             CanvasDraw();
             lastUpdateTime = now;
+            canvasDirty = false;
         }
     }
 
@@ -440,7 +441,7 @@ void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen ca
     if (UpdateSubComps) {
         for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
-            if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator-this makes sure canvas-> update checks for valid first
+            if (canvas) canvas->CanvasUpdate(UpdateSubComps); //push canvas update for iterator-this makes sure canvas-> update checks for valid first
         }
     }
 }
@@ -485,7 +486,7 @@ void ResizeWindow(int newWidth, int newHeight) {
 void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
   for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
-            if (canvas) canvas->CanvasUpdate(); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
+            if (canvas) canvas->CanvasUpdate(true); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
         }
 }
 /*
@@ -608,7 +609,7 @@ if (IsWindowShown) {//if the window is shown,draw this
                 //(if x> possible and y>possible)
                 continue;  // Skip draWing this canvas if it's entirely off-screen.
             }//end canvas check statement
-            canvas->CanvasUpdate();  // Update/draw the canvas. 
+            canvas->CanvasUpdate(true);  // Update/draw the canvas. todo: do a better method than force
         }//end if valid statement
     }//end canvas iterator
   }//end of is window shown?
@@ -786,7 +787,7 @@ public:
 
     // Register a new Window
     void registerWindow(std::shared_ptr<Window> Win) {
-        WindowRegistry.emplace_back(Win); // Create a WindowAndUpdateInterval object
+        WindowRegistry.emplace_back(Win); // Create a WindowAndUpdateInterval object //todo error this needs to have a defa ult rateset
     }
 
     // Unregister a Window (& delete)
@@ -841,15 +842,17 @@ Serial.print("something deleted a Window.\n"); }
 
 
     // Update all Windows based on their tick intervals
-void updateAllWindows() {
+void UpdateAllWindows(bool Force,bool AndSubComps) {
     unsigned long currentTime = millis();
 
     for (auto it = WindowRegistry.begin(); it != WindowRegistry.end(); ) {
         if (auto winPtr = it->windowWeakPtr.lock()) {
-            if (currentTime - winPtr->lastUpdateTime >= winPtr->UpdateTickRate) {
-                if (winPtr->dirty) {
+            if (Force || (currentTime - winPtr->lastUpdateTime >= winPtr->UpdateTickRate)) {
+                if (winPtr->dirty || Force) {  // Check both conditions
                     winPtr->WinDraw();
+                    if (AndSubComps){winPtr->ForceUpdateSubComps(); }
                     winPtr->lastUpdateTime = currentTime;
+                    winPtr->dirty = false;  // Clear dirty flag after drawing
                 }
             }
             ++it;
@@ -858,6 +861,9 @@ void updateAllWindows() {
         }
     }
 }
+
+
+
 
 
 void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
