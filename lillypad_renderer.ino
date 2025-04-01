@@ -60,13 +60,18 @@ struct WindowCfg {
 
 
 
-
 struct CanvasCfg {
     int x = 0, y = 0, width = 32, height = 32;
-    bool borderless=true;
-     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF;
+    bool borderless=true; 
+    bool DrawBG=true;
+     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF; 
       Window* parentWindow = nullptr;
 };
+
+
+
+
+void CanvasForceParentUpdate(std::shared_ptr<Window> p);//forward slop dependancy 4 this, do not edit pls
 
 
 
@@ -99,9 +104,16 @@ struct DrawableElement {
     std::function<void()> drawFunc; // Lambda that draws this element
 };
 
+
+
 // Canvas class definition
 
 class Canvas {
+private:
+    unsigned long lastUpdateTime = 0;
+    unsigned int UpdateTickRate = 100;  // CONSISTENT NAME
+    unsigned int lastFrameTime = 0;
+    
 public:
     // Position and size of the canvas on screen (relative to parent Window if needed)
     int x, y, width, height;
@@ -110,7 +122,7 @@ public:
     // Flag to indicate if canvas needs updating.
     bool canvasDirty = true;
     bool borderless;  //now takes borderless from struct
-
+    bool DrawBG=true;
     // Container for drawable elements on this canvas.
     std::vector<DrawableElement> drawElements; //replace with function ptr in future
     
@@ -119,16 +131,32 @@ public:
     
     // Constructor: initializes from a CanvasCfg structure and assigns parent pointer.
 // Window owns Canvas, Canvas just references Window (not owning)
+//for reference when working with this code,
+/*struct CanvasCfg {
+    int x = 0, y = 0, width = 32, height = 32;
+    bool borderless=true; 
+    bool DrawBG=true;
+     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF; 
+      Window* parentWindow = nullptr;
+};*/
+
 Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
-    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height),
-      bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
+    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), borderless(cfg.borderless),DrawBG(cfg.DrawBG), bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
 
     // Clear the canvas area
-    void clear() {
+    void clear() { //todo: modify for backgroundless 
         // Fill the canvas area with the background color to clear it
-        // Note: if you need clipping, ensure tft supports it or implement it yourself.
+        // Note: if you need clipping, ensure tft supports it or implement it yourself,dear user.
+        if(DrawBG) {
         tft.fillRect(x, y, width, height, bgColor);
         canvasDirty = true;
+        }
+        else{
+            //put some kind of logic to force parent to update?
+          // In clear():
+            CanvasForceParentUpdate(parentWindow);
+          //this is the worst fucking way to do this. but i can't un-draw shit. unsure what to do here because transparency is...evil and impossible for DMAA i think.
+        }
     }
     
     // Adds a text line to the canvas.
@@ -333,6 +361,8 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
 
 
 
+
+
 //back to main draw logic for canvas here
 
 
@@ -342,7 +372,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
         void CanvasDraw() {
         
             unsigned long startTime = millis(); 
-            tft.fillRect(x, y, width, height, bgColor);
+            if(!DrawBG){tft.fillRect(x, y, width, height, bgColor);} //if not backgroundless,draw this-todo:this is BAD and the refresh color will still be left behind!
             if (!borderless) {
                 tft.drawRect(x, y, width, height, BorderColor);
             }
@@ -373,10 +403,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
         }
     }
 
-private:
-    unsigned long lastUpdateTime = 0;
-    unsigned int UpdateTickRate = 100;  // CONSISTENT NAME
-    unsigned int lastFrameTime = 0;
+
 };
 
 
@@ -632,98 +659,240 @@ if (IsWindowShown) {//if the window is shown,draw this
     }//end show window
 
 
-private:
 
+
+private:
+//defaults for delimiters for orderlyness
+std::string Delim_LinBreak ="<b>";
+std::string Delim_Seperator ="<_>";
+//properties
+std::string Delim_ColorChange = "<setcolor(";
+std::string Delim_PosChange = "<pos(";
+std::string Delim_Sizechange = "<textsize(";
+//properties of special text
+std::string Delim_Strikethr = "<s>";        // Italic text 
+std::string Delim_Underline = "<u>";  // Underline text 
+
+// ================== drawVisibleLines ==================
 void drawVisibleLines() {
-if(IsWindowShown){
-    int charHeight = 8 * config.TextSize;
-    int charWidth = 6 * config.TextSize;  // Assuming fixed-width font
+  Serial.println("start");
+  if (IsWindowShown) {
+    int baseTextSize = config.TextSize; // Store base text size
+    uint16_t currentColor = config.WinTextColor; // Track color state
+    int currentTextSize = baseTextSize; // Track text size state
+    uint16_t originalWinTexColor = config.WinTextColor;//original window text color to res back 2
+    int charHeight = 8 * currentTextSize;
+    int charWidth = 6 * currentTextSize;
     int startLine = scrollOffsetY / charHeight;
     int visibleLines = (config.height - 4) / charHeight;
-    int y = config.y + 2 - (scrollOffsetY % charHeight);
+    int y = config.y + 2 - (scrollOffsetY % charHeight); //y set here
 
-    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); // Clear area
+    tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
 
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
-        std::string line = wrappedLines[i];
+      std::string line = wrappedLines[i];
+      int startChar = max(0, scrollOffsetX / charWidth);
+      int visibleChars = (config.width - 4) / charWidth;
 
-        // Ensure horizontal scrolling by clipping the start and end of the string
-        int startChar = max(0,scrollOffsetX / charWidth);//clamp and div by lines
-        int visibleChars = (config.width - 4) / charWidth;
-        
-        if (startChar < line.length()) { 
-            std::string visibleText = line.substr(startChar, visibleChars);
-            tft.setCursor(config.x + 2, y);
-        for (int j = startChar; j < startChar + visibleChars && j < line.length(); j++) {
-        tft.print(line[j]); // Print char-by-char (no substring)
-        }
-      }//if start char
-        
-        y += charHeight;
-    }//end for loop
- }//end if check
-}//end draw visible lines
+      tft.setTextSize(currentTextSize);
+      tft.setTextColor(currentColor);
 
-//put that first then have update wrapped lines. becayse 
-void updateWrappedLines() {
-    static std::string lastContent;
-    static std::vector<std::string> lastWrappedLines;
+      int cursorX = config.x + 2;
+      int cursorY = y; //y is set above 
+      tft.setCursor(cursorX, cursorY);
 
-    if (content == lastContent) return;
-    lastContent = content;
+      int charsProcessed = 0;
+      size_t pos = startChar;
 
-    wrappedLines.clear();
-    int charWidth = 6 * config.TextSize;
-    int maxCharsPerLine = (config.width - 4) / charWidth;
-
-    std::string_view textView(content);
-    std::string currentLine;
+      while (pos < line.length() && charsProcessed < visibleChars) {
+        if (line[pos] == '<') {
+          size_t end = line.find('>', pos);
+          if (end != std::string::npos) {
+            std::string tag = line.substr(pos, end - pos + 1);
+            
+            // Handle tags
+            if (tag == Delim_LinBreak) { // Line break
+              break; // Already wrapped, just stop processing this line
+            }
+            else if (tag.substr(0,5) == Delim_PosChange) {
+              size_t comma = tag.find(',');
+              if (comma != std::string::npos) { 
+                int x = std::stoi(tag.substr(5, comma - 5));
+                int y = std::stoi(tag.substr(comma+1, tag.find(')') - comma - 1));
+                cursorX = config.x + x;
+                cursorY = config.y + y;
+                tft.setCursor(cursorX, cursorY);
+              }
+            }
+else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) { 
+    size_t start = tag.find('(') + 1; // Find '(' and move past it
+    size_t end = tag.find(')');       // Find ')'
     
-    size_t pos = 0;
-    while (pos < textView.size()) {
-        size_t nextSpace = textView.find(' ', pos);
-        if (nextSpace == std::string::npos) nextSpace = textView.size();//npos doesn't mean position with a typo, it means static member const value of elem w/ greatest size
+    if (start != std::string::npos && end != std::string::npos && end > start) { 
+        std::string colorStr = tag.substr(start, end - start); // Extract the hex string
+        printf("Extracted Color String: " ); // Debug
 
-
-        std::string_view word = textView.substr(pos, nextSpace - pos);
-
-        // Prevent infinite loop by ensuring `pos` never exceeds text size
-        if (nextSpace + 1 > textView.size()) break;  
-        pos = nextSpace + 1;
-
-
-        while (word.length() > maxCharsPerLine) { // Handle long words
-            wrappedLines.emplace_back(word.substr(0, maxCharsPerLine));
-            word.remove_prefix(maxCharsPerLine);
-        }
-        
-        if (currentLine.length() + word.length() + 1 > maxCharsPerLine) {
-            wrappedLines.push_back(currentLine);
-            currentLine.clear();
-        }
-        if (!currentLine.empty()) currentLine += " ";
-        currentLine += word;
-    }
-    if (!currentLine.empty()) wrappedLines.push_back(currentLine);
-
-    if (wrappedLines != lastWrappedLines) {
-        lastWrappedLines = wrappedLines;
-        drawVisibleLines();
+        uint32_t rawColor = std::stoul(colorStr, nullptr, 16); // Convert to number
+        uint16_t color16 = rawColor & 0xFFFF; // Mask to 16-bit
+        tft.setTextColor(color16);
+    } else {
+        printf( "Error: Malformed color tag");
     }
 }
 
 
 
+            else if (tag == Delim_Underline) {
+              int lineY = cursorY + charHeight - 1;
+              tft.drawFastHLine(cursorX, lineY, 
+                (visibleChars - charsProcessed) * charWidth, currentColor);
+            }
+            else if (tag == Delim_Strikethr) {
+              int lineY = cursorY + (charHeight / 2);
+              tft.drawFastHLine(cursorX, lineY,
+                (visibleChars - charsProcessed) * charWidth, currentColor);
+            }
+
+
+            else if (tag == Delim_Seperator) { // Separator
+              tft.print(' ');
+              charsProcessed++;//you may need to add the chars in the actual delim seperator len soooo
+              cursorX += charWidth;
+            }
+
+
+            pos = end + 1; // Skip tag
+          }
+          else { // Malformed tag
+            tft.print(line[pos]);
+            pos++;
+            charsProcessed++;
+            cursorX += charWidth;
+          }
+        }
+        else { // Normal character
+          tft.print(line[pos]);
+          pos++;
+          charsProcessed++;
+          cursorX += charWidth;
+        }
+
+        // Handle line overflow
+        if (cursorX > config.x + config.width - 2) break;
+      }
+
+      y += charHeight;
+      currentTextSize = baseTextSize; // Reset to window's base text size
+      tft.setTextSize(currentTextSize);
+      tft.setTextColor(originalWinTexColor); 
+    }
+  }
+  Serial.println("end");
+}
 
 
 
+// ================== updateWrappedLines ==================
+void updateWrappedLines() {
+  static std::string lastContent;
+  static std::vector<std::string> lastWrappedLines;
 
+  if (content == lastContent) return;
+  lastContent = content;
 
+  wrappedLines.clear();
+  int baseCharWidth = 6 * config.TextSize;
+  int maxCharsPerLine = (config.width - 4) / baseCharWidth;
 
+  std::string currentLine;
+  size_t pos = 0;
+  int currentLineLength = 0;
 
+  while (pos < content.length()) {
+    if (content[pos] == '<') {
+      size_t end = content.find('>', pos);
+      if (end != std::string::npos) {
+        std::string tag = content.substr(pos, end - pos + 1);
+        
+        // Handle special tags
+        if (tag == Delim_LinBreak) { // Hard line break
+          wrappedLines.push_back(currentLine);
+          currentLine.clear();
+          currentLineLength = 0;
+        }
+        else if (tag == Delim_Seperator) { // Separator
+          if (currentLineLength + 1 <= maxCharsPerLine) {
+            currentLine += ' ';
+            currentLineLength++;
+          }
+          else {
+            wrappedLines.push_back(currentLine);
+            currentLine = ' ';
+            currentLineLength = 1;
+          }
+        }
+        else if (tag == Delim_Underline || tag == Delim_Strikethr) {
+          currentLine += tag; // Preserve formatting tags
+        }
+        else { // Other tags
+          currentLine += tag;
+        }
+        
+        pos = end + 1;
+      }
+      else { // Malformed tag
+        currentLine += content[pos];
+        currentLineLength++;
+        pos++;
+      }
+    }
+    else { // Normal character
+      if (content[pos] == ' ') { // Word wrap point
+        if (currentLineLength + 1 > maxCharsPerLine) {
+          wrappedLines.push_back(currentLine);
+          currentLine.clear();
+          currentLineLength = 0;
+        }
+        else {
+          currentLine += ' ';
+          currentLineLength++;
+        }
+      }
+      else { // Regular character
+        if (currentLineLength >= maxCharsPerLine) {
+          wrappedLines.push_back(currentLine);
+          currentLine.clear();
+          currentLineLength = 0;
+        }
+        currentLine += content[pos];
+        currentLineLength++;
+      }
+      pos++;
+    }
+  }
+
+  if (!currentLine.empty()) {
+    wrappedLines.push_back(currentLine);
+  }
+
+  if (wrappedLines != lastWrappedLines) {
+    lastWrappedLines = wrappedLines;
+    drawVisibleLines();
+  }
+}//end update wrap lines
 
 
 }; //end Window obj
+
+
+//shitty workaround for canvas to force the parent to update
+void CanvasForceParentUpdate(std::shared_ptr<Window> p){
+  p->ForceUpdate(false); //do not update subcomps to avoid infinite loop. this should say false. DO NOT EDIT THIS CODE
+}
+
+
+
+
 
 
 struct WindowAndUpdateInterval {
@@ -899,7 +1068,7 @@ void selfDestructWinManager(){ //for when we need to delete the manager becausse
 
 
 private:
-//nothing really in private
+//nothing in private. because we have nothing to hide. I LOVE THE GOVERNMENT I LOVE THE GOVERNMENT I LOVE THE GOVERNMENT PLEASE HIRE ME PLEASE I WANT MONEY
 
 };//end winmanager
 
