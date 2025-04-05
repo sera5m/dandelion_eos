@@ -1,257 +1,182 @@
-#ifndef MDL_MATH_HELPER_H
-#define MDL_MATH_HELPER_H
+#ifndef KERNEL_H
+#define KERNEL_H
 
-//include the other stuff we need
-#include "lillypad_renderer.ino" //because task creation has window req
 
+// Include necessary headers
 #include <memory>
 #include <string>
 #include <mutex>
+#include <queue>
+#include <atomic>
+#include <functional>
+#include <PCF8574.h> // Rob Tillard version
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
-//this module is made to provide arduino the half dozen math things it doesn't natively support because god fucking help me why woulnd't we have basics like vector 3? 
-//noooooo that would bne too fucking hard wouldn't it - sera5m 12/1/2024
-//update: it's 3 days later. IT GETS WORSE. WAY WORSE. ASM HELL. I'M IN HELLLLLLLLLLL
-//note to past self: why did you even try inline asm? just make better code. i mean i'm not gonna do it. oh wait, i have to
-//shut tufuick up
+// Forward declarations
+class OSProcess;
+class OSProcessHandlerService;
 
-//notes on hardware of the esp32:
-//fpu: the fpu is absolute garbage. like. faster than me, but still MISERABLY bad for a fpu. (functionally useless proscessor) i'm a person with a soul. and i deserve to not suffer like this. i mean i've had worse life experiences but....
-//the cpu or fpu doesn't support division natively. why? that's like. the most normal thing to have. 
-/*
-/*
+// PCF8574 Setup
+PCF8574 pcf(0x20);  // Default address with A0,A1,A2 to GND
+#define PCF_INT_PIN 14  // Interrupt pin
 
+// Button Configuration
+#define MAX_KEYS 6
+constexpr bool AllowSimultaneousKeypress = true;
 
-//forward class declare so no bugs you vill eat ze bugs
-class OSProscess; 
-class OSProcessHandlerService; 
-//i am this fucking close
-
-
- //yummy yummy import user input
-//fuck you, i'm being lazy and moving user input into here to not deal with stupid fucking errors
-
-
-
-
-#define MAX_KEYS 6  // Maximum number of keys to track at once. device has 6 physical keys fuck off
-
-bool AllowSimotaneousKeypress=true; //i'll need this later-does nothing yet. also how to spell????
-
-
-enum hardwareButtons { //the 6 physical buttons the shit has
-  Up,
-  Down,
-  Left,
-  Right,
-  Enter,
-  Back
-}; //p0-p5
-
-constexpr uint16_t BUTTON_MAPPING[] = { //os-defined mapping to map said buttons to unicode
-  0x2191, // ↑ Up Arrow
-  0x2193, // ↓ Down Arrow
-  0x2190, // ← Left Arrow
-  0x2192, // → Right Arrow
-  0x23CE, // ⏎ enter/sel
-  0x232B  // ⌫ Back/backspace
+enum HardwareButtons {
+  BTN_UP,     // P0
+  BTN_DOWN,   // P1
+  BTN_LEFT,   // P2
+  BTN_RIGHT,  // P3
+  BTN_ENTER,  // P4
+  BTN_BACK    // P5
 };
 
+constexpr uint16_t BUTTON_MAPPING[] = {
+  0x2191, // ↑
+  0x2193, // ↓
+  0x2190, // ←
+  0x2192, // →
+  0x23CE, // ⏎
+  0x232B  // ⌫
+};
 
-//  store button states
-bool buttonStates[6] = {false}; //you should use a bitmask for this and change to physicalbuttonstates
-
-
-
-
-volatile bool interruptFlag = false; //allow interupt use? i don't remember the purpose
-
-// Interrupt Service Routine (ISR)
-void IRAM_ATTR handleInterrupt() {
-  interruptFlag = true; // Indicate that a button press occurred
-}
-
-
-// UserInput struct
+// Input System
 struct UserInput {
-    uint8_t type;     // Device Type (e.g., Keyboard, Mouse, some dickhead on their phone)
-    uint8_t device;   // Specific Device ID. 000000000 for the buttons on the physical device
-    uint16_t key;     // Unicode key value
-    bool isDown;      // True if pressed, False if released. no fucking shit
-    uint16_t MS_HeldDown; //how long it was held down before being released [max 655s=11 mins. if they hold it longer, they're fucking insane]
+    uint16_t key;
+    bool isPressed;
+    uint32_t durationMs;
 };
 
-// Handle button presses and map them to Unicode
-void OnButtonPush(bool isDown, hardwareButtons button) {
-  UserInput input;
-  input.type = 0xF0; // Mark as physical input from the actual watch buttons-note: doccument this
-  input.device = 0;  // Internal buttons
-  input.key = BUTTON_MAPPING[button]; //buttons are keys. kina
-  input.isDown = isDown; //duhhhhhhhhhhhhh
- //
-  OnUserInput(input); // what does this do
-}
+namespace HardwareInput {
+    extern std::atomic<bool> pcfInterrupt;
+    extern std::atomic<uint8_t> lastButtonState;
+    extern std::atomic<uint32_t> pressStartTime[MAX_KEYS];
 
-void PollButtons() {
-  for (int i = 0; i < 6; i++) {
-    bool newState = (pcf.digitalRead(i) == LOW); // Active LOW
-    if (newState != buttonStates[i]) {
-      buttonStates[i] = newState;
-      // Trigger interrupt for input handling
-      handleInterrupt(); // set the interrupt flag
+    void init() {
+        pcfInterrupt = false;
+        lastButtonState = 0xFF;
+        for (auto& time : pressStartTime) time = 0;
     }
-  }
 }
 
+// Global input variables
+std::queue<UserInput> inputQueue;
+std::mutex inputMutex;
+std::atomic<bool> pcfInterrupt = false;
+std::atomic<uint8_t> lastButtonState = 0xFF;
+std::atomic<uint32_t> pressStartTime[MAX_KEYS] = {0};
 
+// Interrupt Handler
+void IRAM_ATTR pcfInterruptHandler() {
+    pcfInterrupt = true;
+}
 
+// Button Processing Task
+void processButtons(void* parameter) {
+    while(true) {
+        if(pcfInterrupt) {
+            pcfInterrupt = false;
+            
+            uint8_t currentState = pcf.read8();
+            uint8_t changes = lastButtonState ^ currentState;
+            
+            for(int i = 0; i < MAX_KEYS; i++) {
+                if(changes & (1 << i)) {
+                    bool pressed = !(currentState & (1 << i)); // Active low
+                    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                    
+                    UserInput evt{
+                        .key = BUTTON_MAPPING[i],
+                        .isPressed = pressed,
+                        .durationMs = pressed ? 0 : (now - pressStartTime[i])
+                    };
+                    
+                    if(pressed) {
+                        pressStartTime[i] = now;
+                    }
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(inputMutex);
+                        inputQueue.push(evt);
+                    }
+                }
+            }
+            
+            lastButtonState = currentState;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
 
-
-
-
-
-/*
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⣤⣤⣤⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⣠⡶⡿⢿⣿⣛⣟⣿⡿⢿⢿⣷⣦⡀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⢰⣯⣷⣿⣿⣿⢟⠃⢿⣟⣿⣿⣾⣷⣽⣺⢆⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⢸⣿⢿⣾⢧⣏⡴⠀⠈⢿⣘⣿⢿⣿⣿⣿⣿⡆⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⢹⣿⢠⡶⠒⢶⠀⠀⣠⠒⠒⠢⡀⢿⣿⣿⣿⡇⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⣿⣿⠸⣄⣠⡾⠀⠀⠻⣀⣀⡼⠁⢸⣿⣿⣿⣿⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⠀⠀
-⠀⠀⠀⠀⠀⢰⣿⣿⠀⠀⠀⡔⠢⠤⠔⠒⢄⠀⠀⢸⣿⣿⣿⣿⡇⠀⠀
-⠀⠀⠀⠀⠀⢸⣿⣿⣄⠀⠸⡀⠀⠀⠀⠀⢀⡇⠠⣸⣿⣿⣿⣿⡇⠀⠀
-⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⣦⣮⣉⢉⠉⠩⠄⢴⣾⣿⣿⣿⣿⡇⠀⠀⠀
-⠀⠀⠀⠀⠀⢸⣿⣿⢻⣿⣟⢟⡁⠀⠀⠀⠀⢇⠻⣿⣿⣿⣿⣿⠀⠀⠀
-⠀⠀⠀⠀⠀⢸⠿⣿⡈⠋⠀⠀⡇⠀⠀⠀⢰⠃⢠⣿⡟⣿⣿⢻⠀⠀⠀
-⠀⠀⠀⠀⠀⠸⡆⠛⠇⢀⡀⠀⡇⠀⠀⡞⠀⠀⣸⠟⡊⠁⠚⠌⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⡍⠨⠊⣒⠴⠀⡇⡴⠋⡋⢐⠐⠅⡀⠐⢠⠕⠂⢂⠀
-        ohmagah 
-*/
-
-//miniproscess for freerots.
-//think of this like a setup layer for program proscesses as opposed to using a direct freerots. 
-//NOTE: NOT PINNED TO CORE BY DEFAULT UNLESS FLAG
-
-
-//to check: does focus remove window? it should not. a task being a background task should do that instead
 class OSProcess : public std::enable_shared_from_this<OSProcess> {
 public:
-    struct OSPConfig {
-        std::string Name;
-        bool CreateWindow = false;
-        WindowCfg WindowConfig; // Window configuration
-        bool PinToCore = false;
-        int CoreId = 0;
-        uint32_t StackSize = 4096;
-        UBaseType_t Priority = tskIDLE_PRIORITY + 1;
-        bool StartFocused = false;
-        bool IsBackground = false;
+    using ProcessCallback = std::function<void(OSProcess*)>;
+    
+    struct Config {
+        std::string name;
+        ProcessCallback callback;
+        uint32_t stackSize = 4096;
+        UBaseType_t priority = tskIDLE_PRIORITY + 1;
+        bool pinToCore = false;
+        int coreId = 0;
     };
 
-    static std::shared_ptr<OSProcess> Create(const OSPConfig& config) {
-        auto process = std::make_shared<OSProcess>(config);
-        OSProcessHandlerService::RegisterProcess(process);
-        if (config.StartFocused) {
-            OSProcessHandlerService::SetFocused(process);
-        }
-        return process;
+    // Factory method that takes a concrete implementation
+    template<typename T, typename... Args>
+    [[nodiscard]] static std::shared_ptr<T> create(Args&&... args) {
+        static_assert(std::is_base_of_v<OSProcess, T>, 
+                     "Must derive from OSProcess");
+        
+        struct EnableMakeShared : public T {
+            EnableMakeShared(Args&&... args) : T(std::forward<Args>(args)...) {}
+        };
+        
+        auto proc = std::make_shared<EnableMakeShared>(std::forward<Args>(args)...);
+        proc->start();
+        return proc;
     }
 
-    void Start(bool autoFocus = true) {
-        if (!OSProcessHandlerService::HasEnoughMemory(Config.StackSize)) return;
-
-        if (!TaskHandle) {
-            xTaskCreatePinnedToCore(TaskRouter, Config.Name.c_str(), Config.StackSize, this, Config.Priority, &TaskHandle, Config.PinToCore ? Config.CoreId : tskNO_AFFINITY);
-            if (autoFocus) {
-                OSProcessHandlerService::SetFocused(shared_from_this());
-            }
-        }
-
-        // Create window if configured
-        if (Config.CreateWindow) {
-            WindowInstance = std::make_shared<Window>(Config.Name, Config.WindowConfig);
-            WindowInstance->forceUpdate(true); // Force initial draw
-        }
+    // Non-pure virtual (can have default implementation)
+    virtual void onInput(const UserInput& input) {
+        // Default empty implementation
     }
 
-    void Stop() {
-        if (TaskHandle) {
-            vTaskDelete(TaskHandle);
-            TaskHandle = nullptr;
-        }
-        auto self = shared_from_this();
-        OSProcessHandlerService::UnregisterProcess(self);
+    // ... rest of your existing implementation ...
 
-        // Delete window if it exists
-        if (WindowInstance) {
-            WindowInstance.reset();
-        }
-    }
-
-    bool SetProcessBackground(bool isBackground) {
-        Config.IsBackground = isBackground;
-        if (WindowInstance) {
-            if (isBackground) {
-                WindowInstance->HideWindow(); // Hide window when in background
-            } else {
-                WindowInstance->ShowWindow(); // Show window when in foreground
-            }
-        }
-        return true;
-    }
-
-    void TakeUserInput(const UserInput& input) {
-        if (WindowInstance) {
-            // Forward user input to the window (e.g., scrolling)
-           // WindowInstance->WindowScroll(input.DX, input.DY);//not moving this anywhere. it's not right here. 
-        }
-    }
-
+protected:
+    explicit OSProcess(const Config& cfg) : config(cfg) {} // Protected, not private
+    
 private:
-    explicit OSProcess(const OSPConfig& config) : Config(config), ExecutionCode([]{}) {}
-
-    static void TaskRouter(void* param) {
-        auto* process = static_cast<OSProcess*>(param);
-        if (process->ExecutionCode) {
-            process->ExecutionCode();
-        }
-        process->Stop();
-    }
-
-    OSPConfig Config;
-    TaskHandle_t TaskHandle = nullptr;
-    std::function<void()> ExecutionCode;
-    std::shared_ptr<Window> WindowInstance; // Window instance for this process
+    Config config;
+    TaskHandle_t taskHandle = nullptr;
 };
 
-class OSProcessHandlerService {
+// Input Dispatcher
+class InputManager {
 public:
-    static void SetFocused(std::shared_ptr<OSProcess> process) {
-        std::lock_guard<std::mutex> lock(ProcessMutex);
-        if (FocusedProcess.lock()) {
-            // Hide the window of the previously focused process
-            FocusedProcess.lock()->SetProcessBackground(true);
-        }
-        FocusedProcess = process;
-        if (process) {
-            // Show the window of the newly focused process
-            process->SetProcessBackground(false);
+    static void dispatchInput() {
+        std::lock_guard<std::mutex> lock(inputMutex);
+        while(!inputQueue.empty()) {
+            UserInput input = inputQueue.front();
+            inputQueue.pop();
+            
+            if(auto focused = focusedProcess.lock()) {
+                focused->onInput(input);
+            }
         }
     }
 
-    static void OnUserInput(const UserInput& input) {
-        std::lock_guard<std::mutex> lock(ProcessMutex);
-        auto process = FocusedProcess.lock();
-        if (process) {
-            process->TakeUserInput(input);
-        }
+    static void setFocusedProcess(std::shared_ptr<OSProcess> proc) {
+        std::lock_guard<std::mutex> lock(inputMutex);
+        focusedProcess = proc;
     }
 
 private:
-    static inline std::vector<std::weak_ptr<OSProcess>> Processes;
-    static inline std::weak_ptr<OSProcess> FocusedProcess;
-    static inline std::mutex ProcessMutex;
+    static inline std::weak_ptr<OSProcess> focusedProcess;
 };
-
 
 
 
@@ -304,7 +229,7 @@ float FastNormalizeAngle_radians(float angle) {
 
 
 //various macros
-
+#endif // KERNEL_H 
 
 //note to self: when i did this on feb 6 2025 at midnight, i had to learn macros.
 //here's how they work so i remember. macros in c just kina replace the code they're put in with their own code so they're proceedurally swapped or wahtever
@@ -602,4 +527,3 @@ int createLoopWhileTimer(unsigned long duration_ms) {
 
 
 */
-#endif
