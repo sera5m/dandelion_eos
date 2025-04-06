@@ -348,11 +348,11 @@ enum DataFlavor{
 
 //ADPF components
 
-struct TimedDataPoint{ 
-    uint16_t value;     // ADC reading (0-4095)--may be treated as raw 
-    uint16_t HoldTime; //ANOLOGUE USE: duration that this datapoint stays up in microseconds.      DIGITAL USE: wait x frequency cycles till you do the next datapoint. 
-
-}; __attribute__((packed));//if holdtime is 0, whatever software you're using to enterperet the datapoint defaults holdtime=0 to the frequency
+struct TimedDataPoint { 
+    uint16_t value;      // ADC reading (0-4095) -- may be treated as raw 
+    uint16_t holdTime;   // ANALOGUE USE: duration that this datapoint stays up in microseconds.
+                         // DIGITAL USE: wait x frequency cycles until the next datapoint.
+} __attribute__((packed)); // packed structure to remove padding
 
 
 //header for custom file. stores data from sensors in the following format. snapshots of anologue data at a certain frequency.

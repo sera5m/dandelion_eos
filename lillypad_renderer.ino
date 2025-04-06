@@ -34,6 +34,7 @@
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 
+
 //forward declare all possible dependencies/child of Window before we use them
 
 class Canvas;  // forward declaration 
@@ -58,7 +59,10 @@ struct WindowCfg {
     uint16_t UpdateTickRate=500;//update every how many ms?
 }; 
 
-
+enum class DrawType {
+    Text, Line, Pixel, FRect, Rect, RFRect, RRect,
+    Triangle, FTriangle, FCircle, Circle, Bitmap
+};
 
 struct CanvasCfg {
     int x = 0, y = 0, width = 32, height = 32;
@@ -68,25 +72,93 @@ struct CanvasCfg {
       Window* parentWindow = nullptr;
 };
 
-
+uint16_t randomColor() {
+  static uint16_t seed = 0xACE1;  // Any non-zero seed
+  seed ^= seed << 7;
+  seed ^= seed >> 9;
+  seed ^= seed << 8;
+  return seed & 0xFFFF;  // Return 16-bit color
+}
 
 
 void CanvasForceParentUpdate(std::shared_ptr<Window> p);//forward slop dependancy 4 this, do not edit pls
 
 
 
-struct PixelDat{ //wanna draw a shitton of individual pixels with no care for efficiency? (i assume used for graphing)
-int posX;
-int posY;
-uint16_t color;
-int layer;
+struct TextData {
+    int posX, posY;
+    char text[64];  // Fixed-size buffer for text
+    uint8_t txtsize;
+    uint16_t color;
+};
+
+struct LineData {
+    int posX0, posY0, posX1, posY1;
+    uint16_t color;
+};
+
+struct PixelData {
+    int posX, posY;
+    uint16_t color;
+};
+
+struct FRectData {
+    int posX, posY, w, h;
+    uint16_t color;
+};
+
+struct RectData {
+    int posX, posY, w, h;
+    uint16_t color;
+};
+
+struct RFRectData {
+    int posX, posY, w, h, r;
+    uint16_t color;
+};
+
+struct RRectData {
+    int posX, posY, w, h, r;
+    uint16_t color;
+};
+
+struct TriangleData {
+    int x0, y0, x1, y1, x2, y2;
+    uint16_t color;
+};
+
+struct FTriangleData {
+    int x0, y0, x1, y1, x2, y2;
+    uint16_t color;
+};
+
+struct FCircleData {
+    int posX, posY, r;
+    uint16_t color;
+};
+
+struct CircleData {
+    int posX, posY, r;
+    uint16_t color;
+};
+
+struct BitmapData {
+    int posX, posY;
+    const uint16_t* bitmap;
+    int w, h;
+};
+
+struct PixelDat {  // This should match what you're using in your vector
+    int posX, posY;
+    uint16_t color;
+    uint layer;
 };
 
 // Initialize the static Window manager structure
 static std::unique_ptr<WindowManager> WinManagerInstance;
 
 
-//end forward dependencies
+//end forward dependencieslastUpdateTime
 
 
 
@@ -96,14 +168,28 @@ static std::unique_ptr<WindowManager> WinManagerInstance;
 //canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like Windows
 
 //******************************************************************************************************************************************************
+union DrawCommand {
+    TextData text;
+    LineData line;
+    PixelData pixel;
+    FRectData frect;
+    RectData rect;
+    RFRectData rfrect;
+    RRectData rrect;
+    TriangleData triangle;
+    FTriangleData ftriangle;
+    FCircleData fcircle;
+    CircleData circle;
+    BitmapData bitmap;
 
-
-// A DrawableElement represents any element (text or shape) drawn on the canvas.
-struct DrawableElement {
-    uint layer;  // Lower layer drawn first, higher layers drawn on top
-    std::function<void()> drawFunc; // Lambda that draws this element
 };
 
+// 4. Modified DrawableElement structure
+struct DrawableElement {
+    uint layer;
+    DrawType type;
+    DrawCommand command;
+};
 
 
 // Canvas class definition
@@ -140,8 +226,7 @@ public:
       Window* parentWindow = nullptr;
 };*/
 
-Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
-    : x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), borderless(cfg.borderless),DrawBG(cfg.DrawBG), bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
+Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent): x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), borderless(cfg.borderless),DrawBG(cfg.DrawBG), bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
 
     // Clear the canvas area
     void clear() { //todo: modify for backgroundless 
@@ -161,200 +246,138 @@ Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
     
     // Adds a text line to the canvas.
     // (No WrapTextping—if the text extends beyond the canvas, it is simply clipped.)
-    void AddTextLine(int posX, int posY, const String &text, uint8_t txtsize, uint16_t WinTextColor, int layer = 0) {
+    void AddTextLine(int posX, int posY, const String& text, uint8_t txtsize, 
+                    uint16_t color, int layer = 0) {
         DrawableElement element;
         element.layer = layer;
-
-    element.drawFunc = [text,txtsize, this, posX, posY, WinTextColor]() {//force explicit copy for persistance-these xy coords are for the canvas pos
-    tft.setTextColor(WinTextColor); // Remove .get()
-    tft.setTextSize(txtsize);
-    int16_t Textx, Texty; //local vars for position of text in canvas
-    //tft.getCursor(&x, &y); //there's no function named get cursor. it would be nice if it EXISTED!!!
-    tft.setCursor(Textx + posX, Texty + posY);
-    tft.print(text.c_str());
-    };//end elem drawfunc
-
-
+        element.type = DrawType::Text;
+        strncpy(element.command.text.text, text.c_str(), sizeof(element.command.text.text) - 1);
+        element.command.text.text[sizeof(element.command.text.text) - 1] = '\0';
+        element.command.text.posX = posX;
+        element.command.text.posY = posY;
+        element.command.text.txtsize = txtsize;
+        element.command.text.color = color;
         drawElements.push_back(element);
         canvasDirty = true;
-    }//end addtextline
-
+    }//i made it more convoluted
 
 
 
 //draw shapes **********************************************************************************
 //********************these are shapes the user should be calling to draw in canvas,each one should be set to it's own layer-non automatically set as of now, cope. plus you get more controll**********************************************
 
- void AddLine(int posX0, int posY0, int posX1, int posY1, uint16_t color, int layer = 0){
- DrawableElement element;
+    void AddLine(int posX0, int posY0, int posX1, int posY1, 
+                uint16_t color, int layer = 0) {
+        DrawableElement element;
         element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-
-        // Check if it's a vertical line
-        if (posX0 == posX1) {
-            tft.drawFastVLine(x + posX0, y + std::min(posY0, posY1), std::abs(posY1 - posY0), color); //x,y,len,color-should be void drawFastVLine(uint16_t x0, uint16_t y0, uint16_t length, uint16_t color); make sure params agree with bit sizes
-        }
-        // Check if it's a horizontal line
-        else if (posY0 == posY1) {
-            tft.drawFastHLine(x + std::min(posX0, posX1), y + posY0, std::abs(posX1 - posX0), color); //void drawFastVLine(uint16_t x0, uint16_t y0, uint16_t length, uint16_t color); params need to agree w bit size
-        }
-        // Otherwise, draw a normal angled line
-        else {
-            tft.drawLine(x + posX0, y + posY0, x + posX1, y + posY1, color);
-        }
-    };//end drawfunc
-
-  drawElements.push_back(element);
-  canvasDirty = true;
-}
+        element.type = DrawType::Line;
+        element.command.line = {posX0, posY0, posX1, posY1, color};
+        drawElements.push_back(element);
+        canvasDirty = true;
+    }
   //adafruit has optimized line draWing and normal line draWing, for an angular one it's drawLine,
   // for a perfectly vertical or horizontal line it's  drawFastVLine or drawFastHLine. fortunately they take simular args, so here i've switched between them
 
 
 
 
-    void AddPixel(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.drawPixel(x + posX, y + posY, color); //args, posx posy, color
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
 
 
-//todo: add support for bitmap in an optimized manner
 
 //draw multiple pixels on multiple layers
-  void AddPixels(const std::vector<PixelDat>& pixels) { //takes an array of pixel pos
+// Implementation of all drawing methods
+void AddPixel(int posX, int posY, uint16_t color, int layer = 0) {
     DrawableElement element;
-    element.layer = pixels.empty() ? 0 : pixels[0].layer; // Default to layer 0 if empty
-
-    element.drawFunc = [&]() { // Lambda to draw all pixels
-        for (const auto& pixel : pixels) {
-            tft.drawPixel(x + pixel.posX, y + pixel.posY, pixel.color);
-        }
-    };
-
+    element.layer = layer;
+    element.type = DrawType::Pixel;
+    element.command.pixel = {posX, posY, color};
     drawElements.push_back(element);
     canvasDirty = true;
-  }
-
-
- // draWing a rectangle.
-
-//draw filled rect
-    void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.fillRect(x + posX, y + posY, w, h, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-    
-//draw a rect, not filled.
-    void AddRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.drawRect(x + posX, y + posY, w, h, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
+}
 
 
 
- //roundeded rectangles
+void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::FRect;
+    element.command.frect = {posX, posY, w, h, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::Rect;
+    element.command.rect = {posX, posY, w, h, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddRFRect(int posX, int posY, int w, int h, uint16_t r, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::RFRect;
+    element.command.rfrect = {posX, posY, w, h, r, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddRRect(int posX, int posY, int w, int h, uint16_t r, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::RRect;
+    element.command.rrect = {posX, posY, w, h, r, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, 
+                uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::Triangle;
+    element.command.triangle = {x0, y0, x1, y1, x2, y2, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
+                 uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::FTriangle;
+    element.command.ftriangle = {x0, y0, x1, y1, x2, y2, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddFCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::FCircle;
+    element.command.fcircle = {posX, posY, r, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
+
+void AddCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
+    DrawableElement element;
+    element.layer = layer;
+    element.type = DrawType::Circle;
+    element.command.circle = {posX, posY, r, color};
+    drawElements.push_back(element);
+    canvasDirty = true;
+}
 
 
 
-//DRAW ROUNDED rect,filled
-    void AddRFRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.fillRoundRect(x + posX, y + posY, w, h, r, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-    
-//draw a rounded rect, not filled.
-    void AddRRect(int posX, int posY, int w, int h,uint16_t r, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.drawRoundRect(x + posX, y + posY, w, h, r, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-
-
-
-
-//tri,hollow
-    void AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-         tft.drawTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-
-
-//filled triangle
-    void AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) { //args take one position per edge
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-         tft.fillTriangle(x0+x,y0+y,x1+x,y1+y,x2+x,y2+y, color); //positions of parent adn position of the 3 points taken 
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-
-
-//circles
-//cirlces are drawn with radius r around centerpoint xy pos with color
-
-//filled circle
-    void AddFCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.fillCircle(x + posX, y + posY, r, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-    
-//draw a ciurcle, not filled.
-    void AddCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.drawFunc = [&]() { //call this to draw
-        tft.drawCircle(x + posX, y + posY, r, color);
-        };
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-
-//this is auto gennerated. fuck you. 
 void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int layer = 0) {
     DrawableElement element;
     element.layer = layer;
-    
-    element.drawFunc = [=, this]() { 
-        tft.drawRGBBitmap(x + posX, y + posY, bitmap, w, h);
-    };
-
+    element.type = DrawType::Bitmap;
+    element.command.bitmap = {posX, posY, bitmap, w, h};
     drawElements.push_back(element);
     canvasDirty = true;
 }
@@ -369,39 +392,150 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
 
     // Draws the canvas: first draws the canvas background (and border if not borderless),
     // then sorts and draws the drawable elements by layer.
-        void CanvasDraw() {
-        
-            unsigned long startTime = millis(); 
-            if(!DrawBG){tft.fillRect(x, y, width, height, bgColor);} //if not backgroundless,draw this-todo:this is BAD and the refresh color will still be left behind!
-            if (!borderless) {
-                tft.drawRect(x, y, width, height, BorderColor);
+    void CanvasDraw() {
+    if(DrawBG) tft.fillRect(x, y, width, height, bgColor);
+    if(!borderless) tft.drawRect(x, y, width, height, BorderColor);
+
+    std::sort(drawElements.begin(), drawElements.end(), 
+        [](const DrawableElement& a, const DrawableElement& b) {
+            return a.layer < b.layer;
+        });
+
+    for(const auto& elem : drawElements) {
+        switch(elem.type) {
+            case DrawType::Text:
+                tft.setTextColor(elem.command.text.color);
+                tft.setTextSize(elem.command.text.txtsize);
+                tft.setCursor(x + elem.command.text.posX, y + elem.command.text.posY);
+                tft.print(elem.command.text.text);
+                break;
+            
+            case DrawType::Line: {
+                const auto& l = elem.command.line;
+                if(l.posX0 == l.posX1) {
+                    tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), 
+                                    std::abs(l.posY1 - l.posY0), l.color);
+                } else if(l.posY0 == l.posY1) {
+                    tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, 
+                                    std::abs(l.posX1 - l.posX0), l.color);
+                } else {
+                    tft.drawLine(x + l.posX0, y + l.posY0, 
+                               x + l.posX1, y + l.posY1, l.color);
+                }
+                break;
             }
             
-            std::sort(drawElements.begin(), drawElements.end(), [](const DrawableElement &a, const DrawableElement &b) {
-                return a.layer < b.layer;
-            });
+            case DrawType::Pixel:
+                tft.drawPixel(x + elem.command.pixel.posX, 
+                             y + elem.command.pixel.posY, 
+                             elem.command.pixel.color);
+                break;
+                
 
-            for (auto &elem : drawElements) {
-                elem.drawFunc();
+                
+            case DrawType::FRect:
+                tft.fillRect(x + elem.command.frect.posX,
+                            y + elem.command.frect.posY,
+                            elem.command.frect.w,
+                            elem.command.frect.h,
+                            elem.command.frect.color);
+                break;
+                
+            case DrawType::Rect:
+                tft.drawRect(x + elem.command.rect.posX,
+                            y + elem.command.rect.posY,
+                            elem.command.rect.w,
+                            elem.command.rect.h,
+                            elem.command.rect.color);
+                break;
+                
+            case DrawType::RFRect:
+                tft.fillRoundRect(x + elem.command.rfrect.posX,
+                                y + elem.command.rfrect.posY,
+                                elem.command.rfrect.w,
+                                elem.command.rfrect.h,
+                                elem.command.rfrect.r,
+                                elem.command.rfrect.color);
+                break;
+                
+            case DrawType::RRect:
+                tft.drawRoundRect(x + elem.command.rrect.posX,
+                                y + elem.command.rrect.posY,
+                                elem.command.rrect.w,
+                                elem.command.rrect.h,
+                                elem.command.rrect.r,
+                                elem.command.rrect.color);
+                break;
+                
+            case DrawType::Triangle:
+                tft.drawTriangle(x + elem.command.triangle.x0,
+                                y + elem.command.triangle.y0,
+                                x + elem.command.triangle.x1,
+                                y + elem.command.triangle.y1,
+                                x + elem.command.triangle.x2,
+                                y + elem.command.triangle.y2,
+                                elem.command.triangle.color);
+                break;
+                
+            case DrawType::FTriangle:
+                tft.fillTriangle(x + elem.command.ftriangle.x0,
+                                y + elem.command.ftriangle.y0,
+                                x + elem.command.ftriangle.x1,
+                                y + elem.command.ftriangle.y1,
+                                x + elem.command.ftriangle.x2,
+                                y + elem.command.ftriangle.y2,
+                                elem.command.ftriangle.color);
+                break;
+                
+            case DrawType::FCircle:
+                tft.fillCircle(x + elem.command.fcircle.posX,
+                               y + elem.command.fcircle.posY,
+                               elem.command.fcircle.r,
+                               elem.command.fcircle.color);
+                break;
+                
+            case DrawType::Circle:
+                tft.drawCircle(x + elem.command.circle.posX,
+                              y + elem.command.circle.posY,
+                              elem.command.circle.r,
+                              elem.command.circle.color);
+                break;
+                
+            case DrawType::Bitmap: {
+                const auto& bmp = elem.command.bitmap;
+                tft.drawRGBBitmap(x + bmp.posX, y + bmp.posY, bmp.bitmap, bmp.w, bmp.h);
+                break;
             }
-
-            lastFrameTime = millis() - startTime;
-            
-        
+                
+            default:
+                // Handle unexpected types (should never happen)
+                break;
+        }  // This was the missing closing brace for the switch
     }
-    
-
-
-
-
+}
     void CanvasUpdate(bool force) { //only updates if dirty,chexks as to not waste frames
-        unsigned long now = millis();
-        if (canvasDirty || (now - lastUpdateTime >= UpdateTickRate)|| force) {
+        int now=millis();//now less long
+        if (canvasDirty || (millis() - lastUpdateTime >= UpdateTickRate)|| force) {
             CanvasDraw();
-            lastUpdateTime = now;
+            lastUpdateTime = millis();
             canvasDirty = false;
         }
     }
+
+void ClearAll() {
+    //for(auto& elem : drawElements) {
+
+    //}
+    drawElements.clear();
+    canvasDirty = true;
+}
+
+~Canvas() {
+
+    //for(auto& elem : drawElements) { }
+}
+
+
 
 
 };
@@ -430,6 +564,10 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
 
 class Window : public std::enable_shared_from_this<Window> {
 public:
+//config.bgColor = 0x0000; // Black
+//config.BorderColor = 0xFFFF; // White
+//config.WinTextColor = 0xFFFF; // White
+
     std::string name;       // Window's name
     WindowCfg config;       // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
@@ -452,9 +590,10 @@ unsigned int lastFrameTime = 0;    // duration of last draw
       int accumDX = 0, accumDY = 0; // member var for the stupid scroll func: todo: move to private, this is awful
 
 
-
     // Constructor
-Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/}
+Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/
+}
+
 
     // Destructor: Clean up canvases
 ~Window() {
@@ -481,6 +620,35 @@ void MoveWindow(int newX, int newY) { //mofe from old location to new
     
     ForceUpdate(true); // Force a redraw since the position changed
 }
+
+
+
+//why didn't i add this before
+void SetBgColor(uint16_t newColor) {
+    if(newColor > 0xFFFF) {
+        Serial.println("Invalid color value!");
+        return;
+    }
+    config.bgColor = newColor;
+    dirty = true;
+}
+
+    // Set border color
+    void SetBorderColor(uint16_t newColor) {
+        if (config.BorderColor != newColor) {
+            config.BorderColor = newColor;
+            dirty = true;
+        }
+    }
+
+    // Toggle border visibility
+    void ForceBorderState(bool isShown) {
+        if (config.borderless != !isShown) {
+            config.borderless = !isShown;
+            dirty = true;
+        }
+    }
+
 
 void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
     int stepX = (targetX - config.x) / steps;
@@ -609,6 +777,11 @@ accumDY += DY;
     // Draws the Window and its text content, then updates child canvases if they're visible.
     void WinDraw() {
 if (IsWindowShown) {//if the window is shown,draw this
+    //validation  mrowl
+    config.bgColor &= 0xFFFF;
+    config.BorderColor &= 0xFFFF;
+    config.WinTextColor &= 0xFFFF;
+    
           unsigned long startTime = millis();//framerate counter, time counter start
         // Clear the Window area
         tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor); //fill the Window with the background color
@@ -663,7 +836,7 @@ if (IsWindowShown) {//if the window is shown,draw this
 
 private:
 //defaults for delimiters for orderlyness
-std::string Delim_LinBreak ="<b>";
+std::string Delim_LinBreak ="<n>";
 std::string Delim_Seperator ="<_>";
 //properties
 std::string Delim_ColorChange = "<setcolor(";
@@ -674,23 +847,25 @@ std::string Delim_Strikethr = "<s>";        // Italic text
 std::string Delim_Underline = "<u>";  // Underline text 
 
 // ================== drawVisibleLines ==================
+__attribute__((optimize("O2"))) //heehoo magic
 void drawVisibleLines() {
-  Serial.println("start");
+ // Serial.println("start linedraw");
   if (IsWindowShown) {
     int baseTextSize = config.TextSize; // Store base text size
     uint16_t currentColor = config.WinTextColor; // Track color state
     int currentTextSize = baseTextSize; // Track text size state
-    uint16_t originalWinTexColor = config.WinTextColor;//original window text color to res back 2
+    uint16_t originalWinTexColor = config.WinTextColor; // original window text color to reset later
     int charHeight = 8 * currentTextSize;
     int charWidth = 6 * currentTextSize;
     int startLine = scrollOffsetY / charHeight;
     int visibleLines = (config.height - 4) / charHeight;
-    int y = config.y + 2 - (scrollOffsetY % charHeight); //y set here
+    int y = config.y + 2 - (scrollOffsetY % charHeight); // y set here
 
     tft.fillRect(config.x, config.y, config.width, config.height, config.bgColor);
 
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
-      std::string line = wrappedLines[i];
+      // Use const ref to avoid copying the line
+      const std::string &line = wrappedLines[i];
       int startChar = max(0, scrollOffsetX / charWidth);
       int visibleChars = (config.width - 4) / charWidth;
 
@@ -698,7 +873,7 @@ void drawVisibleLines() {
       tft.setTextColor(currentColor);
 
       int cursorX = config.x + 2;
-      int cursorY = y; //y is set above 
+      int cursorY = y; // y is set above 
       tft.setCursor(cursorX, cursorY);
 
       int charsProcessed = 0;
@@ -706,64 +881,59 @@ void drawVisibleLines() {
 
       while (pos < line.length() && charsProcessed < visibleChars) {
         if (line[pos] == '<') {
-          size_t end = line.find('>', pos);
-          if (end != std::string::npos) {
-            std::string tag = line.substr(pos, end - pos + 1);
-            
-            // Handle tags
+          size_t tagEnd = line.find('>', pos);
+          if (tagEnd != std::string::npos) {
+            // Use string_view to avoid creating a new std::string copy
+            std::string_view tag(&line[pos], tagEnd - pos + 1);
+
+            // Handle tags in the same order
             if (tag == Delim_LinBreak) { // Line break
               break; // Already wrapped, just stop processing this line
             }
-            else if (tag.substr(0,5) == Delim_PosChange) {
+            else if (tag.substr(0, 5) == Delim_PosChange) {
               size_t comma = tag.find(',');
-              if (comma != std::string::npos) { 
-                int x = std::stoi(tag.substr(5, comma - 5));
-                int y = std::stoi(tag.substr(comma+1, tag.find(')') - comma - 1));
-                cursorX = config.x + x;
-                cursorY = config.y + y;
+              if (comma != std::string::npos) {
+                // Avoid extra copies by constructing temporary std::string for std::stoi conversion
+                int newX = std::stoi(std::string(tag.substr(5, comma - 5)));
+                int newY = std::stoi(std::string(tag.substr(comma + 1, tag.find(')') - comma - 1)));
+                cursorX = config.x + newX;
+                cursorY = config.y + newY;
                 tft.setCursor(cursorX, cursorY);
               }
             }
-else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) { 
-    size_t start = tag.find('(') + 1; // Find '(' and move past it
-    size_t end = tag.find(')');       // Find ')'
-    
-    if (start != std::string::npos && end != std::string::npos && end > start) { 
-        std::string colorStr = tag.substr(start, end - start); // Extract the hex string
-        printf("Extracted Color String: " ); // Debug
-
-        uint32_t rawColor = std::stoul(colorStr, nullptr, 16); // Convert to number
-        uint16_t color16 = rawColor & 0xFFFF; // Mask to 16-bit
-        tft.setTextColor(color16);
-    } else {
-        printf( "Error: Malformed color tag");
-    }
-}
-
-
-
+            else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) { 
+              size_t start = tag.find('(');
+              if (start != std::string::npos) {
+                start++; // move past '('
+                size_t endParen = tag.find(')', start);
+                if (endParen != std::string::npos && endParen > start) { 
+                  // Convert the hex string without creating a new std::string if possible
+                  std::string_view colorStr = tag.substr(start, endParen - start);
+                  // Using std::stoul requires a std::string so we wrap it
+                  uint32_t rawColor = std::stoul(std::string(colorStr), nullptr, 16);
+                  uint16_t color16 = rawColor & 0xFFFF; // Mask to 16-bit
+                  tft.setTextColor(color16);
+                } else {
+                  printf("Error: Malformed color tag");
+                }
+              }
+            }
             else if (tag == Delim_Underline) {
               int lineY = cursorY + charHeight - 1;
-              tft.drawFastHLine(cursorX, lineY, 
-                (visibleChars - charsProcessed) * charWidth, currentColor);
+              tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
             }
             else if (tag == Delim_Strikethr) {
               int lineY = cursorY + (charHeight / 2);
-              tft.drawFastHLine(cursorX, lineY,
-                (visibleChars - charsProcessed) * charWidth, currentColor);
+              tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
             }
-
-
             else if (tag == Delim_Seperator) { // Separator
               tft.print(' ');
-              charsProcessed++;//you may need to add the chars in the actual delim seperator len soooo
+              charsProcessed++; // account for the printed character
               cursorX += charWidth;
             }
-
-
-            pos = end + 1; // Skip tag
+            pos = tagEnd + 1; // Skip the tag entirely
           }
-          else { // Malformed tag
+          else { // Malformed tag: fall back to printing the character
             tft.print(line[pos]);
             pos++;
             charsProcessed++;
@@ -776,110 +946,120 @@ else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) {
           charsProcessed++;
           cursorX += charWidth;
         }
-
-        // Handle line overflow
+        // Stop if drawing would exceed window boundaries
         if (cursorX > config.x + config.width - 2) break;
       }
-
       y += charHeight;
       currentTextSize = baseTextSize; // Reset to window's base text size
       tft.setTextSize(currentTextSize);
       tft.setTextColor(originalWinTexColor); 
     }
   }
-  Serial.println("end");
+ // Serial.println("end linedraw");
 }
 
 
 
-// ================== updateWrappedLines ==================
 void updateWrappedLines() {
-  static std::string lastContent;
-  static std::vector<std::string> lastWrappedLines;
 
-  if (content == lastContent) return;
-  lastContent = content;
 
-  wrappedLines.clear();
-  int baseCharWidth = 6 * config.TextSize;
-  int maxCharsPerLine = (config.width - 4) / baseCharWidth;
+  //Serial.println(esp_timer_get_time());
+  //Serial.println("init line wrap calc");
 
-  std::string currentLine;
-  size_t pos = 0;
-  int currentLineLength = 0;
 
-  while (pos < content.length()) {
-    if (content[pos] == '<') {
-      size_t end = content.find('>', pos);
-      if (end != std::string::npos) {
-        std::string tag = content.substr(pos, end - pos + 1);
-        
-        // Handle special tags
-        if (tag == Delim_LinBreak) { // Hard line break
-          wrappedLines.push_back(currentLine);
-          currentLine.clear();
-          currentLineLength = 0;
+
+    wrappedLines.clear();
+    int baseCharWidth = 6 * config.TextSize;
+    int maxCharsPerLine = (config.width - 4) / baseCharWidth;
+
+    // Reserve some capacity for the current line to avoid repeated reallocations.
+    std::string currentLine;
+    currentLine.reserve(maxCharsPerLine);
+
+    const size_t len = content.length();
+    size_t pos = 0;
+    int currentLineLength = 0;
+
+    while (pos < len) {
+        if (content[pos] == '<') {
+            // Find the closing '>' manually
+            size_t end = pos;
+            while (end < len && content[end] != '>') { 
+                ++end;
+            }
+            if (end < len && content[end] == '>') {
+                // Instead of constructing a new string using substr,
+                // we use a temporary string_view (or minimal string copy) if available.
+                // Here, we do a simple copy; in embedded cases you might avoid even that.
+                std::string tag(content, pos, end - pos + 1);
+                
+                if (tag == Delim_LinBreak) { // Hard line break
+                    wrappedLines.push_back(currentLine);
+                    currentLine.clear();
+                    currentLineLength = 0;
+                }
+                else if (tag == Delim_Seperator) { // Separator tag
+                    if (currentLineLength + 1 <= maxCharsPerLine) {
+                        currentLine.push_back(' ');
+                        currentLineLength++;
+                    }
+                    else {
+                        wrappedLines.push_back(currentLine);
+                        currentLine = " ";
+                        currentLineLength = 1;
+                    }
+                }
+                else if (tag == Delim_Underline || tag == Delim_Strikethr) {
+                    // Simply append the tag for formatting purposes.
+                    currentLine.append(tag);
+                }
+                else {
+                    currentLine.append(tag);
+                }
+                pos = end + 1;
+            }
+            else { // Malformed tag: no closing '>'
+                currentLine.push_back(content[pos]);
+                currentLineLength++;
+                pos++;
+            }
         }
-        else if (tag == Delim_Seperator) { // Separator
-          if (currentLineLength + 1 <= maxCharsPerLine) {
-            currentLine += ' ';
-            currentLineLength++;
-          }
-          else {
-            wrappedLines.push_back(currentLine);
-            currentLine = ' ';
-            currentLineLength = 1;
-          }
+        else { // Normal character
+            char c = content[pos];
+            if (c == ' ') { // Word wrap point
+                if (currentLineLength + 1 > maxCharsPerLine) {
+                    wrappedLines.push_back(currentLine);
+                    currentLine.clear();
+                    currentLineLength = 0;
+                }
+                else {
+                    currentLine.push_back(' ');
+                    currentLineLength++;
+                }
+            }
+            else { // Regular character
+                if (currentLineLength >= maxCharsPerLine) {
+                    wrappedLines.push_back(currentLine);
+                    currentLine.clear();
+                    currentLineLength = 0;
+                }
+                currentLine.push_back(c);
+                currentLineLength++;
+            }
+            pos++;
         }
-        else if (tag == Delim_Underline || tag == Delim_Strikethr) {
-          currentLine += tag; // Preserve formatting tags
-        }
-        else { // Other tags
-          currentLine += tag;
-        }
-        
-        pos = end + 1;
-      }
-      else { // Malformed tag
-        currentLine += content[pos];
-        currentLineLength++;
-        pos++;
-      }
     }
-    else { // Normal character
-      if (content[pos] == ' ') { // Word wrap point
-        if (currentLineLength + 1 > maxCharsPerLine) {
-          wrappedLines.push_back(currentLine);
-          currentLine.clear();
-          currentLineLength = 0;
-        }
-        else {
-          currentLine += ' ';
-          currentLineLength++;
-        }
-      }
-      else { // Regular character
-        if (currentLineLength >= maxCharsPerLine) {
-          wrappedLines.push_back(currentLine);
-          currentLine.clear();
-          currentLineLength = 0;
-        }
-        currentLine += content[pos];
-        currentLineLength++;
-      }
-      pos++;
+
+    if (!currentLine.empty()) {
+        wrappedLines.push_back(currentLine);
     }
-  }
 
-  if (!currentLine.empty()) {
-    wrappedLines.push_back(currentLine);
-  }
-
-  if (wrappedLines != lastWrappedLines) {
-    lastWrappedLines = wrappedLines;
+    // Draw the visible lines after processing
+          //Serial.println(esp_timer_get_time());
+  //Serial.println("final line wrap");
     drawVisibleLines();
-  }
-}//end update wrap lines
+
+}
 
 
 }; //end Window obj

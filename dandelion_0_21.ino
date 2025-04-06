@@ -141,7 +141,9 @@ int cs = -1;
 
 #include <iomanip> // For output precision
 #include <chrono>  // For high-precision timing
-
+void setup(){
+  //lol removed the boot prompt
+}
 
 void loop() {
   //nothing for now

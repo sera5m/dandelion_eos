@@ -90,7 +90,7 @@ int hr_guess_usr_activity(int bpm);
 void checkBodyTemp();
 void HRsensorSetup();
 void Log_heartRateData();
-bool checkForBeat(long irValue);
+bool BeatCheck(long irValue);
 void updateSensors();
 
 //---------------------------------------------------
@@ -176,7 +176,7 @@ void Log_heartRateData() {
 }
 
 // Dummy beat detection: returns true if the denoised IR value is above a set threshold.
-bool checkForBeat(long irValue) {
+bool BeatCheck(long irValue) {
   return (irValue > 50000);
 }
 
@@ -187,7 +187,7 @@ void updateSensors() {
   long irValue = denoiseIR(rawIRValue);
   unsigned long currentTime = millis();
   
-  if (checkForBeat(irValue)) {
+  if (BeatCheck(irValue)) {
     unsigned long delta = currentTime - lastBeat;
     if (delta > MIN_BEAT_INTERVAL) {
       lastBeat = currentTime;
