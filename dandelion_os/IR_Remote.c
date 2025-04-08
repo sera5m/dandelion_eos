@@ -1,14 +1,14 @@
-/*
+
 #ifndef IR_Remote_C
 #define IR_Remote_C
 
 
 
-const int adcPin = 32;  // ADC1 pin for IR input
+const int IRADCPin = 32;  // ADC1 pin for IR input
 const float pollFrequencyKhz = 80.0;
 const int pollIntervalUs = 1000 / pollFrequencyKhz;
 
-#define MAX_SAMPLES 10000
+#define MAX_IR_SAMPLES 10000
 SensorAnalogDataPoint dataBuffer[MAX_SAMPLES];
 
 void StartIrRecordWindow(int durationMS) {
@@ -42,4 +42,4 @@ void DTA_EMIT(uint8_t pin, SensorAnalogDataPoint* data, int sampleCount) {
 
 
 #endif
-*/
+
