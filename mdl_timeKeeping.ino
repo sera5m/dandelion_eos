@@ -9,7 +9,7 @@
 
 #include <time.h>
 #include <sys/time.h>
-#include <chrono> //i hope the compiler takes c++ v11
+#include <chrono>
 #include <optional>
 // Global variables for time access
 
@@ -28,11 +28,6 @@ enum days{
   fri,
   sat
 };
-
-// Define weekdays and weekends
-const bool isWeekday[7] = { false,true, true, true, true, true, false }; // Mon-Fri: true; Sat, Sun: false (week start with sun, end w sat)
-/*
-
 enum months{
   jan,
   feb,
@@ -47,6 +42,11 @@ enum months{
   nov,
   dec
 };
+
+// Define weekdays and weekends
+const bool isWeekday[7] = { false,true, true, true, true, true, false }; // Mon-Fri: true; Sat, Sun: false (week start with sun, end w sat)
+/*
+
 
 // Global variable for Unix time
 extern time_t NowUnixTime;
@@ -124,7 +124,7 @@ int calculateUserTimeZoneOffset(enum country userCountry, enum months currentMon
     return offset;
 }
 
-
+*/
 
 //struct for time in a nice human readable format
 struct FriendlyTime {
@@ -138,19 +138,8 @@ struct FriendlyTime {
 
 
 //the folllowing code is to be ticked once per minutes so that allar,/timer whatever the fuck can be ran efficiently without a freerots task
-void onMinuteTick() {
-    static FriendlyTime lastTime = {0};
-    FriendlyTime currentTime;
-    GetFriendlyTime(time(nullptr), UserTimeZoneOffset, currentTime);
 
-    if (currentTime.minute != lastTime.minute) {
-        checkAlarms(currentTime);
-        checkTimers(currentTime); // Now properly checking timers
-        lastTime = currentTime;
-    }
-}
-
-
+/*
 // Attach to RTC or system clock
 void setupTimeEvents() {
     // Example: Use ESP32 timer (adjust for your hardware)
@@ -164,7 +153,7 @@ void setupTimeEvents() {
     esp_timer_start_periodic(timerHandle, 60 * 1000000); // 60 seconds
 }
 
-
+*/
 
 //todo make sure i have timezones working right, and daylight savings (daylight savings really shouldn't exist, ugh. why was it ever created)
 
@@ -193,15 +182,6 @@ void initializeRTC() {
 
 /// Update the stored Unix time in NVS
 //should get graceful faulure handling later
-void updateStoredTime() {
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    NowUnixTime = now.tv_sec;
-
-    // Store the current Unix time in NVS
-    preferences.putULong("unix_time", NowUnixTime);
-    Serial.println("Time updated in NVS");
-}
 
 // Print the current local time
 void GetLocalTime() {
@@ -303,7 +283,7 @@ void RawSecondsToFriendlyTime(float seconds, FriendlyTime &FriendlyTime, float &
     FriendlyTime.day = FriendlyTime.day % 30;
 }
 
-
+/*
 // Convert FriendlyTime to Unix time with time zone adjustment
 time_t FriendlyTimeToUnixTime(const FriendlyTime &FriendlyTime, int timeZoneOffset) {
     struct tm timeinfo = {};
@@ -362,164 +342,75 @@ FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) 
 
 
 
-struct CustomAlarm {
-    bool isEnabled = false;
-    uint8_t hour; 
-    uint8_t minute;
-    uint8_t activeDays = 0b00000000; // 8-bit bitmask for days
-    int loudness = 50; // Default 50%
-    bool flashLed = false;
-    bool flashScreen = false;
-    bool notifyConnectedDevice = false;
-    bool allowSnooze = true;
-    int snoozeDuration = 5; // Default 5 minutes
-};
+#pragma pack(push, 1) // Exact byte packing
+typedef struct {
+    uint8_t enabled : 1;
+    uint8_t hour : 5;    // 0-23 (5 bits)
+    uint8_t minute : 6;  // 0-59 (6 bits, rounded to 5min)
+    uint8_t days : 7;    // Bitmask (Sun-Sat)
+    uint8_t actions : 3; // Bitmask: 0x1=LED, 0x2=Screen, 0x4=Buzz
+    uint8_t snoozeDur : 1; //time that alarm may be snoozed for. use 0 for no snoozes
+} CoProcAlarm;
+#pragma pack(pop)
 
-//tip: how the bitmask works
-/*
-Bit 0 (LSB) -> Sunday
-Bit 1       -> Monday
-Bit 2       -> Tuesday
-Bit 3       -> Wednesday
-Bit 4       -> Thursday
-Bit 5       -> Friday
-Bit 6       -> Saturday
-Bit 7 (MSB) -> not used. reserved for anything in refactor
-*
-
-//user provides a boolean array (length 7) of days when sending input. [days sun to sat]
-
-
-// Convert a bitmask to a vector<bool> representing active days
-std::vector<bool> DayBitMaskToWeekdays(uint8_t bitmask) {
-    std::vector<bool> activeDays(7, false); // Initialize a vector of size 7 with all false
-
-    for (int day = sun; day <= sat; day++) { // Loop through all days
-        activeDays[day] = bitmask & (1 << day);
-    }
-    return activeDays;
-}
-
-uint8_t WeekdaysToDayBitMask(const std::vector<bool>& activeDays) {
-    if (activeDays.size() != 7) {
-        throw std::invalid_argument("Active days vector must have exactly 7 elements.");
+// Main CPU executes this hourly to load any alarms to the co-proscessor so alarms run while the device sleepys
+void load_hourly_alarms(int current_hour) {
+    // 1. Load ALL alarms from NVS (once at boot)
+    static CoProcAlarm all_alarms[MAX_ALARMS];
+    static bool loaded = false;
+    if(!loaded) {
+        load_from_nvs("alarms", all_alarms, sizeof(all_alarms));
+        loaded = true;
     }
 
-    uint8_t bitmask = 0;
-
-    for (int day = 0; day < 7; day++) {
-        if (activeDays[day]) {
-            bitmask |= (1 << day); // Set the corresponding bit for each active day
+    // 2. Filter alarms for current hour
+    CoProcAlarm hour_alarms[MAX_ALARMS];
+    uint8_t count = 0;
+    for(int i=0; i<MAX_ALARMS && count<MAX_ALARMS; i++) {
+        if(all_alarms[i].enabled && all_alarms[i].hour == current_hour) {
+            hour_alarms[count++] = all_alarms[i];
         }
     }
-    return bitmask;
+
+    // 3. Copy to co-processor shared RTC memory
+    memcpy(RTC_SLOW_MEM + ALARM_STORAGE_OFFSET, hour_alarms, count*sizeof(CoProcAlarm));
+    *((uint8_t*)(RTC_SLOW_MEM + ALARM_COUNT_OFFSET)) = count;
 }
 
-// Utility functions for handling the activeDays bitmask
-void setDayActive(uint8_t &bitmask, int day, bool active) {
-    if (active) {
-        bitmask |= (1 << day); // Set the bit for the given day
-    } else {
-        bitmask &= ~(1 << day); // Clear the bit for the given day
-    }
+// Shared RTC memory layout
+typedef struct {
+    uint8_t alarm_count;
+    CoProcAlarm alarms[10];
+    uint32_t checksum;
+} RtcAlarmBlock;
+
+// Initialize co-processor
+void init_alarm_coproc() {
+    // 1. Reserve RTC memory
+    esp_err_t err = rtc_slow_mem_alloc(sizeof(RtcAlarmBlock));
+    
+    // 2. Load ULP program
+    ulp_process_macros_and_load(ulp_alarm_bin, RTC_SLOW_MEM + ULP_CODE_OFFSET);
+    
+    // 3. Set hourly update timer
+    esp_timer_create(...hourly_update...);
 }
 
-bool isDayActive(uint8_t bitmask, int day) {
-    return bitmask & (1 << day); // Check if the bit for the given day is set
+// Hourly update callback
+void hourly_update() {
+    time_t now;
+    time(&now);
+    struct tm *tm = localtime(&now);
+    
+    // 1. Load alarms for this hour
+    load_hourly_alarms(tm->tm_hour);
+    
+    // 2. Update RTC time (4-byte unix timestamp)
+    *(uint32_t*)(RTC_SLOW_MEM + TIME_OFFSET) = (uint32_t)now;
+    
+    // 3. Verify checksum
+    update_rtc_checksum();
 }
-
-// Updated isAlarmTime function
-bool isAlarmTime(const CustomAlarm &userAlarm, int currentDay, int currentHour, int currentMinute) {
-    if (!userAlarm.isEnabled) return false;
-    if (!isDayActive(userAlarm.activeDays, currentDay)) return false;
-
-    return (userAlarm.time.hour == currentHour && userAlarm.time.minute == currentMinute);
-}
-
-
-// FreeRTOS task function for CustomAlarm
-void alarmTask(void *parameter) {
-    CustomAlarm *userAlarm = (CustomAlarm *)parameter; // Cast the parameter to CustomAlarm*
-
-    // Perform alarm actions using the instance
-    // // Trigger the alarm actions
-    //TODO: ADD THE ALARM TRIGGER BACK IN! HOLY CRAP! I'M just removing it so this compiles
-
-    // Delete the task when done
-    vTaskDelete(NULL);
-}
-
-
-#define MAX_ALARMS 10
-CompactAlarm alarms[MAX_ALARMS];
-uint8_t alarmCount = 0;
-
-// Check all alarms
-void checkAlarms(const FriendlyTime &now) {
-    uint8_t dayBit = 1 << now.day; // Current day bitmask
-    for (int i = 0; i < alarmCount; i++) {
-        if ((alarms[i].activeDays & dayBit) && 
-            alarms[i].hour == now.hour && 
-            alarms[i].minute == now.minute) {
-            triggerAlarm(i);
-        }
-    }
-}
-
-// CustomAlarm NVS storage functions
-void saveAlarmsToNVS(CustomAlarm *alarms, int numAlarms) {
-    nvs_handle_t nvsHandle;
-    esp_err_t err = nvs_open("alarm_storage", NVS_READWRITE, &nvsHandle);
-    if (err == ESP_OK) {
-        for (int i = 0; i < numAlarms; i++) {
-            char key[16];
-            snprintf(key, sizeof(key), "alarm_%d", i); // Create unique key
-            nvs_set_blob(nvsHandle, key, &alarms[i], sizeof(CustomAlarm));
-        }
-        nvs_commit(nvsHandle);
-        nvs_close(nvsHandle);
-    }
-}
-
-int loadAlarmsFromNVS(CustomAlarm *alarms, int maxAlarms) {
-    nvs_handle_t nvsHandle;
-    esp_err_t err = nvs_open("alarm_storage", NVS_READONLY, &nvsHandle);
-    int alarmCount = 0;
-
-    if (err == ESP_OK) {
-        for (int i = 0; i < maxAlarms; i++) {
-            char key[16];
-            snprintf(key, sizeof(key), "alarm_%d", i);
-
-            size_t alarmSize = sizeof(CustomAlarm);
-            if (nvs_get_blob(nvsHandle, key, &alarms[i], &alarmSize) == ESP_OK) {
-                alarmCount++;
-            } else {
-                break; // Stop on first missing alarm
-            }
-        }
-        nvs_close(nvsHandle);
-    }
-    return alarmCount;
-}
-
-// Trigger CustomAlarm
-void triggerAlarm(CustomAlarm *userAlarm) {
-    if (userAlarm->flashLed) {
-        // Flash the LED
-    }
-    if (userAlarm->flashScreen) {
-        // Flash the screen
-    }
-    if (userAlarm->notifyConnectedDevice) {
-        // Push notification
-    }
-    // Play alarm sound at loudness
-}
-
-
-
-
 
 
 
