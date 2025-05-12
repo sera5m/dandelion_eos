@@ -174,85 +174,153 @@ void drawRectOutline(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color)
   FGPIO_HIGH(SPI_CS_OLED);
   spiBus.endTransaction();
 }
-void drawBitmapFromProgmem(const uint16_t* ptr, uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-  // Check if the image will fit at the specified position
-  if (x >= 128 || y >= 128) {
-    Serial.println("Error: Position out of bounds.");
-    return;
-  }
-  
-  // Calculate the right and bottom boundaries
-  uint16_t x_end = x + width - 1;
-  uint16_t y_end = y + height - 1;
-  
-  // Clamp to display boundaries
+
+
+
+void DrawBitmap(const uint16_t* data, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (x >= 128 || y >= 128) return;
+  uint16_t x_end = x + w - 1;
+  uint16_t y_end = y + h - 1;
   if (x_end >= 128) x_end = 127;
   if (y_end >= 128) y_end = 127;
 
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  spiBus.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
   FGPIO_LOW(SPI_CS_OLED);
 
-  // Set address window to the exact area we want to draw
-  FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);  // Column address set
+  // Set column address
+  FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);
   spiBus.write(x); spiBus.write(x_end);
-  
-  FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);  // Row address set
-  spiBus.write(y); spiBus.write(y_end);
-  
-  FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);  // Write to RAM
 
-  // Send pixel data
-  for (uint16_t row = 0; row < height; row++) {
-    // Skip if we're past the display bottom
-    if (y + row >= 128) break;
-    
-    for (uint16_t col = 0; col < width; col++) {
-      // Skip if we're past the display right edge
-      if (x + col >= 128) break;
-      
-      uint16_t color = pgm_read_word(&ptr[row * width + col]);
-      spiBus.write(color >> 8);
-      spiBus.write(color & 0xFF);
-    }
+  // Set row address
+  FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);
+  spiBus.write(y); spiBus.write(y_end);
+
+  // Write RAM command
+  FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
+
+  // Send pixels
+  for (uint32_t i = 0; i < (w * h); i++) {
+    uint16_t color = data[i];
+    spiBus.write(color >> 8);
+    spiBus.write(color & 0xFF);
   }
 
   FGPIO_HIGH(SPI_CS_OLED);
   spiBus.endTransaction();
 }
+
 
 //stream bmp from file to display. WARNING: UNSURE IF IT WORKS. WHAT i want to do is pull from the sd and directly dump it's data to the oled. sd is flash, and oled is ram. both memory types
 //todo: support more than 128x
-/*
-void streamBitmapToDisplay(File& file) {
-  const uint16_t BLOCK = 512; // Ideal for SD sector reads
-  uint8_t buf[BLOCK];
-
-  // Setup display window
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
-  FGPIO_LOW(SPI_CS_OLED);
-
-  FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);
-  spiBus.write(0); spiBus.write(127);
-  FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);
-  spiBus.write(0); spiBus.write(127);
-  FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
-
-  uint32_t remaining = 128 * 128 * 2; // 32KB
-  while (remaining) {
-    uint16_t readSize = (remaining > BLOCK) ? BLOCK : remaining;
-    if (file.read(buf, readSize) != readSize) {
-      Serial.println("SD read failed.");
-      break;
-    }
-    spiBus.writeBytes(buf, readSize);
-    remaining -= readSize;
-  }
-
-  FGPIO_HIGH(SPI_CS_OLED);
-  spiBus.endTransaction();
+// ——— FILE-READ HELPERS ———
+static uint16_t read16(File &f) {
+  uint8_t lo = f.read(), hi = f.read();
+  return (hi << 8) | lo;
+}
+static uint32_t read32(File &f) {
+  uint32_t b0 = f.read(), b1 = f.read(), b2 = f.read(), b3 = f.read();
+  return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
 }
 
-*/
+// ——— DIRECTORY LISTING ———
+void listFiles(File dir, uint8_t indent = 0) {
+  while (true) {
+    File entry = dir.openNextFile();
+    if (!entry) break;
+    for (uint8_t i=0; i<indent; i++) Serial.print(' ');
+    Serial.print(entry.isDirectory() ? "[DIR] " : "      ");
+    Serial.println(entry.name());
+    if (entry.isDirectory()) {
+      listFiles(entry, indent + 2);
+    }
+    entry.close();
+  }
+}
+
+// ——— DRAW BMP FROM SD ———
+// path = "/img/cat.bmp", x/y = top-left on 128×128
+void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
+  File bmp = SD.open(path, FILE_READ);
+  if (!bmp) {
+    Serial.printf("BMP open failed: %s\n", path);
+    return;
+  }
+
+  // header
+  if (bmp.read()!='B' || bmp.read()!='M') {
+    Serial.println("Not a BMP");
+    bmp.close(); return;
+  }
+  read32(bmp);            // file size
+  read32(bmp);            // creator bytes
+  uint32_t imgOffset = read32(bmp);
+  read32(bmp);            // header size
+  int32_t bmpW =  read32(bmp);
+  int32_t bmpH =  read32(bmp);
+  uint16_t planes = read16(bmp);
+  uint16_t depth  = read16(bmp);
+  uint32_t comp   = read32(bmp);
+
+  if (planes!=1 || comp!=0) {
+    Serial.println("Unsupported BMP (must be uncompressed)");
+    bmp.close(); return;
+  }
+  if (depth!=16 && depth!=24) {
+    Serial.printf("Only 16 or 24-bit BMP supported, got %d\n", depth);
+    bmp.close(); return;
+  }
+
+  uint32_t rowSize = ((bmpW * depth/8) + 3) & ~3;
+  if (x >= 128 || y >= 128) { bmp.close(); return; }
+  uint16_t x2 = min((int32_t)x + bmpW - 1, (int32_t)127);
+  uint16_t y2 = min((int32_t)y + bmpH - 1, (int32_t)127);
+
+  for (int row = 0; row < bmpH; row++) {
+    uint32_t pos = imgOffset + (uint32_t)(bmpH - 1 - row) * rowSize;
+    bmp.seek(pos);
+
+    // SPI + FGIPO setup for this line
+    spiBus.beginTransaction(SPISettings(8'000'000, MSBFIRST, SPI_MODE0));
+    FGPIO_LOW(SPI_CS_OLED);
+      // column
+      FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);
+      spiBus.write(x); spiBus.write(x2);
+      // row
+      FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);
+      spiBus.write(y + row); spiBus.write(y + row);
+      // write RAM
+      FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
+
+    // stream pixels
+    if (depth == 24) {
+      for (int col = 0; col < bmpW; col++) {
+        uint8_t b = bmp.read();
+        uint8_t g = bmp.read();
+        uint8_t r = bmp.read();
+        uint16_t c = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        spiBus.write(c >> 8);
+        spiBus.write(c & 0xFF);
+      }
+    } else {
+      for (int col = 0; col < bmpW; col++) {
+        uint16_t c = read16(bmp);
+        // if BMP is BGR565, swap: c = (c<<8)|(c>>8);
+        spiBus.write(c >> 8);
+        spiBus.write(c & 0xFF);
+      }
+    }
+
+    FGPIO_HIGH(SPI_CS_OLED);
+    spiBus.endTransaction();
+  }
+
+  bmp.close();
+}
+
+
+
+
+
 
 //#include "AT_SSD1351.ino" //note: arduino ide joins ino files, meaning we'd need it to convert to a .h and .cpp file so if we leave this like it is 
 //todo:
@@ -739,9 +807,9 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
             
             case DrawType::Line: {
+                Serial.println("draw line no work rn TODO FIX THIS NOW");
 
-                drawLine(x + l.posX0, y + l.posY0, 
-                               x + l.posX1, y + l.posY1, l.color);
+                //drawLine(x + posX0, y + l.posY0,  x + l.posX1, y + l.posY1, l.color);
 /* //my code is faster than adafruits fast functions
                 const auto& l = elem.command.line;
                 if(l.posX0 == l.posX1) {
@@ -753,8 +821,8 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 } else {
                     drawLine(x + l.posX0, y + l.posY0, 
                                x + l.posX1, y + l.posY1, l.color);
-                }
-                break;*/
+                }*/
+                break;
             }
             
             case DrawType::Pixel:

@@ -22,7 +22,7 @@
 
 
 //#define SPI_CS_RADIO //cc1101 chipset 
-#define SPI_CS_SD 6//generic sdcard on g6
+#define SPI_CS_SD 6 //generic sdcard on g6
 
 
 //i2c pins
@@ -55,7 +55,7 @@ void StartSPI() {
 //msc hardware configurations
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 128 
-#define SPI_FREQUENCY 40000000  //warhammer 40k(40 mhz)
+#define SPI_FREQUENCY 40000000  //warhammer 40kk(40 mhz)
 
 //custom hal. bloat is BAD (shocker) but this is arduino ide so we have to take off the baby shoes because pio is evil makefile hell
 #define FGPIO_HIGH(pin) REG_WRITE(GPIO_OUT_W1TS_REG, BIT(pin))
@@ -63,6 +63,20 @@ void StartSPI() {
 //take pin and set state
 
 //hardware testing subsection
+
+
+//x axis,sel
+#define ENCODER0_CLK_PIN 42
+#define ENCODER0_DT_PIN  14
+#define ENCODER0_SW_PIN  7
+
+//y axis, back
+//FIX IT, WE HAVEN'T PUT THIS IN YET
+#define ENCODER1_CLK_PIN //21
+#define ENCODER1_DT_PIN  //19
+#define ENCODER1_SW_PIN  //18
+
+
 
 /*
 

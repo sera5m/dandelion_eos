@@ -87,11 +87,16 @@ WindowManager* windowManagerInstance = nullptr;
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
 
 
-
+//add the encoders
+#include "inputProscessor.c"
 
 void setup() {
     // Initialize hardware
+    delay(145);
     Serial.begin(115200);
+
+//
+
 
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
 
@@ -99,6 +104,13 @@ void setup() {
     screen_startup();
     tft.fillScreen(BLACK);
     set_orientation(0);
+    
+  if (!SD.begin(SPI_CS_SD)) {
+    Serial.println("SD.begin failed!");
+    while (1);
+  }
+  Serial.println("SD initialized.");
+
 
 
 
@@ -147,6 +159,33 @@ void setup() {
 
 myWindow->WinDraw();
 Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
+ // —— SHOW ROOT ——
+  File root = SD.open("/");
+  Serial.println("Listing / ...");
+  listFiles(root);
+  root.close();
+
+  // —— SHOW /img ——
+  File imgdir = SD.open("/img");
+  Serial.println("Listing /img ...");
+  listFiles(imgdir);
+  imgdir.close();
+
+  // —— TEST hi.txt ——
+  if (SD.exists("/docs/hi.txt")) {
+    Serial.println("Found /docs/hi.txt:");
+    File tf = SD.open("/docs/hi.txt");
+    while (tf && tf.available()) {
+      Serial.write(tf.read());
+    }
+    if (tf) tf.close();
+    Serial.println("\n---");
+  } else {
+    Serial.println("/docs/hi.txt NOT found");
+  }
+
+  // —— DRAW YOUR BMP ——
+  DrawBmpFromSD("/img/cat.bmp", 10, 20);
 
 
 /*
@@ -166,7 +205,7 @@ myWindow->updateContent(">_<");
 Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
 myWindow->updateContent(">_-");
 */
-delay(2200);
+
 //myWindow->updateContent("<setcolor(0x99F02)>let's show <setcolor(0x0FF2)>you all <setcolor(0xE602)> what we can do<setcolor(0x0F2E)> :D WE CAN TYPE SO MUCH FUCKING BULLSHIT IT'S INSANE GRAAAAAAAAAAAAAAAAAA10947865091736450876108457620345AAAAAAAAAAAAAGGGHHHHH ");
 
 //myWindow->SetBgColor(0xFFFF);
@@ -191,7 +230,10 @@ myWindow->WinDraw();
 myWindow->updateContent("<setcolor(0x07E0)>or even size");
 delay(1234);
 */
-drawBitmapFromProgmem(the_cat, 0, 0, 128, 128);
+//drawBitmap(the_cat, 0, 0, 128, 128);
+DrawBmpFromSD("/img/the_cat.bmp", 0, 0);
+delay(200);
+DrawBmpFromSD("/img/bunnycat.bmp", 32, 32);
 
 }
 
