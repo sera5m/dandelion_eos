@@ -32,7 +32,7 @@
 #include <Wire.h>
 #include <time.h>
 #include <stdio.h>
-#include <SPI.h>
+
 
 
 //hardware==============================================
@@ -59,7 +59,7 @@ GyroData gyroData;
 
 
 //wireles comunication
-#include <RadioLib.h>
+//#include <RadioLib.h>
 
 
 //storate
@@ -76,15 +76,22 @@ GyroData gyroData;
 //include my own stuff
  //#include "AT_SSD1351.ino"
 #include "Micro2D_A.ino"  // The library
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
 
-#include "the_cat.h"//kitty test image, 128 px 16x 565 color bits
 
 
+//fuckj this were gonna put it wice
+// Globals.cpp or at the top of your main .ino (outside setup and loop)
+SPIClass spiBus(HSPI);
+Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
 
 
-SPIClass spiBus(HSPI); // or VSPI (SPI3)
+//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
+
+
 WindowManager* windowManagerInstance = nullptr;
-Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
 
 
 //add the encoders
@@ -92,25 +99,46 @@ Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC,
 
 void setup() {
     // Initialize hardware
-    delay(145);
+    delay(148);
     Serial.begin(115200);
-
-//
-
-
+  delay(100);
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+
+   // spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
 
     screen_on();
     screen_startup();
     tft.fillScreen(BLACK);
     set_orientation(0);
     
-  if (!SD.begin(SPI_CS_SD)) {
-    Serial.println("SD.begin failed!");
-    while (1);
-  }
-  Serial.println("SD initialized.");
+SetupHardwareInput();//rotorary encoder things
 
+
+
+if (!SD.begin(SPI_CS_SD, spiBus)) {
+    Serial.println("[ERROR] SD.begin failed.");
+    Serial.println("Check wiring, CS pin, card format, and card presence.");
+    for (int i = 0; i < 3; ++i) {
+      Serial.printf("Retrying SD init (%d/3)...\n", i + 1);
+        delay(500);
+        if (SD.begin(SPI_CS_SD)) {
+            Serial.println("SD reinit successful.");
+            break;
+        }
+    }
+
+if (!SD.begin(SPI_CS_SD, spiBus)) {
+        Serial.println("[FATAL] SD init failed");
+        tft.fillScreen(BLACK);
+        tft.setTextColor(RED);
+        tft.setCursor(0, 0);
+        tft.print("SD Error.\nCheck card.");
+        // maybe blink LED or set a flag
+        return; // gracefully exit setup
+    }
+}
 
 
 
@@ -183,9 +211,37 @@ Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
   } else {
     Serial.println("/docs/hi.txt NOT found");
   }
+File bmpFile = SD.open("/img/the_kitty.bmp");
+if (!bmpFile) {
+  Serial.println("Failed to open /img/the_kitty.bmp");
+} else {
+  Serial.println("Opened /img/the_kitty.bmp");
+
+  // Read and dump first 54 bytes (typical BMP header size)
+  Serial.println("BMP Header (54 bytes):");
+  for (int i = 0; i < 54; i++) {
+    if (!bmpFile.available()) break;
+    uint8_t b = bmpFile.read();
+    Serial.print(b, HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  // Optionally dump next 50 bytes of image data to check reading after header
+  Serial.println("Next 50 bytes (image data):");
+  for (int i = 0; i < 50; i++) {
+    if (!bmpFile.available()) break;
+    uint8_t b = bmpFile.read();
+    Serial.print(b, HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  bmpFile.close();
+}
 
   // —— DRAW YOUR BMP ——
-  DrawBmpFromSD("/img/cat.bmp", 10, 20);
+  //DrawBmpFromSD("/img/the_kitty.bmp", 10, 20);
 
 
 /*
@@ -231,9 +287,17 @@ myWindow->updateContent("<setcolor(0x07E0)>or even size");
 delay(1234);
 */
 //drawBitmap(the_cat, 0, 0, 128, 128);
-DrawBmpFromSD("/img/the_cat.bmp", 0, 0);
+/*
+DrawBmpFromSD("/img/the_kitty.bmp", 0, 0);
 delay(200);
 DrawBmpFromSD("/img/bunnycat.bmp", 32, 32);
+*/
+
+
+
+
+
+
 
 }
 

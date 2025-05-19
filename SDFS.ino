@@ -1,6 +1,7 @@
 #ifndef SDFS_H
 #define SDFS_h
 #include "Wiring.h"
+
 /*
  * pin 1 - not used          |  Micro SD card     |
  * pin 2 -    (SS)           |                   /

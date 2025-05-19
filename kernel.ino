@@ -12,97 +12,16 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-
+#include "inputProscessor.c"
 // Forward declarations
 class OSProcess;
 class OSProcessHandlerService;
 
-// Button Configuration
-#define MAX_KEYS 6
-constexpr bool AllowSimultaneousKeypress = true;
 
-enum HardwareButtons {
-  BTN_UP,     // P0
-  BTN_DOWN,   // P1
-  BTN_LEFT,   // P2
-  BTN_RIGHT,  // P3
-  BTN_ENTER,  // P4
-  BTN_BACK    // P5
-};
 
-constexpr uint16_t BUTTON_MAPPING[] = {
-  0x2191, // ↑
-  0x2193, // ↓
-  0x2190, // ←
-  0x2192, // →
-  0x23CE, // ⏎
-  0x232B  // ⌫
-};
 
-// Input System
-struct UserInput {
-    uint16_t key;
-    bool isPressed;
-    uint32_t durationMs;
-};
 
-namespace HardwareInput {
-    extern std::atomic<bool> pcfInterrupt;
-    extern std::atomic<uint8_t> lastButtonState;
-    extern std::atomic<uint32_t> pressStartTime[MAX_KEYS];
 
-    void init() {
-        pcfInterrupt = false;
-        lastButtonState = 0xFF;
-        for (auto& time : pressStartTime) time = 0;
-    }
-}
-
-// Global input variables
-std::queue<UserInput> inputQueue;
-std::mutex inputMutex; //should we be using the freerots? nah. overkill;mutex
-std::atomic<bool> pcfInterrupt = false;
-std::atomic<uint8_t> lastButtonState = 0xFF;
-std::atomic<uint32_t> pressStartTime[MAX_KEYS] = {0};
-/*
-
-// Button Processing Task
-void processButtons(void* parameter) {
-    while(true) {
-        if(pcfInterrupt) {
-            pcfInterrupt = false;
-            
-            uint8_t currentState = pcf.read8();
-            uint8_t changes = lastButtonState ^ currentState;
-            
-            for(int i = 0; i < MAX_KEYS; i++) {
-                if(changes & (1 << i)) {
-                    bool pressed = !(currentState & (1 << i)); // Active low
-                    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                    
-                    UserInput evt{
-                        .key = BUTTON_MAPPING[i],
-                        .isPressed = pressed,
-                        .durationMs = pressed ? 0 : (now - pressStartTime[i])
-                    };
-                    
-                    if(pressed) {
-                        pressStartTime[i] = now;
-                    }
-                    
-                    {
-                        std::lock_guard<std::mutex> lock(inputMutex);
-                        inputQueue.push(evt);
-                    }
-                }
-            }
-            
-            lastButtonState = currentState;
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-*/
 class OSProcess : public std::enable_shared_from_this<OSProcess> {
 public:
     using ProcessCallback = std::function<void(OSProcess*)>;

@@ -3,12 +3,13 @@
 #ifndef Micro2D_A_H
 #define Micro2D_A_H
 
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1351.h>
+
 #include <memory>
 #include "Wiring.h"
-extern SPIClass spiBus;
 
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
 
 //move this to another file later, PLEASE
 
@@ -19,6 +20,26 @@ extern SPIClass spiBus;
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 128 
 
+// black,white,grey
+#define BLACK   0x0000
+#define WHITE   0xFFFF
+#define Grey 0xDDDD
+
+//regular colors
+#define RED     0xF800
+#define YELLOW  0xFFE0 
+#define GREEN   0x07E0
+#define CYAN    0x07FF
+#define BLUE    0x001F
+#define MAGENTA 0xF81F
+#define PURPLE  0x780F
+
+//other color defaults
+#define PEACH   0xFD20 
+
+
+extern SPIClass spiBus;
+extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 
 
@@ -238,86 +259,108 @@ void listFiles(File dir, uint8_t indent = 0) {
 }
 
 // ——— DRAW BMP FROM SD ———
-// path = "/img/cat.bmp", x/y = top-left on 128×128
+// example path = "/img/cat.bmp", x/y = top-left on 128×128
 void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
   File bmp = SD.open(path, FILE_READ);
   if (!bmp) {
-    Serial.printf("BMP open failed: %s\n", path);
+    Serial.printf("file read error %s\n", path);
     return;
   }
 
-  // header
-  if (bmp.read()!='B' || bmp.read()!='M') {
+  // ——— HEADER ———
+  if (bmp.read() != 'B' || bmp.read() != 'M') {
     Serial.println("Not a BMP");
-    bmp.close(); return;
+    bmp.close(); 
+    return;
   }
+
   read32(bmp);            // file size
   read32(bmp);            // creator bytes
   uint32_t imgOffset = read32(bmp);
-  read32(bmp);            // header size
-  int32_t bmpW =  read32(bmp);
-  int32_t bmpH =  read32(bmp);
-  uint16_t planes = read16(bmp);
-  uint16_t depth  = read16(bmp);
-  uint32_t comp   = read32(bmp);
+  uint32_t headerSize = read32(bmp);
+  int32_t  bmpW       = read32(bmp);
+  int32_t  bmpH       = read32(bmp);
+  uint16_t planes     = read16(bmp);
+  uint16_t depth      = read16(bmp);
+  uint32_t comp       = read32(bmp);
 
-  if (planes!=1 || comp!=0) {
-    Serial.println("Unsupported BMP (must be uncompressed)");
-    bmp.close(); return;
+  // support BI_RGB (0) or BI_BITFIELDS (3)
+  bool bitfields = false;
+  uint32_t redMask = 0, greenMask = 0, blueMask = 0;
+  if (comp == 3) {
+    bitfields = true;
+    redMask   = read32(bmp);
+    greenMask = read32(bmp);
+    blueMask  = read32(bmp);
   }
-  if (depth!=16 && depth!=24) {
+
+  if (planes != 1 || (comp != 0 && comp != 3)) {
+    Serial.println("Unsupported BMP (must be uncompressed or bitfields)");
+    bmp.close();
+    return;
+  }
+
+  if (depth != 16 && depth != 24) {
     Serial.printf("Only 16 or 24-bit BMP supported, got %d\n", depth);
-    bmp.close(); return;
+    bmp.close();
+    return;
   }
 
-  uint32_t rowSize = ((bmpW * depth/8) + 3) & ~3;
-  if (x >= 128 || y >= 128) { bmp.close(); return; }
+  // row size (padded to 4 bytes)
+  uint32_t rowSize = ((bmpW * depth / 8) + 3) & ~3;
+
+  if (x >= 128 || y >= 128) {
+    bmp.close();
+    return;
+  }
+
   uint16_t x2 = min((int32_t)x + bmpW - 1, (int32_t)127);
   uint16_t y2 = min((int32_t)y + bmpH - 1, (int32_t)127);
+  uint16_t drawW = x2 - x + 1;
 
+  // ——— DRAW ———
   for (int row = 0; row < bmpH; row++) {
     uint32_t pos = imgOffset + (uint32_t)(bmpH - 1 - row) * rowSize;
     bmp.seek(pos);
+    uint16_t drawY = y2 - row;  // flip bits vertically becasue bmp is bottom up and the screen goes top down
 
-    // SPI + FGIPO setup for this line
-    spiBus.beginTransaction(SPISettings(8'000'000, MSBFIRST, SPI_MODE0));
+    if (drawY >= 128) continue;
+
+    spiBus.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     FGPIO_LOW(SPI_CS_OLED);
-      // column
-      FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);
-      spiBus.write(x); spiBus.write(x2);
-      // row
-      FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);
-      spiBus.write(y + row); spiBus.write(y + row);
-      // write RAM
-      FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
 
-    // stream pixels
+    FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC); // column addr
+    spiBus.write(x); spiBus.write(x2);
+    FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC); // row addr
+    spiBus.write(drawY); spiBus.write(drawY);
+    FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC); // write RAM
+
     if (depth == 24) {
-      for (int col = 0; col < bmpW; col++) {
-        uint8_t b = bmp.read();
-        uint8_t g = bmp.read();
-        uint8_t r = bmp.read();
+      for (int col = 0; col < drawW; col++) {
+        uint8_t b = bmp.read(), g = bmp.read(), r = bmp.read();
         uint16_t c = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         spiBus.write(c >> 8);
         spiBus.write(c & 0xFF);
       }
-    } else {
-      for (int col = 0; col < bmpW; col++) {
-        uint16_t c = read16(bmp);
-        // if BMP is BGR565, swap: c = (c<<8)|(c>>8);
-        spiBus.write(c >> 8);
-        spiBus.write(c & 0xFF);
+    } else {  // 16-bit
+      for (int col = 0; col < drawW; col++) {
+        uint16_t raw = read16(bmp);
+        raw = (raw << 8) | (raw >> 8);  // BMP is usually little-endian
+        spiBus.write(raw >> 8);
+        spiBus.write(raw & 0xFF);
       }
     }
 
     FGPIO_HIGH(SPI_CS_OLED);
     spiBus.endTransaction();
+
+    if (row == 0) {
+      Serial.printf("First row drawn at Y=%d from file offset %lu\n", drawY, pos);
+    }
   }
 
   bmp.close();
 }
-
-
 
 
 
@@ -335,30 +378,12 @@ void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
 //this is the Window handler for dandelionn.
 //this module handles Window creation and draw calls. version X, now with performance enhancements. :3
 
-extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
-
 
 
 // Pin definitions for spi
 
 
 
-// black,white,grey
-#define BLACK   0x0000
-#define WHITE   0xFFFF
-#define Grey 0xDDDD
-
-//regular colors
-#define RED     0xF800
-#define YELLOW  0xFFE0 
-#define GREEN   0x07E0
-#define CYAN    0x07FF
-#define BLUE    0x001F
-#define MAGENTA 0xF81F
-#define PURPLE  0x780F
-
-//other color defaults
-#define PEACH   0xFD20  // Default window color
 
 
 //Todo here later
@@ -807,23 +832,18 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
             
             case DrawType::Line: {
-                Serial.println("draw line no work rn TODO FIX THIS NOW");
+    const auto& l = elem.command.line;  // define l here
+//NEED TO REPLACE TODO FIX MEEE
+    if(l.posX0 == l.posX1) {
+        tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), std::abs(l.posY1 - l.posY0), l.color);
+    } else if(l.posY0 == l.posY1) {
+        tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, std::abs(l.posX1 - l.posX0), l.color);
+    } else {
+        drawLine(x + l.posX0, y + l.posY0, x + l.posX1, y + l.posY1, l.color);
+    }
+    break;
+}
 
-                //drawLine(x + posX0, y + l.posY0,  x + l.posX1, y + l.posY1, l.color);
-/* //my code is faster than adafruits fast functions
-                const auto& l = elem.command.line;
-                if(l.posX0 == l.posX1) {
-                    tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), 
-                                    std::abs(l.posY1 - l.posY0), l.color);
-                } else if(l.posY0 == l.posY1) {
-                    tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, 
-                                    std::abs(l.posX1 - l.posX0), l.color);
-                } else {
-                    drawLine(x + l.posX0, y + l.posY0, 
-                               x + l.posX1, y + l.posY1, l.color);
-                }*/
-                break;
-            }
             
             case DrawType::Pixel:
                 tft.drawPixel(x + elem.command.pixel.posX, 
