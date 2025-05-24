@@ -12,13 +12,10 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include "inputProscessor.c"
+
+#include "inputHandler.h" //this kernel should take the key inputs and send to focused proscess or os. the input proscessor handles wake states 
 // Forward declarations
 class OSProcess;
-class OSProcessHandlerService;
-
-
-
 
 
 
@@ -26,16 +23,16 @@ class OSProcess : public std::enable_shared_from_this<OSProcess> {
 public:
     using ProcessCallback = std::function<void(OSProcess*)>;
     
-    struct Config {
+    struct KPROC_Config {
         std::string name;
         ProcessCallback callback;
-        uint32_t stackSize = 4096;
+        uint32_t stackSize = 4096;  // In words (not bytes) for FreeRTOS
         UBaseType_t priority = tskIDLE_PRIORITY + 1;
-        bool pinToCore = false;
-        int coreId = 0;
+        bool pinToCore = false;     // ESP32-specific
+        int coreId = 0;            // ESP32-specific
     };
 
-    // Factory method that takes a concrete implementation
+    // Factory method
     template<typename T, typename... Args>
     [[nodiscard]] static std::shared_ptr<T> create(Args&&... args) {
         static_assert(std::is_base_of_v<OSProcess, T>, 
@@ -46,48 +43,69 @@ public:
         };
         
         auto proc = std::make_shared<EnableMakeShared>(std::forward<Args>(args)...);
-        proc->start();
+        if (!proc->start()) {
+            return nullptr;  // Task creation failed
+        }
         return proc;
     }
 
-    // Non-pure virtual (can have default implementation)
-    virtual void onInput(const UserInput& input) {
-        // Default empty implementation
-    }
-
-    // ... rest of your existing implementation ...
-
-protected:
-    explicit OSProcess(const Config& cfg) : config(cfg) {} // Protected, not private
-    
-private:
-    Config config;
-    TaskHandle_t taskHandle = nullptr;
-};
-
-// Input Dispatcher
-class InputManager {
-public:
-    static void dispatchInput() {
-        std::lock_guard<std::mutex> lock(inputMutex);
-        while(!inputQueue.empty()) {
-            UserInput input = inputQueue.front();
-            inputQueue.pop();
-            
-            if(auto focused = focusedProcess.lock()) {
-                focused->onInput(input);
-            }
+    virtual ~OSProcess() {
+        if (taskHandle != nullptr) {
+            vTaskDelete(taskHandle);  // Clean up the FreeRTOS task
+            taskHandle = nullptr;
         }
     }
 
-    static void setFocusedProcess(std::shared_ptr<OSProcess> proc) {
-        std::lock_guard<std::mutex> lock(inputMutex);
-        focusedProcess = proc;
+    // Non-pure virtual (default empty implementation)
+    virtual void onInput(const S_UserInput& input) {}
+
+protected:
+    explicit OSProcess(const KPROC_Config& cfg) : config(cfg) {}
+
+    bool start() {
+        // Static wrapper for FreeRTOS task function
+        auto taskFunc = [](void* arg) {
+            OSProcess* self = static_cast<OSProcess*>(arg);
+            if (self->config.callback) {
+                self->config.callback(self);
+            }
+            vTaskDelete(nullptr);  // Self-delete if callback returns
+        };
+
+        BaseType_t result;
+        if (config.pinToCore) {
+            // ESP32-specific pinned-to-core version
+            result = xTaskCreatePinnedToCore(
+                taskFunc,
+                config.name.c_str(),
+                config.stackSize,
+                this,
+                config.priority,
+                &taskHandle,
+                config.coreId
+            );
+        } else {
+            // Standard FreeRTOS version
+            result = xTaskCreate(
+                taskFunc,
+                config.name.c_str(),
+                config.stackSize,
+                this,
+                config.priority,
+                &taskHandle
+            );
+        }
+
+        return (result == pdPASS);
     }
 
 private:
-    static inline std::weak_ptr<OSProcess> focusedProcess;
+    KPROC_Config config;
+    TaskHandle_t taskHandle = nullptr;
 };
+
+    static inline std::weak_ptr<OSProcess> focusedProcess; //ref for os
+
 
 
 
@@ -140,9 +158,8 @@ float FastNormalizeAngle_radians(float angle) {
 
 
 //various macros
-#endif // KERNEL_H 
 
-//note to self: when i did this on feb 6 2025 at midnight, i had to learn macros.
+//note to self: when i did this on feb 6 2025 at midnight, i had to learn macros.--i was fucking watching minecraft shi on the right screen
 //here's how they work so i remember. macros in c just kina replace the code they're put in with their own code so they're proceedurally swapped or wahtever
 //don't repeat code. use macros. even though they're weird to make. no runtime overhead
 //preproscessor straight up replaces the thing where you call the macro with the macro code when it's put into the computer
@@ -161,7 +178,7 @@ float FastNormalizeAngle_radians(float angle) {
 //ASSUMED 4 bytes per counter (unsigned long unlock_time)
 //warning:each rate limit called increases ram use! by a few bytes
 
-/*
+
 // Struct for rate limit counters
 typedef struct {
     unsigned long unlock_time;
@@ -200,6 +217,7 @@ void deleteRateLimit(int id) {
 
 
 
+
   //oughhhh it's a function to limit the rate you can enter it
 #define RATE_LIMIT(id, interval_ms, on_success, not_unlocked_yet)       \
     do {                                                                \
@@ -216,8 +234,8 @@ void deleteRateLimit(int id) {
 
 //to use, copy the following and impliment with whatever logic in the main code or whatever
 
-
-
+#endif // KERNEL_H 
+/*
 //assign an id automatically
 static int button_press_id = -1; 
 
@@ -325,17 +343,17 @@ RESET_COUNTER(myCounter, {
 
 //example
 
-
+//WARNING: static variables may be in here. check these-but should be changed
 
  //do stuff with delay x times
 #define REPEAT_X_WITH_DELAY(times, interval, on_exec)   \
-    static int __repeat_count = 0;                        \
-    static unsigned long __last_time = 0;                 \
-    if (__repeat_count < (times)) {                       \
-        if (millis() - __last_time >= (interval)) {       \
-            __last_time = millis();                       \
+     int T__repeat_count = 0;                        \
+     unsigned long T__last_time = 0;                 \
+    if (T__repeat_count < (times)) {                       \
+        if (millis() - T__last_time >= (interval)) {       \
+            T__last_time = millis();                       \
             on_exec;                                      \
-            __repeat_count++;                             \
+            T__repeat_count++;                             \
         }                                                 \
     }
 
@@ -351,13 +369,13 @@ RESET_COUNTER(myCounter, {
 
 //ultrahigh speed repeat with delay-uses microseconds
 #define REPEAT_X_WITH_US_DELAY(times, interval_us, on_exec)  \
-    static int __repeat_count_us = 0;                          \
-    static unsigned long __last_time_us = 0;                   \
-    if (__repeat_count_us < (times)) {                         \
-        if (micros() - __last_time_us >= (interval_us)) {      \
-            __last_time_us = micros();                         \
+     int T__repeat_count_us = 0;                          \
+     unsigned long T__last_time_us = 0;                   \
+    if (T__repeat_count_us < (times)) {                         \
+        if (micros() - T__last_time_us >= (interval_us)) {      \
+            T__last_time_us = micros();                         \
             on_exec;                                           \
-            __repeat_count_us++;                               \
+            T__repeat_count_us++;                               \
         }                                                      \
     }
 

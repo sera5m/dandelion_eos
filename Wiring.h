@@ -71,12 +71,10 @@ void StartSPI() {
 #define ENCODER0_SW_PIN  7
 
 //y axis, back
-//FIX IT, WE HAVEN'T PUT THIS IN YET
-#define ENCODER1_CLK_PIN //21
-#define ENCODER1_DT_PIN  //19
-#define ENCODER1_SW_PIN  //18
 
-
+#define ENCODER1_CLK_PIN 21
+#define ENCODER1_DT_PIN  19
+#define ENCODER1_SW_PIN  18
 
 /*
 

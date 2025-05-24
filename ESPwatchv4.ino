@@ -95,7 +95,7 @@ WindowManager* windowManagerInstance = nullptr;
 
 
 //add the encoders
-#include "inputProscessor.c"
+#include "inputHandler.h"
 
 void setup() {
     // Initialize hardware
