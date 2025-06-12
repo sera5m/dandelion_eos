@@ -6,7 +6,7 @@
 
 #include <memory>
 #include "Wiring.h"
-
+#include <vector> 
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
@@ -15,7 +15,7 @@
 
 #define BATCH_SIZE 64
 
-
+#define icon_transparency_color 0x5220; //this disgusting brown color will be parsed as clear by the bitmap parser
 
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 128 
@@ -196,8 +196,6 @@ void drawRectOutline(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color)
   spiBus.endTransaction();
 }
 
-
-
 void DrawBitmap(const uint16_t* data, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
   if (x >= 128 || y >= 128) return;
   uint16_t x_end = x + w - 1;
@@ -220,15 +218,74 @@ void DrawBitmap(const uint16_t* data, uint16_t x, uint16_t y, uint16_t w, uint16
   FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
 
   // Send pixels
-  for (uint32_t i = 0; i < (w * h); i++) {
+  
+for (uint32_t i = 0; i < (w * h); i++) {
     uint16_t color = data[i];
-    spiBus.write(color >> 8);
-    spiBus.write(color & 0xFF);
-  }
+    //if (color != icon_transparency_color) {
+        spiBus.write(static_cast<uint8_t>(color >> 8));    // send high byte 
+        spiBus.write(static_cast<uint8_t>(color & 0xFF));  // send low byte
+   // }
+}
+
 
   FGPIO_HIGH(SPI_CS_OLED);
   spiBus.endTransaction();
 }
+
+
+//chunked run
+
+void DrawBitmapICON_DMA(const uint16_t* data,
+                       uint16_t x, uint16_t y,
+                       uint16_t w, uint16_t h, uint8_t cnkSizeICOd,
+                       bool islazy, uint16_t BGCol) {
+    // Clip to display bounds
+    if (x >= 128 || y >= 128 || cnkSizeICOd > w) return;
+
+    if (x + w > 128) w = 128 - x;
+    if (y + h > 128) h = 128 - y;
+
+    // Dynamic buffer (automatically manages memory)
+    std::vector<uint16_t> colBuf(cnkSizeICOd * h);  // Resizes as needed
+
+    spiBus.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+
+    for (uint16_t block = 0; block < w; block += cnkSizeICOd) {
+        uint16_t blockSize = (w - block >= cnkSizeICOd) ? cnkSizeICOd : (w - block);
+        uint16_t px_start = x + block;
+        uint16_t px_end = px_start + blockSize - 1;
+
+        // Fill buffer in COLUMN-major order
+        for (uint16_t colOff = 0; colOff < blockSize; colOff++) {
+            for (uint16_t row = 0; row < h; row++) {
+                uint16_t color = data[row * w + (block + colOff)];
+#ifdef ICON_TRANSPARENT_COLOR
+                colBuf[colOff * h + row] = (color == ICON_TRANSPARENT_COLOR) ? BGCol : color;
+#else
+                colBuf[colOff * h + row] = color;
+#endif
+            }
+        }
+
+        // Set column/row address window
+        FGPIO_LOW(SPI_CS_OLED);
+        FGPIO_LOW(OLED_DC); spiBus.write(0x15); FGPIO_HIGH(OLED_DC);
+        spiBus.write(px_start);
+        spiBus.write(px_end);
+
+        FGPIO_LOW(OLED_DC); spiBus.write(0x75); FGPIO_HIGH(OLED_DC);
+        spiBus.write(y);
+        spiBus.write(y + h - 1);
+
+        // Write RAM command + burst transfer
+        FGPIO_LOW(OLED_DC); spiBus.write(0x5C); FGPIO_HIGH(OLED_DC);
+        spiBus.writeBytes(reinterpret_cast<uint8_t*>(colBuf.data()), blockSize * h * 2);
+        FGPIO_HIGH(SPI_CS_OLED);
+    }
+
+    spiBus.endTransaction();
+}
+
 
 
 //stream bmp from file to display. WARNING: UNSURE IF IT WORKS. WHAT i want to do is pull from the sd and directly dump it's data to the oled. sd is flash, and oled is ram. both memory types

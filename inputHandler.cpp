@@ -27,7 +27,13 @@ volatile int encoder1_Pos = 0;
 int lastCLK_0 = 1;
 int lastCLK_1 = 1;
 
+void IRAM_ATTR handleButton0Interrupt() {
+  button0Pressed = true;
+}
 
+void IRAM_ATTR handleButton1Interrupt() {
+  button1Pressed = true;
+}
 /*
 enum inputDeviceType {
   mouse,
@@ -41,19 +47,13 @@ enum HID_ROUTE_TARGET {
   R_os
 };
 */
+//in the .h folder
 
 
 HID_ROUTE_TARGET currentinputTarget = R_os; // Default route to OS
 
 
 
-void IRAM_ATTR handleButton0Interrupt() {
-  button0Pressed = true;
-}
-
-void IRAM_ATTR handleButton1Interrupt() {
-  button1Pressed = true;
-}
 
 void SetupHardwareInput() {
   pinMode(ENCODER0_CLK_PIN, INPUT_PULLUP);

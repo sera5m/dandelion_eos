@@ -181,7 +181,7 @@ bool BeatCheck(long irValue) {
 }
 
 // updateSensors(): sample the sensor, update heart rate and, if enabled, blood oxygen.
-void updateSensors() {
+void updateHRsensor() {
   // ----------------- Heart Rate Processing -----------------
   long rawIRValue = particleSensor.getIR();
   long irValue = denoiseIR(rawIRValue);

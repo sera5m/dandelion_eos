@@ -1,5 +1,6 @@
 #ifndef Labyrinth_H
 #define Labyrinth_H
+
 //hosts master ui things and whatever fuck you
 
 /*

@@ -17,9 +17,9 @@ typedef struct {
 //           on the side you turn dial to set name and zone tm #      | africa or some shit
 //           is picked for you because easier. the earth model         \_____
 //           will rotate for you to the position. dmaa'd because efficiency  |    and ignore window system with an exception custom made for this. 
+//update: this db sucks, can't find a new one. this will be god awful. were just gonna display on screenS
 
-
-const zones_t zones[] = {
+const zones_t zones[] = {//note: 461 positions exactly-longest name 32 chars i think
     {"Africa/Abidjan", "GMT0"},
     {"Africa/Accra", "GMT0"},
     {"Africa/Addis_Ababa", "EAT-3"},

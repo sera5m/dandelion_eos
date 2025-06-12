@@ -144,10 +144,10 @@ struct DVector4 { //vector4 if it was doubles
 //put do n here
 
 //normalize a float angle, but fast. RADIANS ONLY
-float FastNormalizeAngle_radians(float angle) {
+//float FastNormalizeAngle_radians(float angle) {
     // Normalize angle to be within [-2*PI, 2*PI] (radians)
-    return fmod(angle, 2 * M_PI);  // Directly return the remainder (which can be negative)
-}
+  //  return fmod(angle, 2 * M_PI);  // Directly return the remainder (which can be negative)
+//}
   //figured this out in matlab for uni and found that it'd be useful here, lol
 
 
@@ -189,6 +189,7 @@ typedef struct {
 static RateLimitCounter rate_limits[MAX_RATE_LIMITS];
 static int rate_limit_count = 0;  // Tracks the number of rate limiters created
 
+/*
 // Function to create a new rate limit counter
 int createRateLimit() {
     if (rate_limit_count < MAX_RATE_LIMITS) {
@@ -196,14 +197,12 @@ int createRateLimit() {
         return rate_limit_count++;  // Return current ID, then increment
     }
     return -1;  // Return -1 if no more counters can be created
-}
+}*/
 
 // Get current time (replace with your actual function)
-unsigned long getUnixTime() {
-    return millis() / 1000;  // Example using millis() for simplicity
-}
 
 
+/*
 // Deregister a rate limit counter
 void deleteRateLimit(int id) {
     if (id >= 0 && id < rate_limit_count) {
@@ -233,6 +232,15 @@ void deleteRateLimit(int id) {
     } while (0)
 
 //to use, copy the following and impliment with whatever logic in the main code or whatever
+
+
+*/
+
+
+
+
+
+
 
 #endif // KERNEL_H 
 /*

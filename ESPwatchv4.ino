@@ -1,8 +1,14 @@
 //do not touch
 #include "Wiring.h"
 
+#define DO_ONCE(name)       \
+    static bool _did_##name = false; \
+    if (!_did_##name)       \
+        for (_did_##name = true; _did_##name; _did_##name = false)
+#define RESET_DO_ONCE(name) (_did_##name = false)
 
 
+#include "watch_Settings.h"
 
 
 
@@ -61,6 +67,8 @@ GyroData gyroData;
 //wireles comunication
 //#include <RadioLib.h>
 
+//time
+#include "mdl_clock.h"
 
 //storate
 #include "SDFS.ino"
@@ -68,7 +76,7 @@ GyroData gyroData;
 #include <nvs_flash.h>
 #include <nvs.h>
 
-
+#include <pgmspace.h>
 
 
 
@@ -86,18 +94,30 @@ GyroData gyroData;
 // Globals.cpp or at the top of your main .ino (outside setup and loop)
 SPIClass spiBus(HSPI);
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
-
+bool deviceIsAwake=true;
 
 //Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
 
 
 WindowManager* windowManagerInstance = nullptr;
-
-
+static std::shared_ptr<Window> lockscreen_watchface;
+bool IsScreenOn=true;
 //add the encoders
 #include "inputHandler.h"
 
+
+int currentHour = 0;
+int currentMinute = 0;
+int currentSecond = 0;
+
+
+
+
+
 void setup() {
+
+
+
     // Initialize hardware
     delay(148);
     Serial.begin(115200);
@@ -150,42 +170,8 @@ if (!SD.begin(SPI_CS_SD, spiBus)) {
         return;
     }
 
-    // Create window configuration
-    WindowCfg winCfg = {
-        0, 0,         // x, y
-        126, 126,     // width, height
-        false,        // AutoAlignment
-        true,         // WrapText
-        1,            // TextSize
-        true,        // borderless
-        0xFFAA,       // BorderColor 
-        0x1234,       // bgColor (black)
-        0xF000,       // TextColor
-        100           // UpdateTickRate
-    };
-
-    auto myWindow = std::make_shared<Window>("MainWin", winCfg, "MEOWL???");
-    windowManagerInstance->registerWindow(myWindow);
-
-    // Canvas setup
-    CanvasCfg canvasCfg = {
-        10, 10,        // x, y (relative to window)
-        80, 80,        // width, height
-        true,         // borderless
-        false,         // DrawBG
-        0x0480,        // bgColor (green)
-        0xFAF0,        // BorderColor
-        myWindow.get() // parent window
-    };
-
-    // Create shared canvas instance
-    //auto myCanvas = std::make_shared<Canvas>(canvasCfg, myWindow);
-
-    // Add to window manually
-    //myWindow->canvases.push_back(myCanvas); 
 
 
-myWindow->WinDraw();
 Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
  // —— SHOW ROOT ——
   File root = SD.open("/");
@@ -239,28 +225,12 @@ if (!bmpFile) {
 
   bmpFile.close();
 }
+//ready watch screen    
 
-  // —— DRAW YOUR BMP ——
-  //DrawBmpFromSD("/img/the_kitty.bmp", 10, 20);
-
-
-/*
-for (int iterator = 1; iterator <= 16; iterator++) {
-    //myCanvas->clear();  // Clear previous circles
-    myCanvas->AddCircle(64, 64, iterator * 4, randomColor(), 1);  
-    myCanvas->CanvasUpdate(true);  // Smarter update only calling canvas :3
-    //delay(2);  // More reasonable delay
-}
-
-delay(28);
-myCanvas->ClearAll();
-Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-myWindow->updateContent("-_<");
-Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-myWindow->updateContent(">_<");
-Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-myWindow->updateContent(">_-");
-*/
+        WindowCfg cfg = {4, 64, 124, 32, false, false, 2, true, 0xFFFF, 0x0000, 0xFFFF, 1000};
+        lockscreen_watchface = std::make_shared<Window>("lockscreen_watchface", cfg, "HH:MM:SS");
+// xypos sizepos, auto align,wrap text, text size, borderless? , border background text color, update ms
+        windowManagerInstance->registerWindow(lockscreen_watchface);
 
 //myWindow->updateContent("<setcolor(0x99F02)>let's show <setcolor(0x0FF2)>you all <setcolor(0xE602)> what we can do<setcolor(0x0F2E)> :D WE CAN TYPE SO MUCH FUCKING BULLSHIT IT'S INSANE GRAAAAAAAAAAAAAAAAAA10947865091736450876108457620345AAAAAAAAAAAAAGGGHHHHH ");
 
@@ -269,37 +239,75 @@ myWindow->updateContent(">_-");
 //myWindow->WinDraw(); 
 //myWindow->updateContent("MEOW<setcolor(0x99F02)>MEOW MEOWMEOW"); 
 Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-/*
-myWindow->updateContent("i have spent<n>the last several weeks <n> creating this library<n>to add a window system to the esp32.<n><n><setcolor(0xEEEE)>this wasn't easy...");
-delay(2280);
-myWindow->updateContent("<setcolor(0xFFFF)> windows support live <setcolor(0x07E0)>recongifuration <setcolor(0xFFFF)>of their properties!");
-myWindow->ForceBorderState(true);
-myWindow->SetBorderColor(0x1FFF);
-  Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-  //myWindow->updateContent("Free heap: %d\n", ESP.getFreeHeap());
-  
-myWindow->WinDraw();
-myWindow->updateContent("such as changing colors....");
-delay(1234);
-myWindow->SetBgColor(0x1234);
-myWindow->WinDraw();
-myWindow->updateContent("<setcolor(0x07E0)>or even size");
-delay(1234);
-*/
-//drawBitmap(the_cat, 0, 0, 128, 128);
-/*
-DrawBmpFromSD("/img/the_kitty.bmp", 0, 0);
-delay(200);
-DrawBmpFromSD("/img/bunnycat.bmp", 32, 32);
-*/
 
-
-
-
-
+//updateHRsensor();//heart rate monitor-best done every 10ms?
+//PollEncoders(); //user input-100x/s but only when device is awake
+//updateIMU();//poll gyro-2-10hz or so
+//xTaskCreatePinnedToCore(SensorTask, "SensorTask", 4096, NULL, 1, NULL, 1);  // Sensor on core 1
+xTaskCreatePinnedToCore(watchscreen, "watchscreen", 8192, NULL, 1, NULL, 0); // Watchscreen on core 0
 
 
 }
+/*
+void SensorTask(void *pvParameters) {
+    const TickType_t hrInterval = pdMS_TO_TICKS(8);
+    const TickType_t encoderInterval = pdMS_TO_TICKS(10);
+    const TickType_t imuIntervalAwake = pdMS_TO_TICKS(100);
+    const TickType_t imuIntervalSleep = pdMS_TO_TICKS(500);
+
+    TickType_t lastHR = xTaskGetTickCount();
+    TickType_t lastEncoder = lastHR;
+    TickType_t lastIMU = lastHR;
+
+    for (;;) {
+        TickType_t now = xTaskGetTickCount();
+
+        if (now - lastHR >= hrInterval) {
+            updateHRsensor();
+            lastHR = now;
+        }
+
+        if (deviceIsAwake) {
+            if (now - lastEncoder >= encoderInterval) {
+                PollEncoders();
+                lastEncoder = now;
+            }
+            if (now - lastIMU >= imuIntervalAwake) {
+                updateIMU();
+                lastIMU = now;
+            }
+        } else {
+            if (now - lastIMU >= imuIntervalSleep) {
+                updateIMU();
+                lastIMU = now;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(4));  // Give CPU some breathing room
+    }
+}*/
+
+void watchscreen(void *pvParameters) {
+    for (;;) {
+
+        if (IsScreenOn && lockscreen_watchface) {
+            std::string timeStr = 
+                (currentHour   < 10 ? "0" : "") + std::to_string(currentHour)   + ":" +
+                (currentMinute < 10 ? "0" : "") + std::to_string(currentMinute) + ":" +
+                (currentSecond < 10 ? "0" : "") + std::to_string(currentSecond);
+
+            lockscreen_watchface->updateContent(timeStr);
+        }
+        updateCurrentTimeVars();
+        vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1 second
+    }
+    
+}
+
+
+
+
+
 
 void loop() {
    

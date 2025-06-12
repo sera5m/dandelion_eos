@@ -85,12 +85,12 @@ void updateIMU() {
     // Update our circular buffer with new accelerometer data.
     updateAccelBuffer(accelData.accelX, accelData.accelY, accelData.accelZ);
 
-    // Count steps and print if any detected.
+    /* Count steps and print if any detected.
     int steps = countSteps();
     if (steps > 0) {
         Serial.print("Steps detected: ");
         Serial.println(steps);
-    }
+    }*/
 
     // Check if the device is facing up.
     if (isFacingUp()) {

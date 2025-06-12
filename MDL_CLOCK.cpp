@@ -1,143 +1,150 @@
+#include "MDL_CLOCK.h"
+
 //improvements to do: iso 8601 parsingg/formatting
 //improve the human readable time
 //support for by country dst (in progress)
 
+#include <pgmspace.h>
+#include "esp_sntp.h"
 
-
-#ifndef MDL_CLOCK_H
-#define MDL_CLOCK_H
 
 #include <time.h>
 #include <sys/time.h>
 #include <chrono>
 #include <optional>
 // Global variables for time access
+#include "timezones.h" //source: don't even ask
+#include <Wire.h>
 
+// define your globals-IN main not here
+//int currentHour = 0;
+//int currentMinute = 0;
+//int currentSecond = 0;
 
-//default enums and some vars
-extern int currentHour;
-extern int currentMinute;
-extern int currentSecond;
-
-enum days{ 
-  sun,
-  mon,
-  tue,
-  wend,
-  thur,
-  fri,
-  sat
-};
-enum months{
-  jan,
-  feb,
-  mar,
-  apr,
-  may,
-  jun,
-  jul,
-  aug,
-  sept,
-  oct,
-  nov,
-  dec
-};
-
-// Define weekdays and weekends
-const bool isWeekday[7] = { false,true, true, true, true, true, false }; // Mon-Fri: true; Sat, Sun: false (week start with sun, end w sat)
 /*
-
-
-// Global variable for Unix time
-extern time_t NowUnixTime;
-
-
-//stuff 4 dst
-int UserTimeZoneOffset = 0; // your timezone relative to utc+0 IN SECONDS. 
-bool useDST=false; //use daylight savings time? (likely needs to be either set or stored in nvs or something)
-bool ForceDisableDST=false; //set to true if the user wants to forcibly disable use of dst 
-
-// Enumerate countries (add more as needed)
-enum country {
-    USA,
-    Canada,
-    UK,
-    Germany,
-    Australia,
-    Japan,
-    India,
-    China,
-    Brazil,
-    SouthAfrica,
-    // Add other countries AND REGIONS here!!! THIS LIST IS NOT OCMPLETE
-};
-
-
-enum country userCountry = USA; //default user country
-
-// Structure to hold timezone and DST rules
-typedef struct {
-    int standardOffset; // Standard offset in seconds from UTC
-    bool usesDST;       // Does the country use DST?
-    int dstStartMonth;  // Start month for DST
-    int dstStartDay;    // Approximate start day (e.g., "2nd Sunday of March")
-    int dstEndMonth;    // End month for DST
-    int dstEndDay;      // Approximate end day (e.g., "1st Sunday of November")
-} TimeZoneInfo;
-
-
-// Lookup table for countries and their timezone information
-// TEMPORARY!!! todo: ADD MORE COUNTRIES IF NEEDED. 
-//incomplete timezone coverage for west and east eu and continental USA, south america may need work. check this whole table over
-
-//offset in s, has dst,date of dst start, dst end
-const TimeZoneInfo timeZoneTable[] = {
-    { -18000, true, mar, 14, nov, 7 },   // USA: UTC-5, DST starts 2nd Sunday of March, ends 1st Sunday of November
-    { -18000, true, mar, 14, nov, 7 },   // Canada: Same as USA
-    {     0,  true, mar, 28, oct, 31 },  // UK: UTC+0, DST starts last Sunday of March, ends last Sunday of October
-    {  3600, true, mar, 28, oct, 31 },  // Germany: UTC+1, same DST as UK
-    {  36000, true, oct, 1, apr, 1 },   // Australia: UTC+10, DST varies but generally Oct-Apr
-    {  32400, false, 0, 0, 0, 0 },      // Japan: UTC+9, no DST
-    {  19800, false, 0, 0, 0, 0 },      // India: UTC+5:30, no DST
-    {  28800, false, 0, 0, 0, 0 },      // China: UTC+8, no DST
-    { -10800, true, oct, 1, feb, 15 },  // Brazil: UTC-3, DST varies but generally Oct-Feb
-    {  7200, false, 0, 0, 0, 0 }        // South Africa: UTC+2, no DST
-    // PLEASE Add other countries here
-};
-
-// Function to calculate user timezone offset
-int calculateUserTimeZoneOffset(enum country userCountry, enum months currentMonth, int day, bool forceDisableDST) {
-    const TimeZoneInfo *tzInfo = &timeZoneTable[userCountry];
-
-    // Start with the standard offset
-    int offset = tzInfo->standardOffset;
-
-    // Check if DST should be applied
-    if (!forceDisableDST && tzInfo->usesDST) {
-        if ((currentMonth > tzInfo->dstStartMonth && currentMonth < tzInfo->dstEndMonth) ||
-            (currentMonth == tzInfo->dstStartMonth && day >= tzInfo->dstStartDay) ||
-            (currentMonth == tzInfo->dstEndMonth && day < tzInfo->dstEndDay)) {
-            offset += 3600; // Add one hour for DST
-        }
-    }
-
-    return offset;
+void syncTimeFromNTP(const char* ntpServer) {
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_setservername(0, ntpServer);
+    sntp_init();
 }
-
 */
 
-//struct for time in a nice human readable format
-struct FriendlyTime {
-    int year;
-    int month;
-    int day;
-    int hour;
-    int minute;
-    int second;
-};
+void updateCurrentTimeVars(){
+    time_t now = time(nullptr);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    currentHour = tm_now.tm_hour;
+    currentMinute = tm_now.tm_min;
+    currentSecond = tm_now.tm_sec; }
+    
+//const bool isWeekday[7] = { false, true, true, true, true, true, false };
+
+NormieTime convertToNormieTime(time_t t) {
+    struct tm tm_struct;
+    localtime_r(&t, &tm_struct);
+    return {
+        uint8_t(tm_struct.tm_year - 100),
+        uint8_t(tm_struct.tm_mon),
+        uint8_t(tm_struct.tm_mday - 1),
+        uint8_t(tm_struct.tm_hour),
+        uint8_t(tm_struct.tm_min),
+        uint8_t(tm_struct.tm_sec)
+    };
+}
+
+// Parse a timezone rule string into TimezoneInfo
+void parseTimezoneRule(const char* rule, TimezoneInfo* info) {
+    memset(info, 0, sizeof(*info));
+    if (!strchr(rule, ',')) {
+        info->has_dst = false;
+        parseSimpleOffset(rule, info);
+        return;
+    }
+    info->has_dst = true;
+    parseDSTRule(rule, info);
+}
+
+bool isLeapYear(int year) {
+    return (year % 4 == 0) && ((year % 100 != 0) || (year % 400 == 0));
+}
+
+// Helper for simple offsets (no DST)
+void parseSimpleOffset(const char* rule, TimezoneInfo* info) {
+    const char* p = rule;
+    while (*p && !isdigit(*p) && *p != '-' && *p != '+') p++;
+    size_t len = p - rule;
+    if (len < sizeof(info->std_abbr)) {
+        memcpy(info->std_abbr, rule, len);
+        info->std_abbr[len] = '\0';
+    }
+    float hrs = atof(p);
+    info->standard_offset = int8_t(hrs * 4);
+    info->dst_offset = info->standard_offset;
+}
+
+void parseDSTRule(const char* rule, TimezoneInfo* info) {
+    char buf[64];
+    strncpy(buf, rule, sizeof(buf)-1);
+    buf[sizeof(buf)-1] = '\0';
+    char* stdp = strtok(buf, ",");
+    char* stp  = strtok(nullptr, ",");
+    char* edp  = strtok(nullptr, ",");
+    if (!stdp || !stp || !edp) return;
+    parseStandardPart(stdp, info);
+    parseTransitionRule(stp, &info->start_dst);
+    parseTransitionRule(edp, &info->end_dst);
+}
+
+void parseStandardPart(const char* part, TimezoneInfo* info) {
+    const char* p = part;
+    while (*p && isalpha(*p)) p++;
+    size_t len = p - part;
+    if (len < sizeof(info->std_abbr)) {
+        memcpy(info->std_abbr, part, len);
+        info->std_abbr[len] = '\0';
+    }
+    info->standard_offset = int8_t(atof(p) * 4);
+    while (*p && !isalpha(*p)) p++;
+    if (*p) {
+        strncpy(info->dst_abbr, p, sizeof(info->dst_abbr)-1);
+        info->dst_offset = info->standard_offset + 4;
+    }
+}
+
+void parseTransitionRule(const char* rule, TimezoneTransitionDate* d) {
+    if (rule[0] != 'M') return;
+    int m, w, day, hr=0;
+    // sscanf is simpler here
+    if (sscanf(rule, "M%d.%d.%d/%d", &m, &w, &day, &hr) >= 3) {
+        d->month = m - 1;
+        d->week  = w;
+        d->day   = day;
+        d->hour  = hr;
+    }
+}
+
+void initialTimezoneSetup() {
+    const zones_t zone = {"America/Los_Angeles", "PST8PDT,M3.2.0,M11.1.0"};
+    TimezoneInfo info;
+    parseTimezoneRule( zone.zones.c_str(), &info);
+    //Serial.printf("Timezone: %s\n", zone.name);
+    //Serial.printf("STD: %s (UTC%+.2f)\n", info.std_abbr, info.standard_offset/4.0f);
+    if (info.has_dst) {
+        /*
+        Serial.printf("DST: %s (UTC%+.2f)\n", info.dst_abbr, info.dst_offset/4.0f);
+        Serial.printf("Starts: %d.%d wk%d@%d\n",
+                      info.start_dst.month+1, info.start_dst.day+1,
+                      info.start_dst.week, info.start_dst.hour);
+        Serial.printf("Ends:   %d.%d wk%d@%d\n\n",
+                      info.end_dst.month+1, info.end_dst.day+1,
+                      info.end_dst.week, info.end_dst.hour);
+                      */
+    }
+}
 
 
-//the folllowing code is to be ticked once per minutes so that allar,/timer whatever the fuck can be ran efficiently without a freerots task
+
 
 /*
 // Attach to RTC or system clock
@@ -211,8 +218,8 @@ void GetLocalTime() {
     Serial.println(time12Str);
 }
 
-// Convert Unix time to local FriendlyTime with time zone support
-void UnixTimeToFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &ft) {
+// Convert Unix time to local NormieTime with time zone support
+void UnixTimeToNormieTime(time_t unixTime, int timeZoneOffset, NormieTime &ft) {
     struct tm timeinfo;
     gmtime_r(&unixTime, &timeinfo); // Converts Unix time to UTC
 
@@ -232,7 +239,7 @@ void UnixTimeToFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &f
 //use this function to convert seconds (say from a timer) to normative time structures. uses mod to provide ms as a remainder
 //idk how well this works but it should work fine, ig?
 // Function to convert raw seconds to friendly time
-void RawSecondsToFriendlyTime(float seconds, FriendlyTime &FriendlyTime, float &ms) {
+void RawSecondsToNormieTime(float seconds, NormieTime &NormieTime, float &ms) {
     // Extract the fractional part (milliseconds) and the whole number part (seconds)
     float fractionalPart = 0.0f;
     float wholeSeconds = std::modf(seconds, &fractionalPart);
@@ -244,72 +251,72 @@ void RawSecondsToFriendlyTime(float seconds, FriendlyTime &FriendlyTime, float &
     int totalSeconds = static_cast<int>(wholeSeconds);
 
     // 1. Convert seconds to minutes, then to hours, days, and years
-    FriendlyTime.second = totalSeconds % 60;
+    NormieTime.second = totalSeconds % 60;
     totalSeconds /= 60;  // Remaining seconds after getting the minute
 
     if (totalSeconds > 0) {
-        FriendlyTime.minute = totalSeconds % 60;
+        NormieTime.minute = totalSeconds % 60;
         totalSeconds /= 60;  // Remaining after minutes to hours
     } else {
-        FriendlyTime.minute = 0;
+        NormieTime.minute = 0;
     }
 
     if (totalSeconds > 0) {
-        FriendlyTime.hour = totalSeconds % 24;
+        NormieTime.hour = totalSeconds % 24;
         totalSeconds /= 24;  // Remaining after hours to days
     } else {
-        FriendlyTime.hour = 0;
+        NormieTime.hour = 0;
     }
 
     if (totalSeconds > 0) {
-        FriendlyTime.day = totalSeconds % 365;  // Assuming 365 days per year
+        NormieTime.day = totalSeconds % 365;  // Assuming 365 days per year
         totalSeconds /= 365;  // Remaining after days to years
     } else {
     
-        FriendlyTime.day = 0;
+        NormieTime.day = 0;
     }
 
     // Calculate the year (assuming 365.24 days per year for simplicity)
-    FriendlyTime.year = 1970 + totalSeconds;
+    NormieTime.year = 1970 + totalSeconds;
 
     // Month calculation (just an approximation based on days in the year)
     // Assume 12 months, divide days by 30 for rough month estimate
-    FriendlyTime.month = (FriendlyTime.day / 30) + 1;
-    if (FriendlyTime.month > 12) {
-        FriendlyTime.month = 12;
+    NormieTime.month = (NormieTime.day / 30) + 1;
+    if (NormieTime.month > 12) {
+        NormieTime.month = 12;
     }
 
     // The day is now adjusted for the month, subtract full months
-    FriendlyTime.day = FriendlyTime.day % 30;
+    NormieTime.day = NormieTime.day % 30;
 }
 
 /*
-// Convert FriendlyTime to Unix time with time zone adjustment
-time_t FriendlyTimeToUnixTime(const FriendlyTime &FriendlyTime, int timeZoneOffset) {
+// Convert NormieTime to Unix time with time zone adjustment
+time_t NormieTimeToUnixTime(const NormieTime &NormieTime, int timeZoneOffset) {
     struct tm timeinfo = {};
-    timeinfo.tm_year = FriendlyTime.year - 1900;
-    timeinfo.tm_mon = FriendlyTime.month - 1;
-    timeinfo.tm_mday = FriendlyTime.day;
-    timeinfo.tm_hour = FriendlyTime.hour;
-    timeinfo.tm_min = FriendlyTime.minute;
-    timeinfo.tm_sec = FriendlyTime.second;
+    timeinfo.tm_year = NormieTime.year - 1900;
+    timeinfo.tm_mon = NormieTime.month - 1;
+    timeinfo.tm_mday = NormieTime.day;
+    timeinfo.tm_hour = NormieTime.hour;
+    timeinfo.tm_min = NormieTime.minute;
+    timeinfo.tm_sec = NormieTime.second;
 
     // Convert to Unix time and adjust for time zone offset
     return mktime(&timeinfo) - timeZoneOffset;
 }
 
-// Provide normalized local time (FriendlyTime struct) from Unix time
-void GetFriendlyTime(time_t unixTime, int timeZoneOffset, FriendlyTime &FriendlyTime) {
-    UnixTimeToFriendlyTime(unixTime, timeZoneOffset, FriendlyTime);
+// Provide normalized local time (NormieTime struct) from Unix time
+void GetNormieTime(time_t unixTime, int timeZoneOffset, NormieTime &NormieTime) {
+    UnixTimeToNormieTime(unixTime, timeZoneOffset, NormieTime);
 }
 
-FriendlyTime TimeUntil(const FriendlyTime &current, const FriendlyTime &target) { // time a to time b, friendly time
-    time_t currentUnix = FriendlyTimeToUnixTime(current, UserTimeZoneOffset); // Corrected variable
-    time_t targetUnix = FriendlyTimeToUnixTime(target, UserTimeZoneOffset);
+NormieTime TimeUntil(const NormieTime &current, const NormieTime &target) { // time a to time b, friendly time
+    time_t currentUnix = NormieTimeToUnixTime(current, UserTimeZoneOffset); // Corrected variable
+    time_t targetUnix = NormieTimeToUnixTime(target, UserTimeZoneOffset);
 
     time_t diff = targetUnix - currentUnix;
-    FriendlyTime result;
-    UnixTimeToFriendlyTime(diff, 0, result); // Offset = 0 since this is a duration
+    NormieTime result;
+    UnixTimeToNormieTime(diff, 0, result); // Offset = 0 since this is a duration
     return result;
 }
 
@@ -598,15 +605,15 @@ Timer myTimer("timer name here"); //declare an object
 
 
 
-
+*/
 
 //***********************************************************************************************************************************************************************************************************************************************************************
 //stopwatch functionality
 
 //************************************************
 
-//std chrono is a regular c library yo handle time
-//it's got the high prescision stuff we need. because users of a watch need high prescision time.
+//std chrono 
+
 
 class Stopwatch {
 
@@ -688,15 +695,16 @@ void reset() {
     // Print all laps. debug for now, add an option to print to screen or not later.
 void printLaps() const {
     if (laps.empty()) {
-        Serial.println("No laps recorded.");
+       /* Serial.println("No laps recorded.");*/
         return;
     }
     for (size_t i = 0; i < laps.size(); ++i) {
-        Serial.print("Lap ");
+     /*   Serial.print("Lap ");
         Serial.print(i + 1);
         Serial.print(": ");
         Serial.print(laps[i], 4); // Print with 4 decimal places
         Serial.println(" seconds");
+        */
     }
 }
 
@@ -716,6 +724,6 @@ void printLaps() const {
 //
 
 //end the module
-*/
 
-#endif // MDL_TIMEKEEPING_H
+
+

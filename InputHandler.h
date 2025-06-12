@@ -43,8 +43,11 @@ extern volatile int encoder1_Pos;
 extern HID_ROUTE_TARGET currentinputTarget;
 
 // Function Declarations
+
 void IRAM_ATTR handleButton0Interrupt();
+
 void IRAM_ATTR handleButton1Interrupt();
+
 void SetupHardwareInput();
 void PollEncoders();
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout);
