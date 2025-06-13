@@ -2,24 +2,26 @@
 #define mdl_accelerometer_H
 
 extern  MPU6500 IMU;  //import extern imu object stfu
+
 // Constants for sampling
 #define IMU_SAMPLE_RATE_HZ 10  // 10 Hz (100ms per sample)
 #define IMU_CircularBufferSize 20     // 2 seconds of data (10 Hz * 2s)
 
 struct AccelSample {
-    float x, y, z;       // Raw accelerometer data (in g's)
+    float ax, ay, az;       // Raw accelerometer data (in g's)
     float magnitude;     // Filtered magnitude of acceleration
 };
 
 AccelSample accelBuffer[IMU_CircularBufferSize];  // Circular buffer for accelerometer data
 int bufferIndex = 0;                   // Current position in the buffer
 
-// Low-pass filter smoothing factor
-float alpha = 0.2;
+extern AccelData imuAccel;   //grab it
 
-// Applies a simple low-pass filter to smooth the data.
-float lowPassFilter(float newValue, float previousValue) {
-    return alpha * newValue + (1 - alpha) * previousValue;
+float EarthG=9.81; 
+
+// Apply low-pass filter (adjust alpha as needed for smoothness)
+float lowPassFilter(float current, float previous, float alpha = 0.2f) {
+    return previous + alpha * (current - previous);
 }
 
 // Update the accelerometer buffer with new readings.
@@ -65,39 +67,43 @@ int countSteps() {
 
     return stepCount;
 }
+// Call this every 100ms (IMU_SAMPLE_RATE_HZ)
+void pollAccelAndUpdateBuffer() {
+    IMU.update();                  // grab raw sensor data
+    IMU.getAccel(&imuAccel);       // fill imuAccel.ax, .ay, .az
 
-// isFacingUp: Returns true if the latest y-axis reading is 0.75g or greater.
-bool isFacingUp() {
-    // Use the most recent sample in the circular buffer.
-    int lastIndex = (bufferIndex - 1 + IMU_CircularBufferSize) % IMU_CircularBufferSize;
-    return (accelBuffer[lastIndex].y >= 0.75);
+    float ax = imuAccel.accelX;
+    float ay = imuAccel.accelY;
+    float az = imuAccel.accelZ;
+
+    float rawMagnitude   = sqrtf(ax*ax + ay*ay + az*az);
+    float previousValue  = accelBuffer[bufferIndex].magnitude;
+    float filteredMagnitude = lowPassFilter(rawMagnitude, previousValue);
+
+    accelBuffer[bufferIndex].ax        = ax;
+    accelBuffer[bufferIndex].ay        = ay;
+    accelBuffer[bufferIndex].az        = az;
+    accelBuffer[bufferIndex].magnitude = filteredMagnitude;
+
+    bufferIndex = (bufferIndex + 1) % IMU_CircularBufferSize;
 }
 
-// Update IMU: Call this function periodically (e.g., at 10 Hz).
-void updateIMU() {
-    // Assumes that IMU.update() and IMU.getAccel() exist, and that accelData is filled.
-    // Define a struct for accelerometer data if not already done, e.g.:
-    // struct AccelData { float accelX, accelY, accelZ; } accelData;
+
+
+// isFacingUp: Returns true if the latest y-axis reading is "up or downish"
+bool isFacingUp_f() {
     IMU.update();
-    AccelData accelData;
-    IMU.getAccel(&accelData);
-
-    // Update our circular buffer with new accelerometer data.
-    updateAccelBuffer(accelData.accelX, accelData.accelY, accelData.accelZ);
-
-    /* Count steps and print if any detected.
-    int steps = countSteps();
-    if (steps > 0) {
-        Serial.print("Steps detected: ");
-        Serial.println(steps);
-    }*/
-
-    // Check if the device is facing up.
-    if (isFacingUp()) {
-        Serial.println("Device is facing up.");
-    } else {
-        Serial.println("Device is not facing up.");
-    }
+    IMU.getAccel(&imuAccel);
+    return fabsf(imuAccel.accelY) > 6.4f; //6.4 is roughly 0.7*earth gravity(m/s^2)
 }
+
+bool isFacingUp() {
+    const AccelSample &s = accelBuffer[(bufferIndex - 1 + IMU_CircularBufferSize) % IMU_CircularBufferSize];
+    return fabsf(s.ay) > 6.4f;
+}
+
+
+
+
 
 #endif // mdl_accelerometer_H

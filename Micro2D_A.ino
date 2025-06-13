@@ -1328,8 +1328,9 @@ private:
 std::string Delim_LinBreak ="<n>";
 std::string Delim_Seperator ="<_>";
 //properties
+//must be in format of <desire(value)>
 std::string Delim_ColorChange = "<setcolor(";
-std::string Delim_PosChange = "<pos(";
+std::string Delim_PosChange = "<pos("; 
 std::string Delim_Sizechange = "<textsize(";
 //properties of special text
 std::string Delim_Strikethr = "<s>";        // Italic text 

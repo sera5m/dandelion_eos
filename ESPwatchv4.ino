@@ -56,8 +56,9 @@ MAX30105 particleSensor;//particle sensor object
 //#define PERFORM_CALIBRATION //Comment to disable startup calibration
 MPU6500 IMU;               //Change to the name of any supported IMU! -extern so we can access this in accel module
 calData calib = { 0 };  //Calibration data
-AccelData accelData;     //Sensor data
+AccelData  imuAccel;      //Sensor data
 GyroData gyroData;
+
 
 //nfc-rfid
 #include <Adafruit_PN532.h>
@@ -88,7 +89,7 @@ GyroData gyroData;
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
 
-
+int8_t temp_c=69;
 
 //fuckj this were gonna put it wice
 // Globals.cpp or at the top of your main .ino (outside setup and loop)
@@ -227,9 +228,9 @@ if (!bmpFile) {
 }
 //ready watch screen    
 
-        WindowCfg cfg = {4, 64, 124, 32, false, false, 2, true, 0xFFFF, 0x0000, 0xFFFF, 1000};
+        WindowCfg cfg = {0, 64, 128, 32, false, false, 3, true, 0xFFFF, 0x0000, 0xFFFF, 1000};
         lockscreen_watchface = std::make_shared<Window>("lockscreen_watchface", cfg, "HH:MM:SS");
-// xypos sizepos, auto align,wrap text, text size, borderless? , border background text color, update ms
+            // xypos, sizepos, auto align,wrap text, text size, borderless? , border background text color, update ms
         windowManagerInstance->registerWindow(lockscreen_watchface);
 
 //myWindow->updateContent("<setcolor(0x99F02)>let's show <setcolor(0x0FF2)>you all <setcolor(0xE602)> what we can do<setcolor(0x0F2E)> :D WE CAN TYPE SO MUCH FUCKING BULLSHIT IT'S INSANE GRAAAAAAAAAAAAAAAAAA10947865091736450876108457620345AAAAAAAAAAAAAGGGHHHHH ");
@@ -286,19 +287,29 @@ void SensorTask(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(4));  // Give CPU some breathing room
     }
 }*/
+void sensortick(void *pvParameters){
+    for(;;){
+        
+    temp_c = static_cast<int8_t>(roundf(IMU.getTemp())); //heads up no protection here but whatever. also i spent more time typing this than actually adding it but whatever run it at 1hz
+
+    pollAccelAndUpdateBuffer(); isFacingUp(); //see if it's up or down, no shit. and update it. i need to run this at 10 hz or so but OH WELL MAN.
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
 
 void watchscreen(void *pvParameters) {
     for (;;) {
 
-        if (IsScreenOn && lockscreen_watchface) {
+        if (IsScreenOn && lockscreen_watchface) { 
             std::string timeStr = 
-                (currentHour   < 10 ? "0" : "") + std::to_string(currentHour)   + ":" +
-                (currentMinute < 10 ? "0" : "") + std::to_string(currentMinute) + ":" +
-                (currentSecond < 10 ? "0" : "") + std::to_string(currentSecond);
+    (currentHour < 10 ? "0" : "") + std::to_string(currentHour) + ":" +
+    (currentMinute < 10 ? "0" : "") + std::to_string(currentMinute) + ":" +
+    (currentSecond < 10 ? "0" : "") + std::to_string(currentSecond);
 
             lockscreen_watchface->updateContent(timeStr);
         }
         updateCurrentTimeVars();
+       
         vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1 second
     }
     
