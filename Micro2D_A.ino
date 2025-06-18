@@ -98,6 +98,11 @@ void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
   // --- END TIMER ---
   //unsigned long end = millis();Serial.print("TFillRect took ");Serial.print(end - start);Serial.println(" ms");
 }
+
+
+
+
+
 void drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint16_t color) {
   int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
   int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
@@ -1395,6 +1400,21 @@ void drawVisibleLines() {
                 tft.setCursor(cursorX, cursorY);
               }
             }
+             else if (tag.substr(0, Delim_Sizechange.length()) ==Delim_Sizechange){ //damn thing wasn't here before
+              size_t start = tag.find('(');
+              if (start != std::string::npos) {
+                start++; // move past '('
+                size_t endParen = tag.find(')', start);
+                if (endParen != std::string::npos && endParen > start) {
+                  std::string_view colorStr = tag.substr(start, endParen - start);
+                  uint8_t windownewtextsize = std::stoul(std::string(colorStr), nullptr, 8); //bad copied code
+                  tft.setTextSize(windownewtextsize);
+                } else {
+                  printf("Error: Malformed color tag");
+                }
+              }
+            
+             }
             else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) {
               size_t start = tag.find('(');
               if (start != std::string::npos) {
@@ -1402,7 +1422,7 @@ void drawVisibleLines() {
                 size_t endParen = tag.find(')', start);
                 if (endParen != std::string::npos && endParen > start) {
                   std::string_view colorStr = tag.substr(start, endParen - start);
-                  uint32_t rawColor = std::stoul(std::string(colorStr), nullptr, 16);
+                  uint32_t rawColor = std::stoul(std::string(colorStr), nullptr, 16); //shouldn't be 32 bit, colors are 16 bit wtf fix this
                   uint16_t color16 = rawColor & 0xFFFF;
                   tft.setTextColor(color16);
                 } else {
@@ -1502,6 +1522,8 @@ void updateWrappedLines() {
                         currentLine.push_back(' ');
                         currentLineLength++;
                     }
+
+
                     else {
                         wrappedLines.push_back(currentLine);
                         currentLine = " ";

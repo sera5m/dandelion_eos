@@ -44,7 +44,7 @@
 
 //you may be wondering why i'm abstracting this. keep wondering. 
 
-//void StartI2C(){Wire.begin(SDA_PIN, SCL_PIN);}
+
 
 /*
 void StartSPI() {

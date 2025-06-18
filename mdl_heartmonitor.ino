@@ -1,6 +1,9 @@
 #ifndef mdl_heartmonitor_H
 #define mdl_heartmonitor_H
-
+#include "MAX30105.h" //sparkfun lib
+#include "heartRate.h"
+#include "spo2_algorithm.h"//aw lawd
+extern MAX30105 particleSensor;
 struct HeartRateData
 {
     uint16_t year;  // 2 bytes
@@ -48,7 +51,7 @@ bool isFirstBeat = true;
 long lastValidBPM = 0;      // used for smoothing rapid changes
 
 // Minimum time (in ms) between beats to avoid false detection
-const unsigned long MIN_BEAT_INTERVAL = 400;
+const unsigned long MIN_BEAT_INTERVAL = 200; //even at 200 bpm the users heart rate is 300ms interval
 
 //---------------------------------------------------
 // IR Signal Denoising (Moving Average Filter)
@@ -88,7 +91,7 @@ bool enableBloodOxygen=false;
 //---------------------------------------------------
 int hr_guess_usr_activity(int bpm);
 void checkBodyTemp();
-void HRsensorSetup();
+bool HRsensorSetup();
 void Log_heartRateData();
 bool BeatCheck(long irValue);
 void updateSensors();
@@ -128,11 +131,12 @@ void checkBodyTemp() {
 }
 
 // Sensor initialization: sets up the MAX30105 sensor with appropriate settings.
-void HRsensorSetup() {
+bool HRsensorSetup() {
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("MAX30105 was not found. Please check wiring/power.");
-    while (1);  // halt if sensor is not found
+    return false;
   }
+
   Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
 
   if (enableBloodOxygen) {
@@ -145,12 +149,14 @@ void HRsensorSetup() {
     int adcRange        = 4096;
     particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
   } else {
-    // Default heart rate-only configuration
     particleSensor.setup();
     particleSensor.setPulseAmplitudeRed(0x0A);
     particleSensor.setPulseAmplitudeGreen(0);
   }
+
+  return true;
 }
+
 
 // Log heart rate data into a HeartRateData struct. (Extend this function to store or send the data.)
 void Log_heartRateData() {
@@ -162,7 +168,7 @@ void Log_heartRateData() {
   data.minute  = currentMinute;
   data.second  = currentSecond;
   data.heartRate = beatAvg;     // Using the averaged heart rate
-
+                                                                                      //TODO CONVERT TO THE FREINDLY TIME STRUCT OR JUST GET THE ACTUAL TIME
   // For example, print the logged data (or store/send it as needed)
   Serial.print("Logged HR Data: ");
   Serial.print(data.year); Serial.print("-");

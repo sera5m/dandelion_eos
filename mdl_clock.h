@@ -18,29 +18,28 @@
 
 enum days  { sun, mon, tue, wed, thu, fri, sat };
 enum months{ jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec };
+extern const char* TRIchar_month_names[13];
+
 
 enum AppScreenState{ //mode the watch is in(well, what screen you're on, stuff will run in the background)
 disabled,background,settings,alarms,stopwatch,timers,cycle
 };
-// ========== GLOBAL VARS ========== //
-extern int currentHour;
-extern int currentMinute;
-extern int currentSecond;
 
-// ========== CONSTANTS ========== //
-const bool isWeekday[7] = { false, true, true, true, true, true, false };
+
+
+
 
 // ========== STRUCTS ========== //
 
 
 
 struct NormieTime {
-    uint8_t year;   // offset from 2000 AD
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
+    uint16_t year=2025;   // offset from 2000 AD
+    uint8_t month=6;
+    uint8_t day=15;
+    uint8_t hour=23;
+    uint8_t minute=15;
+    uint8_t second=54;
 };
 
 struct TimezoneTransitionDate {
@@ -59,6 +58,19 @@ struct TimezoneInfo {
     TimezoneTransitionDate end_dst;
     bool has_dst;
 };
+
+// ========== GLOBAL VARS ========== //
+extern int currentHour;
+extern int currentMinute;
+extern int currentSecond;
+extern NormieTime CurrentNormieTime;
+
+// ========== CONSTANTS ========== //
+const bool isWeekday[7] = { false, true, true, true, true, true, false };
+
+
+
+
 
 // ========== FUNCTIONS ========== //
 

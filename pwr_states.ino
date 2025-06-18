@@ -9,7 +9,7 @@ bool ForceKeepDeviceOn=false; //forcibly keep the device on, ignoring the users 
 extern bool wifiOff;
 extern bool btOff;
 
-// Set core frequency function
+/* Set core frequency function
 void setCoreFrequency(float frequencyMHz) {
   // Clamp the frequency within the acceptable range (80 - 240 MHz)
   frequencyMHz = fmax(80.0f, fmin(240.0f, frequencyMHz));
@@ -104,6 +104,6 @@ void printWakeupReason() {
       Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); 
       break;
   }
-}
+}*/
 
 #endif // MDL_PWR_MNGR_H

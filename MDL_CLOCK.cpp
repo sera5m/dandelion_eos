@@ -16,10 +16,16 @@
 #include "timezones.h" //source: don't even ask
 #include <Wire.h>
 
-// define your globals-IN main not here
+// -IN main not here
 //int currentHour = 0;
 //int currentMinute = 0;
 //int currentSecond = 0;
+
+extern const char* TRIchar_month_names[] = {
+    "INVALID", // index 0
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+};
 
 /*
 void syncTimeFromNTP(const char* ntpServer) {
@@ -29,15 +35,19 @@ void syncTimeFromNTP(const char* ntpServer) {
 }
 */
 
-void updateCurrentTimeVars(){
+void updateCurrentTimeVars() {
     time_t now = time(nullptr);
     struct tm tm_now;
     localtime_r(&now, &tm_now);
 
-    currentHour = tm_now.tm_hour;
-    currentMinute = tm_now.tm_min;
-    currentSecond = tm_now.tm_sec; }
-    
+    CurrentNormieTime.year   = tm_now.tm_year - 100;  // tm_year = years since 1900
+    CurrentNormieTime.month  = tm_now.tm_mon + 1;     // tm_mon = 0–11 → make it 1–12
+    CurrentNormieTime.day    = tm_now.tm_mday;
+    CurrentNormieTime.hour   = tm_now.tm_hour;
+    CurrentNormieTime.minute = tm_now.tm_min;
+    CurrentNormieTime.second = tm_now.tm_sec;
+}
+
 //const bool isWeekday[7] = { false, true, true, true, true, true, false };
 
 NormieTime convertToNormieTime(time_t t) {

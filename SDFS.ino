@@ -42,7 +42,7 @@ void initSDCard() {
 */
 
 
-
+//disabled most stuff for now sadly
 
 
 
@@ -105,7 +105,6 @@ fileType GetFileType(const std::string& Extension) {
         {"bmp", image},
         {"ico", image},
         {"TDPF", audio}, // data point file ascociated with signal replication in sensors
-        {"cmer", enterperatable}, // mercury file
         {"cfg", config} // Plaintext configs
     };
 
