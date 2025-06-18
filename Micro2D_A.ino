@@ -36,7 +36,8 @@
 
 //other color defaults
 #define PEACH   0xFD20 
-
+#define MAX_SPAN   ((SCREEN_WIDTH > SCREEN_HEIGHT) ? SCREEN_WIDTH : SCREEN_HEIGHT)
+static uint8_t spanBuf[MAX_SPAN * 2];
 
 extern SPIClass spiBus;
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
@@ -100,7 +101,89 @@ void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
 }
 
 
+// Draw a vertical line at column x, from row y0 to y1 (inclusive)
+void drawVerticalLine(int x, int y0, int y1, uint16_t color) {
+  // Clip
+  x  = constrain(x, 0, SCREEN_WIDTH - 1);
+  y0 = constrain(y0, 0, SCREEN_HEIGHT - 1);
+  y1 = constrain(y1, 0, SCREEN_HEIGHT - 1);
 
+  if (y1 < y0) std::swap(y0, y1);
+  int span = y1 - y0 + 1;
+
+  // Prepare span buffer
+  uint8_t hi = color >> 8, lo = color & 0xFF;
+  for (int i = 0; i < span; ++i) {
+    spanBuf[2*i]   = hi;
+    spanBuf[2*i+1] = lo;
+  }
+
+  // SPI transaction
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  FGPIO_LOW(SPI_CS_OLED);
+
+  // Column: x→x, Row: y0→y1
+  FGPIO_LOW(OLED_DC); spiBus.write(0x15);
+  FGPIO_HIGH(OLED_DC); spiBus.write(x); spiBus.write(x);
+  FGPIO_LOW(OLED_DC); spiBus.write(0x75);
+  FGPIO_HIGH(OLED_DC); spiBus.write(y0); spiBus.write(y1);
+
+  // Write RAM
+  FGPIO_LOW(OLED_DC); spiBus.write(0x5C);
+  FGPIO_HIGH(OLED_DC);
+  spiBus.writeBytes(spanBuf, span * 2);
+
+  FGPIO_HIGH(SPI_CS_OLED);
+  spiBus.endTransaction();
+}
+
+
+// Draw a horizontal line at row y, from column x0 to x1 (inclusive)
+void drawHorizontalLine(int y, int x0, int x1, uint16_t color) {
+  // Clip
+  y  = constrain(y, 0, SCREEN_HEIGHT - 1);
+  x0 = constrain(x0, 0, SCREEN_WIDTH  - 1);
+  x1 = constrain(x1, 0, SCREEN_WIDTH  - 1);
+
+  if (x1 < x0) std::swap(x0, x1);
+  int span = x1 - x0 + 1;
+
+  // Prepare span buffer
+  uint8_t hi = color >> 8, lo = color & 0xFF;
+  for (int i = 0; i < span; ++i) {
+    spanBuf[2*i]   = hi;
+    spanBuf[2*i+1] = lo;
+  }
+
+  // SPI transaction
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  FGPIO_LOW(SPI_CS_OLED);
+
+  // Column: x0→x1, Row: y→y
+  FGPIO_LOW(OLED_DC); spiBus.write(0x15);
+  FGPIO_HIGH(OLED_DC); spiBus.write(x0); spiBus.write(x1);
+  FGPIO_LOW(OLED_DC); spiBus.write(0x75);
+  FGPIO_HIGH(OLED_DC); spiBus.write(y);  spiBus.write(y);
+
+  // Write RAM
+  FGPIO_LOW(OLED_DC); spiBus.write(0x5C);
+  FGPIO_HIGH(OLED_DC);
+  spiBus.writeBytes(spanBuf, span * 2);
+
+  FGPIO_HIGH(SPI_CS_OLED);
+  spiBus.endTransaction();
+}
+
+void drawOutlineRect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint16_t color) {
+  // Clip swap to ensure top-left to bottom-right logic
+  if (x1 < x0) std::swap(x0, x1);
+  if (y1 < y0) std::swap(y0, y1);
+
+  drawHorizontalLine(y0, x0, x1, color); // top
+  drawHorizontalLine(y1, x0, x1, color); // bottom
+  drawVerticalLine(x0, y0, y1, color);   // left
+  drawVerticalLine(x1, y0, y1, color);   // right
+}
 
 
 void drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint16_t color) {
@@ -118,6 +201,8 @@ void drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint16_t color) {
   // Draw final point
   TFillRect(x1, y1, 1, 1, color);
 }
+
+
 
 void drawRectOutline(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
   if (w == 0 || h == 0) return;
@@ -1272,11 +1357,22 @@ if (IsWindowShown) {//if the window is shown,draw this
     
           unsigned long startTime = millis();//framerate counter, time counter start
         // Clear the Window area
-        Serial.println("bg color is");
-        Serial.println(WindowBackgroundColor);
+        //Serial.println("bg color is");
+
+        //Serial.println(WindowBackgroundColor);
         TFillRect(config.x, config.y, config.width, config.height, WindowBackgroundColor); //fill the Window with the background color
-        Serial.println("filled background");
-        if (!config.borderless) Serial.print("drew border"); tft.drawRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
+
+        //Serial.println("filled background");  if (!config.borderless) Serial.print("drew border"); 
+        //draw background
+
+         if(config.borderless){
+            drawOutlineRect(config.x, config.y, config.x+config.width, config.y+config.height, config.BorderColor);
+          }
+
+        //draw lines
+
+
+        //TFillRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
         
         // Set text properties
         tft.setTextColor(config.WinTextColor);
@@ -1284,7 +1380,7 @@ if (IsWindowShown) {//if the window is shown,draw this
 
         // Update wrapped lines from full content
         updateWrappedLines(); 
-        Serial.println("wrapped lines updated");
+       // Serial.println("wrapped lines updated");
 
 
         lastFrameTime = millis() - startTime;
@@ -1305,15 +1401,18 @@ if (IsWindowShown) {//if the window is shown,draw this
             canvas->CanvasUpdate(true);  // Update/draw the canvas. todo: do a better method than force
         }//end if valid statement
     }//end canvas iterator
+
+
   }//end of is window shown?
-    else { Serial.println("Window hidden (IsWindowShown = false)");  } //you never know. probably should remove later but... debug print statements are important
-    Serial.println("void draw done");
+    //else { //Serial.println("Window hidden (IsWindowShown = false)");  } //you never know. probably should remove later but... debug print statements are important
+    //Serial.println("void draw done");
+
  }//end void draw
 
 
  void HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
-  TFillRect(config.x, config.y, config.width, config.height,0x0000);//fill the area with blackd
+  TFillRect(config.x, config.y, config.width, config.height,0x0000);//fill the area with black, default color
 
         // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
@@ -1359,7 +1458,9 @@ void drawVisibleLines() {
     int visibleLines = (config.height - 4) / charHeight;
     int y = config.y + 2 - (scrollOffsetY % charHeight);
 
-    TFillRect(config.x, config.y, config.width, config.height, WindowBackgroundColor);//square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
+    //TFillRect(config.x, config.y, config.width, config.height, WindowBackgroundColor);
+    //square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
+    //i don't think this should even be here as this is a string drawing function
 
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
       const std::string &line = wrappedLines[i];
@@ -1386,10 +1487,12 @@ void drawVisibleLines() {
               tft.print(segment.c_str());
               segment.clear();
             }
+
             std::string_view tag(&line[pos], tagEnd - pos + 1);
             if (tag == Delim_LinBreak) { // Line break: stop processing further
               break;
             }
+
             else if (tag.substr(0, 5) == Delim_PosChange) {
               size_t comma = tag.find(',');
               if (comma != std::string::npos) {
@@ -1410,7 +1513,7 @@ void drawVisibleLines() {
                   uint8_t windownewtextsize = std::stoul(std::string(colorStr), nullptr, 8); //bad copied code
                   tft.setTextSize(windownewtextsize);
                 } else {
-                  printf("Error: Malformed color tag");
+                  printf("Error: Malformed size tag");
                 }
               }
             

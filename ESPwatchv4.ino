@@ -285,11 +285,11 @@ TFillRect(0,0,128,128,0x0000);//black screen out
     1000    // update ms
 };
 
-        lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "tmp");
+    lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "tmp");
     windowManagerInstance->registerWindow(lockscreen_thermometer);
     DBG_PRINTLN("Thermo OK");
 
-    xTaskCreatePinnedToCore(watchscreen, "watchscreen", 12288, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(watchscreen, "watchscreen", 32768, NULL, 1, NULL, 0);
     DBG_PRINTLN("watchscreen task OK");
 
     DBG_PRINTLN("SETUP DONE");
@@ -365,12 +365,14 @@ void watchscreen(void *pvParameters) {
 
         if (IsScreenOn && lockscreen_clock) { 
             //clock
-std::string timeStr = 
-    (CurrentNormieTime.hour < 10 ? "0" : "") + std::to_string(CurrentNormieTime.hour) + ":" +           //hh
-    (CurrentNormieTime.minute < 10 ? "0" : "") + std::to_string(CurrentNormieTime.minute) + ":" +       //mm
-    (CurrentNormieTime.second < 10 ? "0" : "") + std::to_string(CurrentNormieTime.second) +             //ss
-    "<n> <textsize(1)>  " //new line+small text size
-    +TRIchar_month_names[CurrentNormieTime.month] + " " +std::to_string(CurrentNormieTime.day) ; //month/day
+char timeStr[40]; // ample space for "HH:MM:SS<n> <textsize(1)> MON DD"
+
+snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d<n> <textsize(1)> %s %d",
+         CurrentNormieTime.hour,
+         CurrentNormieTime.minute,
+         CurrentNormieTime.second,
+         TRIchar_month_names[CurrentNormieTime.month],
+         CurrentNormieTime.day);
 
 lockscreen_clock->updateContent(timeStr);
 
@@ -384,7 +386,7 @@ lockscreen_clock->updateContent(timeStr);
             //heart rate lockscreen_biomon
             //shows hr/bo2 as int
             
-          //  lockscreen_biomon->updateContent("hr" + std::to_string(AVG_HR)); //needs update called often
+           lockscreen_biomon->updateContent("hr" + std::to_string(AVG_HR)); //needs update called often
 
            // lockscreen_systemIcons
           // lockscreen_systemIcons->updateContent
