@@ -42,6 +42,9 @@ static uint8_t spanBuf[MAX_SPAN * 2];
 extern SPIClass spiBus;
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
+constexpr int MIN_WINDOW_WIDTH = 18;
+constexpr int MIN_WINDOW_HEIGHT = 12;
+
 
 
 void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
@@ -65,7 +68,7 @@ void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
   // --- START TIMER ---
   //unsigned long start = millis();
   
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));
 
   // Select OLED (CS low)
   FGPIO_LOW(SPI_CS_OLED);
@@ -119,7 +122,7 @@ void drawVerticalLine(int x, int y0, int y1, uint16_t color) {
   }
 
   // SPI transaction
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));
   FGPIO_LOW(SPI_CS_OLED);
 
   // Column: x→x, Row: y0→y1
@@ -156,7 +159,7 @@ void drawHorizontalLine(int y, int x0, int x1, uint16_t color) {
   }
 
   // SPI transaction
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));
   FGPIO_LOW(SPI_CS_OLED);
 
   // Column: x0→x1, Row: y→y
@@ -209,7 +212,7 @@ void drawRectOutline(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color)
 
   uint8_t hi = color >> 8, lo = color & 0xFF;
 
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));
   FGPIO_LOW(SPI_CS_OLED);
 
   // === Top horizontal line ===
@@ -568,7 +571,7 @@ void screen_reboot() {
 void screen_startup() {
   //not having serial cfg here because it needs to be setup in the main code anyway
    //SPI.begin(SPI_SCK, MISO, MOSI_PIN, CS_PIN);
-   //SPI.beginTransaction(SPISettings(SPI_FREQUENCY, MSBFIRST, SPI_MODE0));  // Set SPI speed to 40 MHz
+   //SPI.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));  // Set SPI speed to 40 MHz
   tft.begin();
   tft.fillScreen(BLACK);
   tft.setCursor(32, 64);
@@ -1158,7 +1161,10 @@ unsigned int lastFrameTime = 0;    // duration of last draw
 
 
     // Constructor
-Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {/*we wold put init content here but we have no need for that now!*/
+Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {
+    //enforce window is at least the minimum size for safety reasons and to not drive me insane
+    if (config.width < MIN_WINDOW_WIDTH) config.width = MIN_WINDOW_WIDTH;
+    if (config.height < MIN_WINDOW_HEIGHT) config.height = MIN_WINDOW_HEIGHT;
 }
 
 

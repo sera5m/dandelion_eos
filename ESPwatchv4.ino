@@ -138,14 +138,6 @@ NormieTime CurrentNormieTime; //real current time
 
         
 
-/*
-        WindowCfg d_ls_sico_cfg = {0, 64, 128, 8, false, false, 1, true, 0xFFFF, 0x0000, 0xFFFF, 1000};
-        lockscreen_systemIcons = std::make_shared<Window>("lockscreen_systemIcons", d_ls_sico_cfg, "");
-            // xypos, sizexy, auto align,wrap text, text size, borderless? , border background text color, update ms
-        windowManagerInstance->registerWindow(lockscreen_systemIcons);
-
-*/
-
 
 //Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
 
@@ -248,51 +240,62 @@ DBG_PRINTLN("hr sensor ok");
     }
 
     
-WindowCfg d_ls_c_cfg = {0, 64, 127,42, false, false, 2, true, 0xFCCF, 0x0000, 0xFCCF, 1000};
-        lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
-    windowManagerInstance->registerWindow(lockscreen_clock);
-    DBG_PRINTLN("Clock OK");
+WindowCfg d_ls_c_cfg = { //lock screen clock
+    14, 64,
+ 100,42,//with, height
+  false, false, 
+  2,//text size
+true,//border
+0xFCCF, 0x0000, 0xFCCF, 
+1000};//clock config
 
 
+     WindowCfg d_ls_b_cfg = {//lock screen heart rate
+     86, 0, //x y pos
+     50, 12, //width, height
+     false, false, //auto align,wrap
+     1, 
+     true, //borderless?
+     0xFFFF, 0x0000, 0xFFFF, //border,background,text
+    1000};
 
-        WindowCfg d_ls_b_cfg = {
-            110, 0, //x y pos
-             20, 9, //width, height
-              false, false,
-               1, 
-               true, 
-               0xFFFF, 0x0000, 0xFFFF, 
-               1000};
-
-            lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "?bpm");
-    windowManagerInstance->registerWindow(lockscreen_biomon);
-    DBG_PRINTLN("Biomon OK");
-
-TFillRect(0,0,128,128,0x0000);//black screen out
-
-
-            WindowCfg d_ls_th_cfg = {  8,      // x
-    8,      // y
-    50,     // width
-    10,     // height
+     WindowCfg d_ls_th_cfg = { //thermometer
+    8,0, //y
+    50,12,     // width,height
     false,  // auto align?
     false,  // wrap text?
     1,      // text size
     false,  // borderless?
     0xFFFF, // border color
     0x0CC0, // background color
-    0xFF00, // text color (green?)
+    0xFFFF, // text color
     1000    // update ms
 };
 
-    lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "tmp");
-    windowManagerInstance->registerWindow(lockscreen_thermometer);
-    DBG_PRINTLN("Thermo OK");
 
-    xTaskCreatePinnedToCore(watchscreen, "watchscreen", 32768, NULL, 1, NULL, 0);
-    DBG_PRINTLN("watchscreen task OK");
+
+        lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
+    windowManagerInstance->registerWindow(lockscreen_clock);
+    DBG_PRINTLN("Clock OK");
+
+            lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
+    windowManagerInstance->registerWindow(lockscreen_biomon);
+    DBG_PRINTLN("Biomon OK");
+
+TFillRect(0,0,128,128,0x0000);//black screen out
+
+
+
+
+    lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
+    windowManagerInstance->registerWindow(lockscreen_thermometer);
+   // DBG_PRINTLN("Thermo OK");
+
+    xTaskCreatePinnedToCore(watchscreen, "watchscreen", 8192, NULL, 1, NULL, 0);
+    //DBG_PRINTLN("watchscreen task OK");
 
     DBG_PRINTLN("SETUP DONE");
+    //delay(500);
 }
 
 //ready watch screen    
@@ -361,48 +364,33 @@ if (deviceIsAwake) {
 
 void watchscreen(void *pvParameters) {
     for (;;) {
-
-
         if (IsScreenOn && lockscreen_clock) { 
-            //clock
-char timeStr[40]; // ample space for "HH:MM:SS<n> <textsize(1)> MON DD"
-
-snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d<n> <textsize(1)> %s %d",
-         CurrentNormieTime.hour,
-         CurrentNormieTime.minute,
-         CurrentNormieTime.second,
-         TRIchar_month_names[CurrentNormieTime.month],
-         CurrentNormieTime.day);
-
-lockscreen_clock->updateContent(timeStr);
-
+            // Clock
+            char timeStr[40];
+            snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d<n> <textsize(1)> %s %d",
+                     CurrentNormieTime.hour,
+                     CurrentNormieTime.minute,
+                     CurrentNormieTime.second,
+                     TRIchar_month_names[CurrentNormieTime.month],
+                     CurrentNormieTime.day);
             lockscreen_clock->updateContent(timeStr);
 
-            //temperature
-            std::string ThermomSTR = std::to_string(temp_c)+"C";
-            lockscreen_thermometer->updateContent(ThermomSTR);
+            // Temperature
+            char thermoStr[4]; //xxxC
+            snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
+            lockscreen_thermometer->updateContent(thermoStr);
 
-
-            //heart rate lockscreen_biomon
-            //shows hr/bo2 as int
-            
-           lockscreen_biomon->updateContent("hr" + std::to_string(AVG_HR)); //needs update called often
-
-           // lockscreen_systemIcons
-          // lockscreen_systemIcons->updateContent
+            // Heart rate
+            char hrStr[6];//XXXbpm
+            snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
+            lockscreen_biomon->updateContent(hrStr);
         }
+
         updateCurrentTimeVars();
-
-
-       
-        vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1 second
-
-
-
-
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    
 }
+
 
 //xTaskCreatePinnedToCore(watchscreen, "watchscreen", 12288, NULL, 1, NULL, 0); // Watchscreen on core 0
 
