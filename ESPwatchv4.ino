@@ -139,7 +139,7 @@ int currentSecond = 0;
 NormieTime CurrentNormieTime; //real current time
 
 
-QueueHandle_t inputQueue; //absolutely needs to be here because freerots. hadndles proscess input        
+QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input        
 
 
 //Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
