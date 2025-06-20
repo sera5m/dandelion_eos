@@ -7,15 +7,28 @@
 // Constants
 #define AllowSimultaneousKeypress true
 
-// Key mappings
-#define key_enter 0x23CE
-#define key_back 0x232B
-#define key_up 0x2191
-#define key_down 0x2193
-#define key_left 0x2190
-#define key_right 0x2192
+// Key mappings-map the hardware keys to the ascii versions of keys
+#define key_enter 0x23CE  // ⏎
+#define key_back  0x232B  // ⌫
+#define key_up    0x2191  // ↑
+#define key_down  0x2193  // ↓
+#define key_left  0x2190  // ←
+#define key_right 0x2192  // →
+
 
 // Input Device Types
+
+typedef enum{
+keyenter,
+keyback, 
+keyup,
+keydown,
+keyleft,
+keyright
+} hardwarekeys;
+//yes, it's different than the index of key mappings. this is for state machines that use ONLY the hardware keys, like key combos
+
+
 typedef enum {
 mouse,
 keyboard,
@@ -29,11 +42,27 @@ R_toProc,
 R_os
 } HID_ROUTE_TARGET;
 
+typedef enum{
+EXIT_TO_MAIN,
+SLEEP,
+FORCE_SHUTDOWN,
+REBOOT,
+DIAGNOSTICS
+}KEYCOMBO;
+
+void handleButton0Interrupt();
+void handleButton1Interrupt();
+
+
+
+
 // User Input Structure
 typedef struct {
 uint16_t key;
 bool isDown;
 } S_UserInput;
+
+
 
 // External Variables
 extern volatile bool button0Pressed;
@@ -44,9 +73,6 @@ extern HID_ROUTE_TARGET currentinputTarget;
 
 // Function Declarations
 
-void IRAM_ATTR handleButton0Interrupt();
-
-void IRAM_ATTR handleButton1Interrupt();
 
 void SetupHardwareInput();
 void PollEncoders();

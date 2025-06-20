@@ -37,6 +37,18 @@ this is more or less a file full of all the window structures, programs, and so 
 //apps:
 
 //clock app:
+/*
+//a simple stopwatch app!
+void stopwatch(void *pvParameters) {
+
+    for (;;) {
+        
+      
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}*/
+
+
 //shows all the functionality inside of the clock inside here
 //timers,alarms,stopwatch
 //some of these need to stsay running when the appp isn't open, so i'll have to make it run in the background wihtout the window grouping when it's closed

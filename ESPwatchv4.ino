@@ -20,7 +20,8 @@ int _dbg_ypos = 0;  // screen Y cursor
 
 #include "watch_Settings.h"
 
-
+#include <SPI.h>
+SPIClass spiBus(HSPI);
 
 //esp32 specifiic
 #include "esp_pm.h"
@@ -67,17 +68,9 @@ MAX30105 particleSensor;//particle sensor object
 //#define PERFORM_CALIBRATION //Comment to disable startup calibration
 MPU6500 IMU;               //Change to the name of any supported IMU! -extern so we can access this in accel module
 calData calib = { 0 };  //Calibration data
-AccelData  imuAccel;      //Sensor data
+AccelData imuAccel;      //Sensor data
 GyroData gyroData;
 
-
-//nfc-rfid
-#include <Adafruit_PN532.h>
-//#include <Adafruit_Sensor.h>
-
-
-//wireles comunication
-//#include <RadioLib.h>
 
 //time
 #include "mdl_clock.h"
@@ -96,7 +89,7 @@ GyroData gyroData;
 //include my own stuff
  //#include "AT_SSD1351.ino"
 #include "Micro2D_A.ino"  // The library
-#include <SPI.h>
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
 
@@ -105,7 +98,8 @@ extern int AVG_HR;
 
 //fuckj this were gonna put it wice
 // Globals.cpp or at the top of your main .ino (outside setup and loop)
-SPIClass spiBus(HSPI);
+
+
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
 bool deviceIsAwake=true;
 
@@ -114,7 +108,7 @@ bool deviceIsAwake=true;
 //init windows
 WindowManager* windowManagerInstance = nullptr;
 
-static std::shared_ptr<Window> lockscreen_clock;
+static std::shared_ptr<Window> lockscreen_clock; QueueHandle_t lockscreenQueue = nullptr;
 static std::shared_ptr<Window> lockscreen_biomon;
 static std::shared_ptr<Window> lockscreen_thermometer;
 //static std::shared_ptr<Window> lockscreen_systemIcons;
@@ -123,6 +117,15 @@ bool IsScreenOn=true;
 
 
 
+
+
+//nfc-rfid
+#include <Adafruit_PN532.h>
+//#include <Adafruit_Sensor.h>
+Adafruit_PN532 nfc(HSPI, SPI_CS_NFC); // Create an instance of the PN532 using hardware SPI
+
+//wireles comunication
+//#include <RadioLib.h>
 
 
 
@@ -136,7 +139,7 @@ int currentSecond = 0;
 NormieTime CurrentNormieTime; //real current time
 
 
-        
+QueueHandle_t inputQueue; //absolutely needs to be here because freerots. hadndles proscess input        
 
 
 //Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
@@ -145,7 +148,7 @@ NormieTime CurrentNormieTime; //real current time
 //PollEncoders(); //user input-100x/s but only when device is awake
 //updateIMU();//poll gyro-2-10hz or so
 //xTaskCreatePinnedToCore(sensortick, "sensortick", 4096, NULL, 1, NULL, 1);  // Sensor on core 1
-//xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); 
+
 //xTaskCreatePinnedToCore(watchscreen, "watchscreen", 12288, NULL, 1, NULL, 0); // Watchscreen on core 0
 void scanI2C() {
   byte error, address;
@@ -172,6 +175,9 @@ void scanI2C() {
     Serial.println("I2C scan complete\n"); DBG_PRINTLN("I2C done");}
 
 }
+
+
+
 
 void setup() {
     delay(148);
@@ -282,90 +288,55 @@ true,//border
     windowManagerInstance->registerWindow(lockscreen_biomon);
     DBG_PRINTLN("Biomon OK");
 
+        lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
+    windowManagerInstance->registerWindow(lockscreen_thermometer);
+   // DBG_PRINTLN("Thermo OK");
+
 TFillRect(0,0,128,128,0x0000);//black screen out
 
 
 
 
-    lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
-    windowManagerInstance->registerWindow(lockscreen_thermometer);
-   // DBG_PRINTLN("Thermo OK");
 
-    xTaskCreatePinnedToCore(watchscreen, "watchscreen", 8192, NULL, 1, NULL, 0);
+
+lockscreenQueue = xQueueCreate(8, sizeof(S_UserInput));
+xTaskCreate(watchscreen, "WatchScreen", 4096, (void *)lockscreenQueue, 1, NULL);//core 0 watch screen and INPUT SCREEN QUE
+
+
     //DBG_PRINTLN("watchscreen task OK");
+    xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); //core 1 sensor updates
+
+
+
 
     DBG_PRINTLN("SETUP DONE");
     //delay(500);
 }
 
-//ready watch screen    
-
-
-
-
- /* old dial poll code
-void INPUT_tick(void *pvParameters) {
-    const TickType_t hrInterval = pdMS_TO_TICKS(8);
-    const TickType_t encoderInterval = pdMS_TO_TICKS(10);
-    const TickType_t imuIntervalAwake = pdMS_TO_TICKS(100);
-    const TickType_t imuIntervalSleep = pdMS_TO_TICKS(500);
-
-    TickType_t lastHR = xTaskGetTickCount();
-    TickType_t lastEncoder = lastHR;
-    TickType_t lastIMU = lastHR;
-
-    for (;;) {
-        TickType_t now = xTaskGetTickCount();
-
-        if (now - lastHR >= hrInterval) {
-            updateHRsensor();
-            lastHR = now;
-        }
-
-        if (deviceIsAwake) {
-            if (now - lastEncoder >= encoderInterval) {
-                PollEncoders();
-                lastEncoder = now;
-            }
-            if (now - lastIMU >= imuIntervalAwake) {
-                pollAccelAndUpdateBuffer(); isFacingUp(); 
-                lastIMU = now;
-            }
-        } else {
-            if (now - lastIMU >= imuIntervalSleep) {
-                pollAccelAndUpdateBuffer(); isFacingUp(); //only runs in sleep mode, doesn't conflict with sensor tick
-                lastIMU = now;
-            }
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(4));  // Give CPU some breathing room
-    }
-}
 void INPUT_tick(void *pvParameters) {
     for (;;) {        
             updateHRsensor();
-            //PollEncoders();
+            PollEncoders(); //may god help us all
             vTaskDelay(pdMS_TO_TICKS(5));  // Give CPU some breathing room
     }
 }
 
-void sensortick(void *pvParameters){ //polls sensors and buttons and stuff. 
-if (deviceIsAwake) {
-    for(;;){
-        
-    //temp_c = static_cast<int8_t>(roundf(IMU.getTemp())); //the temperature provided here is in no way accurate, replace with real sensor
-
-    pollAccelAndUpdateBuffer(); isFacingUp(); //see if it's up or down, no shit. and update it. i need to run this at 10 hz or so but OH WELL MAN.
-    vTaskDelay(pdMS_TO_TICKS(2000)); //decrease lamfo
-    }
- }//end awake statement
-}*/
-
-
 void watchscreen(void *pvParameters) {
+    QueueHandle_t inputQueue = static_cast<QueueHandle_t>(pvParameters);
+    S_UserInput uinput;
+
     for (;;) {
-        if (IsScreenOn && lockscreen_clock) { 
-            // Clock
+        // Handle inputs
+        if (xQueueReceive(inputQueue, &uinput, 0)) {
+            // Example: React to input (exit on BACK key)
+            if (uinput.key == keyback && uinput.isDown) {
+                // Add your own handler logic
+                DBG_PRINTLN("Back key pressed on lockscreen.");
+            }
+        }
+
+        // Refresh screen display if active
+        if (IsScreenOn && lockscreen_clock) {
             char timeStr[40];
             snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d<n> <textsize(1)> %s %d",
                      CurrentNormieTime.hour,
@@ -375,13 +346,11 @@ void watchscreen(void *pvParameters) {
                      CurrentNormieTime.day);
             lockscreen_clock->updateContent(timeStr);
 
-            // Temperature
-            char thermoStr[4]; //xxxC
+            char thermoStr[4];
             snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
             lockscreen_thermometer->updateContent(thermoStr);
 
-            // Heart rate
-            char hrStr[6];//XXXbpm
+            char hrStr[6];
             snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
             lockscreen_biomon->updateContent(hrStr);
         }
@@ -391,23 +360,56 @@ void watchscreen(void *pvParameters) {
     }
 }
 
-
-//xTaskCreatePinnedToCore(watchscreen, "watchscreen", 12288, NULL, 1, NULL, 0); // Watchscreen on core 0
-
-
-
-
 /*
-void sensortick(void *pvParameters){ //polls sensors and buttons and stuff. 
-    for(;;){
-        
-    temp_c = static_cast<int8_t>(roundf(IMU.getTemp())); //heads up no protection here but whatever. also i spent more time typing this than actually adding it but whatever run it at 1hz
-
-    pollAccelAndUpdateBuffer(); isFacingUp(); //see if it's up or down, no shit. and update it. i need to run this at 10 hz or so but OH WELL MAN.
-    vTaskDelay(pdMS_TO_TICKS(2000));
+void nfc_task(void *pvParameters) {
+    // "Constructor" code - runs once when task starts
+    // Initialize NFC hardware (turn on power pin, etc.)
+    FGPIO_HIGH(PWR_NFC);
+    //nfc_init();  // Or whatever your initialization function is
+    
+    // Main task loop
+    for (;;) {
+        // Your normal task processing here
+        vTaskDelay(pdMS_TO_TICKS(100));  // Example delay
     }
+    
+    // Note: Code here would normally never run because of the infinite loop
+    // But if you have a loop condition or break from the loop:
+    
+    // "Destructor" code - runs when task is about to exit
+    FGPIO_LOW(PWR_NFC);  // Turn off NFC power
+   // nfc_deinit();  // Clean up NFC resources if needed
+    
+    // Task must self-delete if it exits its function
+    vTaskDelete(NULL);
 }
+
+
+
+void task_main_menu(void *pvParameters) {
+    // "Constructor" code - runs once when task starts
+   
+    // Main task loop
+    for (;;) {
+        // Your normal task processing here
+        vTaskDelay(pdMS_TO_TICKS(100));  // Example delay
+    }
+    
+    // Note: Code here would normally never run because of the infinite loop
+    // But if you have a loop condition or break from the loop:
+    
+
+    // Task must self-delete if it exits its function
+    vTaskDelete(NULL);
+}
+
+
+
+
+
+
 */
+
 
 
 void loop() {

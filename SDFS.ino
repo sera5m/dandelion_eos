@@ -76,7 +76,7 @@ enum fileType {
     unknown,
     document,
     executable,
-    enterperatable, // Custom form of pseudo executable file
+    enterperatable, // Custom form of pseudo executable file like a worse bash
     audio,
     video,
     config,

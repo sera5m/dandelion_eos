@@ -19,6 +19,7 @@ class OSProcess;
 
 
 
+
 class OSProcess : public std::enable_shared_from_this<OSProcess> {
 public:
     using ProcessCallback = std::function<void(OSProcess*)>;
@@ -104,7 +105,7 @@ private:
     TaskHandle_t taskHandle = nullptr;
 };
 
-    static inline std::weak_ptr<OSProcess> focusedProcess; //ref for os
+ static inline std::weak_ptr<OSProcess> focusedProcess; //ref for os
 
 
 

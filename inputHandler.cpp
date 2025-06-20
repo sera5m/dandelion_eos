@@ -5,13 +5,6 @@
 
 #define AllowSimultaneousKeypress true
 
-#define key_enter 0x23CE  // ⏎
-#define key_back  0x232B  // ⌫
-#define key_up    0x2191  // ↑
-#define key_down  0x2193  // ↓
-#define key_left  0x2190  // ←
-#define key_right 0x2192  // →
-
 bool enc0_dir_right = false;
 bool enc0_dir_left  = false;
 bool enc1_dir_up    = false;
@@ -27,30 +20,19 @@ volatile int encoder1_Pos = 0;
 int lastCLK_0 = 1;
 int lastCLK_1 = 1;
 
-void IRAM_ATTR handleButton0Interrupt() {
-  button0Pressed = true;
-}
 
-void IRAM_ATTR handleButton1Interrupt() {
-  button1Pressed = true;
-}
-/*
-enum inputDeviceType {
-  mouse,
-  keyboard,
-  device
-};
-
-enum HID_ROUTE_TARGET {
-  R_wakey,
-  R_toProc,
-  R_os
-};
-*/
 //in the .h folder
 
 
 HID_ROUTE_TARGET currentinputTarget = R_os; // Default route to OS
+
+void IRAM_ATTR handleButton0Interrupt() {
+  button0Pressed=true; //should probably just uhhh have it say the button isnt pressed.... sometime whenever it's up. can't put anythin heavy in here so whatever man
+}
+
+void IRAM_ATTR handleButton1Interrupt() {
+ button1Pressed = true;
+}
 
 
 
@@ -78,39 +60,49 @@ void SetupHardwareInput() {
 }
 
 
-
-
-
-
+extern QueueHandle_t lockscreenQueue;
+extern QueueHandle_t processInputQueue;
 
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout) {
-  switch (uout) {
-    case R_wakey:
-      Serial.println("Waking up device...");
-      break;
+    switch (uout) {
+        case R_wakey:
+            Serial.println("Waking up device...");
+            // Maybe signal a wake task or similar
+            break;
 
-    case R_toProc:
-      Serial.print("Send input to process: ");
-      Serial.println(uinput.key, HEX);
+        case R_toProc:
+            Serial.print("Routing input to PROCESS: ");
+            Serial.println(uinput.key, HEX);
 
-      if (auto proc = focusedProcess.lock()) {
-        proc->onInput(uinput);
-      } else {
-        Serial.println("No focused process to receive input.");
-      }
-      break;
+            if (processInputQueue != nullptr) {
+                if (xQueueSend(processInputQueue, &uinput, 0) != pdPASS) {
+                    Serial.println("Process input queue full or unavailable.");
+                }
+            } else {
+                Serial.println("No active process queue to receive input.");
+            }
+            break;
 
-    case R_os:
-      Serial.print("Send input to OS: ");
-      Serial.println(uinput.key, HEX);
-      // TODO: route globally
-      break;
+        case R_os:
+            Serial.print("Routing input to OS: ");
+            Serial.println(uinput.key, HEX);
 
-    default:
-      Serial.println("Unknown route target.");
-      break;
-  }
+            if (lockscreenQueue != nullptr) {
+                if (xQueueSend(lockscreenQueue, &uinput, 0) != pdPASS) {
+                    Serial.println("OS input queue full or unavailable.");
+                }
+            } else {
+                Serial.println("No OS queue set.");
+            }
+            break;
+
+        default:
+            Serial.println("Unknown route target.");
+            break;
+    }
 }
+
+
 
 
 
@@ -238,3 +230,15 @@ void PollEncoders() {
     RouteInput(input, currentinputTarget);
   }
 }
+/*
+//unsure how i'll handle delays for this, i'll figure it out later
+uint_16t HARDWAREKEYINPUTBITMASK=0x0000;
+
+void keycombo_solver(uint_16 bitmask){ //function takes bitmask and returns the combo item (enum KEYCOMBO)
+  //last 4 keys are stored in a uint_16. the range of keys we have is 0-5 (6 keys) fitting in 0xabcd instead of an array for less overhead. we poll this code really fast so that's why i'm doing bit twiddling
+bitmask
+
+
+
+}*/
+

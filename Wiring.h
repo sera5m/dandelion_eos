@@ -77,6 +77,12 @@ void StartSPI() {
 #define ENCODER1_DT_PIN  19
 #define ENCODER1_SW_PIN  18
 
+
+
+//periphrials
+#define PWR_NFC 45 //this gipo can't be used on boot, which is why i got ts right here for nfc which will only be powered after boot
+
+#define IR_INPUT_PIN 46 //input-only and must be used only after boot
 /*
 
 

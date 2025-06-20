@@ -1,5 +1,4 @@
-//i'm getting lazy with ino include files we're doing a c file fuck that
-
+//i'm getting lazy with ino include files. laugh at me i know.  
 
 //#include <Adafruit_PN532.h>
 #include "Wiring.h"
@@ -14,13 +13,10 @@
 //subsection=================handle hardware
 
 // Create an instance of the PN532 using hardware SPI
-//Adafruit_PN532 nfc(SPI, SPI_NFC_CS);
-/*
+//Adafruit_PN532 nfc(SPI, SPI_NFC_CS); //PLACED IN MAIN
+
 // Setup NFC
 void setup_nfc() {
-  Serial.begin(115200);
-  Serial.println("Initializing PN532...");
-
   nfc.begin();
   
   uint32_t versiondata = nfc.getFirmwareVersion();
@@ -36,10 +32,8 @@ void setup_nfc() {
 
 
 
-
-
 //read data from the card
-
+/*
 //tag data retrieval
 void read_string_from_tag(uint8_t startBlock, uint8_t numBlocks) {
   char result[4 * numBlocks + 1]; // +1 for null terminator
@@ -105,7 +99,7 @@ NTAG216 = 888 bytes (~222 blocks)
 Don’t write to blocks 0–3. Start at block 4.
 
 
-//write data to card
+ write data to card
 void write_string_to_tag(const char* str) {
   size_t len = strlen(str);
   uint8_t block = 4; // user memory starts at block 4
@@ -122,8 +116,8 @@ void write_string_to_tag(const char* str) {
     }
   }
   Serial.println("String written to tag.");
-}
-*/
+}*/
+
 
 
 //store data-here to the microsd or ram or whatever
