@@ -180,6 +180,7 @@ void scanI2C() {
 
 
 void setup() {
+    
     delay(148);
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
@@ -192,6 +193,7 @@ void setup() {
     DBG_PRINTLN("BOOT BEGIN");
 
 Wire.begin(SDA_PIN, SCL_PIN);
+pinMode(PWR_NFC, OUTPUT); //fine arduino, i'll use the bloat. it's a slow pin anyway
 scanI2C();
 
     SetupHardwareInput();
@@ -332,6 +334,7 @@ void watchscreen(void *pvParameters) {
             if (uinput.key == keyback && uinput.isDown) {
                 // Add your own handler logic
                 DBG_PRINTLN("Back key pressed on lockscreen.");
+                digitalWrite(PWR_NFC, HIGH); //FUCK IT THIS WILL BE A LED FOR NOW TODO UNFUCK THIS TEST
             }
         }
 

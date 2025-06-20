@@ -61,8 +61,6 @@ void StartSPI() {
 //custom hal. bloat is BAD (shocker) but this is arduino ide so we have to take off the baby shoes because pio is evil makefile hell
 #define FGPIO_HIGH(pin) REG_WRITE(GPIO_OUT_W1TS_REG, BIT(pin))
 #define FGPIO_LOW(pin)  REG_WRITE(GPIO_OUT_W1TC_REG, BIT(pin))
-//take pin and set state
-
 //hardware testing subsection
 
 
@@ -83,6 +81,9 @@ void StartSPI() {
 #define PWR_NFC 45 //this gipo can't be used on boot, which is why i got ts right here for nfc which will only be powered after boot
 
 #define IR_INPUT_PIN 46 //input-only and must be used only after boot
+
+
+
 /*
 
 
