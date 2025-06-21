@@ -76,6 +76,12 @@ extern HID_ROUTE_TARGET currentinputTarget;
 
 void SetupHardwareInput();
 void PollEncoders();
+
+void PollEncoderX();
+void PollEncoderY();
+void PollButtons();
+
+
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout);
 
 #endif // INPUT_HANDLER_H

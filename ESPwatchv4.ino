@@ -116,7 +116,18 @@ static std::shared_ptr<Window> lockscreen_thermometer;
 bool IsScreenOn=true;
 
 
+#include <atomic>
 
+enum WatchMode {
+    WM_MAIN,
+    WM_STOPWATCH
+};
+
+extern QueueHandle_t processInputQueue;
+
+std::atomic<WatchMode> currentWatchMode = WM_MAIN;
+bool stopwatchRunning = false;
+unsigned long stopwatchStart = 0;
 
 
 //nfc-rfid
@@ -181,7 +192,9 @@ void scanI2C() {
 
 void setup() {
     
-    delay(148);
+    delay(148); 
+    Serial.begin(115200);
+    delay(150);
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
     
@@ -277,8 +290,8 @@ true,//border
     0xFFFF, // border color
     0x0CC0, // background color
     0xFFFF, // text color
-    1000    // update ms
-};
+    1000};    // update ms
+
 
 
 
@@ -301,67 +314,103 @@ TFillRect(0,0,128,128,0x0000);//black screen out
 
 
 
-lockscreenQueue = xQueueCreate(8, sizeof(S_UserInput));
-xTaskCreate(watchscreen, "WatchScreen", 4096, (void *)lockscreenQueue, 1, NULL);//core 0 watch screen and INPUT SCREEN QUE
+processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
+xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch screen 
 
 
     //DBG_PRINTLN("watchscreen task OK");
     xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); //core 1 sensor updates
 
 
+//evil spagetti
+//processInputQueue = lockscreenQueue;//2. tell input router to use that que
+currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to route to proscesses. we
+
 
 
     DBG_PRINTLN("SETUP DONE");
-    //delay(500);
-}
+    delay(100);
+
+}//end void setup
 
 void INPUT_tick(void *pvParameters) {
-    for (;;) {        
-            updateHRsensor();
-            PollEncoders(); //may god help us all
-            vTaskDelay(pdMS_TO_TICKS(5));  // Give CPU some breathing room
+    S_UserInput uinput;
+    bool stopwatchRunning=false;
+
+    for (;;) {
+        // Consume inputs once and update state
+        while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
+            if (!uinput.isDown) continue; // only on press
+            switch (uinput.key) {
+                case key_left:
+                    currentWatchMode = WM_STOPWATCH;
+                    break;
+                case key_right:
+                case key_back:
+                    currentWatchMode = WM_MAIN;
+                    stopwatchRunning = false;
+                    break;
+                case key_enter:
+                    if (currentWatchMode == WM_STOPWATCH) {
+                        stopwatchRunning = !stopwatchRunning;
+                        if (stopwatchRunning)
+                            stopwatchStart = millis();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        updateHRsensor();
+        PollEncoders();
+        PollButtons();
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
 void watchscreen(void *pvParameters) {
-    QueueHandle_t inputQueue = static_cast<QueueHandle_t>(pvParameters);
-    S_UserInput uinput;
-
+    (void)pvParameters;
     for (;;) {
-        // Handle inputs
-        if (xQueueReceive(inputQueue, &uinput, 0)) {
-            // Example: React to input (exit on BACK key)
-            if (uinput.key == keyback && uinput.isDown) {
-                // Add your own handler logic
-                DBG_PRINTLN("Back key pressed on lockscreen.");
-                digitalWrite(PWR_NFC, HIGH); //FUCK IT THIS WILL BE A LED FOR NOW TODO UNFUCK THIS TEST
-            }
-        }
-
-        // Refresh screen display if active
         if (IsScreenOn && lockscreen_clock) {
-            char timeStr[40];
-            snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d<n> <textsize(1)> %s %d",
-                     CurrentNormieTime.hour,
-                     CurrentNormieTime.minute,
-                     CurrentNormieTime.second,
-                     TRIchar_month_names[CurrentNormieTime.month],
-                     CurrentNormieTime.day);
-            lockscreen_clock->updateContent(timeStr);
+            char buf[80];
+            unsigned long now = millis();
+            switch (currentWatchMode.load()) {
+                case WM_MAIN:
+                    snprintf(buf, sizeof(buf), "%02d:%02d:%02d<n> %s %d",
+                             CurrentNormieTime.hour,
+                             CurrentNormieTime.minute,
+                             CurrentNormieTime.second,
+                             TRIchar_month_names[CurrentNormieTime.month],
+                             CurrentNormieTime.day);
+                    break;
+                case WM_STOPWATCH: {
+                    unsigned long elapsed = stopwatchRunning ? now - stopwatchStart : now - stopwatchStart;
+                    unsigned int s = (elapsed / 1000) % 60;
+                    unsigned int m = (elapsed / 60000) % 60;
+                    unsigned int h = elapsed / 3600000;
+                    snprintf(buf, sizeof(buf), "%02u:%02u:%02u%s",
+                             h, m, s,
+                             stopwatchRunning ? " RUN" : " STOP");
+                    break;
+                }
+            }
+            lockscreen_clock->updateContent(buf);
 
-            char thermoStr[4];
+            char thermoStr[8];
             snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
             lockscreen_thermometer->updateContent(thermoStr);
 
-            char hrStr[6];
+            char hrStr[8];
             snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
             lockscreen_biomon->updateContent(hrStr);
         }
-
         updateCurrentTimeVars();
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
+
+
+
 
 /*
 void nfc_task(void *pvParameters) {
@@ -391,6 +440,9 @@ void nfc_task(void *pvParameters) {
 
 void task_main_menu(void *pvParameters) {
     // "Constructor" code - runs once when task starts
+    enum mainmenumode{
+        
+    }; //idk fuck you it's a temp. rn we'll do text shit for now
    
     // Main task loop
     for (;;) {
@@ -415,6 +467,4 @@ void task_main_menu(void *pvParameters) {
 
 
 
-void loop() {
-   
-}
+void loop() { } //i remember when merely this was how arduino code was written before freerots. we'd have to setup non blocking delay spagetti.  you could only do one thing at once that way, and it was funny. this was back when i wanted to make a "smart" watch when i was a teenager, but didn't fully-ass it like i'm doing right now
