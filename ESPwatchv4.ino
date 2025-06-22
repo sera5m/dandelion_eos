@@ -1,5 +1,9 @@
 //do not touch
 #include "Wiring.h"
+#include "USB.h"
+#include "USBCDC.h"
+#include <Wire.h>
+
 
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
@@ -22,6 +26,7 @@ int _dbg_ypos = 0;  // screen Y cursor
 
 #include <SPI.h>
 SPIClass spiBus(HSPI);
+
 
 //esp32 specifiic
 #include "esp_pm.h"
@@ -150,8 +155,20 @@ int currentSecond = 0;
 NormieTime CurrentNormieTime; //real current time
 
 
-QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input        
+QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
 
+
+
+// Handle std::string if you're using it
+/*
+#ifdef __cpp_lib_string_view
+void AssholeSerial(std::string_view message) {
+  Wire.beginTransmission(SERIAL_BITCH_ADDR);
+  Wire.write(message.data(), message.length());
+  Wire.endTransmission();
+}
+#endif */
+//#define Serial.println AssholeSerial //swapt these for a glue bugfix
 
 //Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
 
@@ -189,12 +206,15 @@ void scanI2C() {
 
 
 
-
 void setup() {
     
     delay(148); 
     Serial.begin(115200);
-    delay(150);
+    
+  // I2C Master
+  delay(1000); // Let Serial Bitch™ boot
+
+
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
     
@@ -206,7 +226,7 @@ void setup() {
     DBG_PRINTLN("BOOT BEGIN");
 
 Wire.begin(SDA_PIN, SCL_PIN);
-pinMode(PWR_NFC, OUTPUT); //fine arduino, i'll use the bloat. it's a slow pin anyway
+
 scanI2C();
 
     SetupHardwareInput();
@@ -333,14 +353,18 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
 
 }//end void setup
 
+
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
-    bool stopwatchRunning=false;
 
     for (;;) {
+        int inputCount = 0;
+
         // Consume inputs once and update state
         while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
-            if (!uinput.isDown) continue; // only on press
+            inputCount++;
+            if (!uinput.isDown) continue;
+
             switch (uinput.key) {
                 case key_left:
                     currentWatchMode = WM_STOPWATCH;
@@ -348,19 +372,28 @@ void INPUT_tick(void *pvParameters) {
                 case key_right:
                 case key_back:
                     currentWatchMode = WM_MAIN;
-                    stopwatchRunning = false;
+                    // Do NOT reset stopwatchRunning here (keep state)
                     break;
                 case key_enter:
                     if (currentWatchMode == WM_STOPWATCH) {
                         stopwatchRunning = !stopwatchRunning;
-                        if (stopwatchRunning)
+                        if (stopwatchRunning) {
                             stopwatchStart = millis();
+                        }
                     }
                     break;
                 default:
                     break;
-            }
-        }
+    }
+}
+
+// If inputCount exceeds 10, purge excess junk
+if (inputCount > 10) {
+    S_UserInput junk;
+    while (xQueueReceive(processInputQueue, &junk, 0) == pdPASS) {}
+    inputCount = 0;
+}
+
         updateHRsensor();
         PollEncoders();
         PollButtons();
@@ -405,7 +438,7 @@ void watchscreen(void *pvParameters) {
             lockscreen_biomon->updateContent(hrStr);
         }
         updateCurrentTimeVars();
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 

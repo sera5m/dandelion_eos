@@ -185,49 +185,74 @@ void Log_heartRateData() {
 bool BeatCheck(long irValue) {
   return (irValue > 50000);
 }
+// State tracking variables
+enum SensorState {
+  NO_FINGER,
+  DETECTING,
+  STABLE_READING
+};
 
-// updateSensors(): sample the sensor, update heart rate and, if enabled, blood oxygen.
+SensorState currentState = NO_FINGER;
+unsigned long lastStateChange = 0;
+const unsigned long HR_MONITOR_DEBOUNCE_TIME = 2000; // 2 second debounce
+
 void updateHRsensor() {
-  // ----------------- Heart Rate Processing -----------------
-  long rawIRValue = particleSensor.getIR();
-  long irValue = denoiseIR(rawIRValue);
+  long irValue = denoiseIR(particleSensor.getIR());
   unsigned long currentTime = millis();
-  
-  if (BeatCheck(irValue)) {
-    unsigned long delta = currentTime - lastBeat;
-    if (delta > MIN_BEAT_INTERVAL) {
-      lastBeat = currentTime;
-      beatsPerMinute = 60.0 / (delta / 1000.0);
-      if (beatsPerMinute > 20 && beatsPerMinute < 255) {
-        rates[rateSpot++] = (byte)beatsPerMinute;
-        rateSpot %= RATE_SIZE;
-        
-        // Calculate moving average
-        int sum = 0;
-        for (byte i = 0; i < RATE_SIZE; i++) {
-          sum += rates[i];
-        }
-        beatAvg = sum / RATE_SIZE;
-        
-        // Apply smoothing (if not first beat)
-        if (!isFirstBeat && abs(beatAvg - lastValidBPM) > 10) {
-          beatAvg = lastValidBPM + ((beatAvg - lastValidBPM) * 0.5);
-        } else {
-          isFirstBeat = false;
-        }
-        lastValidBPM = beatAvg;
+
+  // State machine transition logic
+  switch(currentState) {
+    case NO_FINGER:
+      if (irValue > 50000) {
+        currentState = DETECTING;
+        lastStateChange = currentTime;
       }
-    }
+      break;
+      
+    case DETECTING:
+      if (irValue < 50000) {
+        currentState = NO_FINGER;
+      } 
+      else if (currentTime - lastStateChange > HR_MONITOR_DEBOUNCE_TIME) {
+        currentState = STABLE_READING;
+        Serial.println("Finger detected - starting measurements");
+      }
+      break;
+      
+    case STABLE_READING:
+      if (irValue < 50000) {
+        currentState = NO_FINGER;
+        AVG_HR = 0;
+        Serial.println("Finger removed");
+        break;
+      }
+      
+      // Only process heart rate if we have a stable reading
+      if (BeatCheck(irValue)) {
+        unsigned long delta = currentTime - lastBeat;
+        if (delta > MIN_BEAT_INTERVAL) {
+          lastBeat = currentTime;
+          beatsPerMinute = 60.0 / (delta / 1000.0);
+          
+          if (beatsPerMinute > 20 && beatsPerMinute < 255) {
+            // Update moving average
+            rates[rateSpot++] = (byte)beatsPerMinute;
+            rateSpot %= RATE_SIZE;
+            
+            int sum = 0;
+            for (byte i = 0; i < RATE_SIZE; i++) {
+              sum += rates[i];
+            }
+            AVG_HR = sum / RATE_SIZE;
+          }
+        }
+      }
+      break;
   }
-  
-  // Update global average heart rate
-  AVG_HR = beatAvg;
-  
-  // Print status if no finger is detected
-  if (irValue < 50000) {
-    Serial.println("No finger?");
-    AVG_HR = 0;
-  }
+
+  // Optional: Blood oxygen processing would go here
+  // (Same as before but wrapped in STABLE_READING state check)
+
   
   // ----------------- Blood Oxygen Processing -----------------
   if (enableBloodOxygen) {
@@ -293,6 +318,7 @@ void updateHRsensor() {
       }
     }
   }
+
 }
 
 #endif // mdl_heartmonitor_H

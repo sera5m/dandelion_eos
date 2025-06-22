@@ -72,7 +72,7 @@ void StartSPI() {
 //y axis, back
 
 #define ENCODER1_CLK_PIN 21
-#define ENCODER1_DT_PIN  19
+#define ENCODER1_DT_PIN  47
 #define ENCODER1_SW_PIN  18
 
 
@@ -82,7 +82,9 @@ void StartSPI() {
 
 #define IR_INPUT_PIN 46 //input-only and must be used only after boot
 
+//some warnings:
 
+//usb hardware occupies gipo 19 and 20
 
 /*
 

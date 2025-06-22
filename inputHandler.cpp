@@ -199,10 +199,10 @@ void PollEncoderY() {
 }
 
 // --- Button logic split out ---
-
+ unsigned long lastBtn0Time = 0;
+unsigned long lastBtn1Time = 0;
+ unsigned long lastEncCheck = 0;
 void PollButtons() {
-    static unsigned long lastBtn0Time = 0;
-    static unsigned long lastBtn1Time = 0;
     unsigned long now = millis();
 
     bool rawBtn0 = digitalRead(ENCODER0_SW_PIN) == LOW; // assuming active-low
@@ -224,7 +224,7 @@ void PollButtons() {
 
 
 void PollEncoders() {
-    static unsigned long lastEncCheck = 0;
+    
     unsigned long now = millis();
     if (now - lastEncCheck < ENC_DEBOUNCE_MS) return;
     lastEncCheck = now;

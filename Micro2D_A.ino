@@ -1281,17 +1281,15 @@ void setUpdateTickRate(int newRate) {
 
     // Update the Window's content and mark as dirty
 void updateContent(const std::string& newContent) {
-    Serial.println("updateContent called");
-    Serial.print("New content size: ");
-    Serial.println(newContent.size());
+    //Serial.println("updateContent called");  Serial.print("New content size: "); Serial.println(newContent.size());
 
     if (content != newContent) {
-        Serial.println("Content differs, updating...");
+        //Serial.println("Content differs, updating...");
         content = newContent;
         dirty = true;
         WinDraw(); // <- this is where it probably crashes
     } else {
-        Serial.println("Content is same, skipping");
+        //Serial.println("Content is same, skipping");
     }
 }
 
