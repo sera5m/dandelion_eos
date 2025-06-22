@@ -1,9 +1,11 @@
 #ifndef INPUT_HANDLER_H
 #define INPUT_HANDLER_H
 
+
 #include <Arduino.h>
 #include "Wiring.h"
-
+//#pragma once
+#include "driver/pulse_cnt.h"
 // Constants
 #define AllowSimultaneousKeypress true
 
@@ -15,8 +17,14 @@
 #define key_left  0x2190  // ←
 #define key_right 0x2192  // →
 
-
+typedef struct encoder_state {
+    pcnt_unit_handle_t unit;
+    int16_t last_count;
+} encoder_state_t;
 // Input Device Types
+//typedef struct encoder_state encoder_state_t;
+
+
 
 typedef enum{
 keyenter,
@@ -53,7 +61,19 @@ DIAGNOSTICS
 void handleButton0Interrupt();
 void handleButton1Interrupt();
 
+static const uint8_t ENC_DEBOUNCE_MS = 25;  // Increased from 5ms
+static const uint8_t ENC_COOLDOWN_MS = 50;   // Minimum time between events
 
+// Encoder state tracking
+typedef struct {
+    uint8_t last_clk;
+    uint8_t last_valid_clk;
+    int32_t position;
+    bool dir_flag;
+    uint32_t last_edge_time;
+} EncoderState;
+
+// Only declare the variables (no initialization)
 
 
 // User Input Structure
@@ -80,7 +100,7 @@ void PollEncoders();
 void PollEncoderX();
 void PollEncoderY();
 void PollButtons();
-
+void SetupPCNT();
 
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout);
 

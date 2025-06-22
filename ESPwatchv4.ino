@@ -59,6 +59,18 @@ SPIClass spiBus(HSPI);
 
 //hardware==============================================
 
+#include "driver/pulse_cnt.h"
+#include "esp_check.h"
+
+// PCNT unit assignments
+#define PCNT_UNIT_X PCNT_UNIT_0
+#define PCNT_UNIT_Y PCNT_UNIT_1
+
+// Encoder channel assignments
+#define PCNT_CHANNEL_X PCNT_CHANNEL_0
+#define PCNT_CHANNEL_Y PCNT_CHANNEL_0  // Separate unit gets its own channel 0
+
+
 //heartrate
 #include "MAX30105.h" //sparkfun lib
 #include "heartRate.h"
@@ -147,7 +159,8 @@ Adafruit_PN532 nfc(HSPI, SPI_CS_NFC); // Create an instance of the PN532 using h
 
 //add the encoders
 #include "inputHandler.h"
-
+// Add this definition exactly once:
+extern encoder_state_t encoders[2];
 
 int currentHour = 0;
 int currentMinute = 0;
@@ -158,26 +171,6 @@ NormieTime CurrentNormieTime; //real current time
 QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
 
 
-
-// Handle std::string if you're using it
-/*
-#ifdef __cpp_lib_string_view
-void AssholeSerial(std::string_view message) {
-  Wire.beginTransmission(SERIAL_BITCH_ADDR);
-  Wire.write(message.data(), message.length());
-  Wire.endTransmission();
-}
-#endif */
-//#define Serial.println AssholeSerial //swapt these for a glue bugfix
-
-//Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-
-//updateHRsensor();//heart rate monitor-best done every 10ms?
-//PollEncoders(); //user input-100x/s but only when device is awake
-//updateIMU();//poll gyro-2-10hz or so
-//xTaskCreatePinnedToCore(sensortick, "sensortick", 4096, NULL, 1, NULL, 1);  // Sensor on core 1
-
-//xTaskCreatePinnedToCore(watchscreen, "watchscreen", 12288, NULL, 1, NULL, 0); // Watchscreen on core 0
 void scanI2C() {
   byte error, address;
   int nDevices = 0;
@@ -207,12 +200,14 @@ void scanI2C() {
 
 
 void setup() {
-    
+
+   
+
     delay(148); 
     Serial.begin(115200);
     
-  // I2C Master
-  delay(1000); // Let Serial Bitch™ boot
+
+  delay(1000); // Let this Bitch™ boot
 
 
     _dbg_ypos = 0; // Reset debug print position
@@ -364,7 +359,7 @@ void INPUT_tick(void *pvParameters) {
         while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
             inputCount++;
             if (!uinput.isDown) continue;
-
+            Serial.println(uinput.key);
             switch (uinput.key) {
                 case key_left:
                     currentWatchMode = WM_STOPWATCH;
@@ -397,7 +392,7 @@ if (inputCount > 10) {
         updateHRsensor();
         PollEncoders();
         PollButtons();
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
