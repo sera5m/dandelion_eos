@@ -12,7 +12,7 @@
 #define SPI_MISO  13
 
 
-
+#define BUZZER_PIN 2
 
 
 //spi needs seperate cs for each chip 
@@ -80,7 +80,7 @@ void StartSPI() {
 //periphrials
 #define PWR_NFC 45 //this gipo can't be used on boot, which is why i got ts right here for nfc which will only be powered after boot
 
-#define IR_INPUT_PIN 46 //input-only and must be used only after boot
+#define IR_INPUT_PIN 46 //input-only and must be used only after boot - it is a strapping pin primarily used for boot mode configuration and enabling/disabling ROM messages during booting
 
 //some warnings:
 

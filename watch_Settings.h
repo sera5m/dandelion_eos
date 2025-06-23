@@ -47,19 +47,23 @@ ui_color_pallette UITHM_userCustom = {
     0x07EF, 
     0x0000, 
     0x4208, 
-    0xFccF, 
+    0xFCCF, 
     0x0000  
 };
 
-uint16_t tcol_primary;
-uint16_t tcol_secondary;
-uint16_t tcol_tertiary;
-uint16_t tcol_highlight;
-uint16_t tcol_background;
 
-enum currentTheme{mint,hacker,specOps,terminal,userCustom};
 
-void SetDeviceTheme(currentTheme theme) {
+extern uint16_t tcol_primary;
+extern uint16_t tcol_secondary;
+extern uint16_t tcol_tertiary;
+extern uint16_t tcol_highlight;
+extern uint16_t tcol_background;
+
+enum list_Themes{mint,hacker,specOps,terminal,userCustom};
+
+extern list_Themes Current_Theme;
+
+void SetDeviceTheme(list_Themes theme) {
     ui_color_pallette selectedTheme;
 
     switch (theme) {
@@ -87,6 +91,8 @@ void SetDeviceTheme(currentTheme theme) {
     tcol_background= selectedTheme.background;
     //todo in the future have this just refresh all the things by calling to window manager
 }
+
+
 
 
 #endif

@@ -1,5 +1,7 @@
 //do not touch
-#include "Wiring.h"
+#include "Wiring.h" //my hardware definitions
+
+//esp32-s3 hardware
 #include "USB.h"
 #include "USBCDC.h"
 #include <Wire.h>
@@ -22,7 +24,7 @@
 int _dbg_ypos = 0;  // screen Y cursor
 
 
-#include "watch_Settings.h"
+#include "watch_Settings.h" //configuration file for settings
 
 #include <SPI.h>
 SPIClass spiBus(HSPI);
@@ -136,9 +138,60 @@ bool IsScreenOn=true;
 #include <atomic>
 
 enum WatchMode {
-    WM_MAIN,
-    WM_STOPWATCH
+    WM_MAIN, //THE general lock screen
+    //other modes
+    WM_STOPWATCH, 
+    WM_ALARMS, //set your alarms, they'll automatically run
+    WM_TIMER,
+
+    //settings
+    WM_NTP_SYNCH, 
+    WM_SET_TIME,
+    WM_SET_TIMEZONE
 };
+uint16_t tcol_primary=0x07E0;
+uint16_t tcol_secondary=0x0000;
+uint16_t tcol_tertiary=0x4208;
+uint16_t tcol_highlight=0xF805;
+uint16_t tcol_background=0x29e6;
+//var references to set for the theme
+
+list_Themes Current_Theme=mint; //set the current theme to a nice default
+
+SetDeviceTheme(mint);
+
+WindowCfg d_ls_c_cfg = { //clock
+    14, 64, //xy
+    100, 42, //wh
+    false, false, //auto align,wraptext
+    2, //text size
+    true,//borderless?
+    &tcol_secondary, &tcol_background, &tcol_primary, // <-- pass addresses!. colors
+    1000 //update interval ms
+};
+
+WindowCfg d_ls_b_cfg = {//heart monitor
+    86, 0,
+    50, 12,
+    false, false,
+    1,
+    true,
+    &tcol_secondary, &tcol_background, &tcol_primary,
+    1000
+};
+
+WindowCfg d_ls_th_cfg = {//thermometer
+    8, 0,
+    50, 12,
+    false, false,
+    1,
+    false,
+    &tcol_secondary, &tcol_background, &tcol_primary,
+    1000
+};
+
+
+
 
 extern QueueHandle_t processInputQueue;
 
@@ -198,24 +251,26 @@ void scanI2C() {
 }
 
 
-
 void setup() {
 
-   
+//set up structs and configs
+   ON_BOOT_VISUAL_CONFIG(); 
 
+
+//end setup struct+cfg
     delay(148); 
     Serial.begin(115200);
     
 
-  delay(1000); // Let this Bitch™ boot
-
+  delay(100); // Let this Bitch™ boot
+SetDeviceTheme(mint); //apply and boot
 
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
     
     screen_on();
     screen_startup();
-    tft.fillScreen(BLACK);
+    tft.fillScreen(tcol_background);
     set_orientation(0);
 
     DBG_PRINTLN("BOOT BEGIN");
@@ -275,40 +330,6 @@ DBG_PRINTLN("hr sensor ok");
         DBG_PRINTLN("WinMgr OK");
     }
 
-    
-WindowCfg d_ls_c_cfg = { //lock screen clock
-    14, 64,
- 100,42,//with, height
-  false, false, 
-  2,//text size
-true,//border
-0xFCCF, 0x0000, 0xFCCF, 
-1000};//clock config
-
-
-     WindowCfg d_ls_b_cfg = {//lock screen heart rate
-     86, 0, //x y pos
-     50, 12, //width, height
-     false, false, //auto align,wrap
-     1, 
-     true, //borderless?
-     0xFFFF, 0x0000, 0xFFFF, //border,background,text
-    1000};
-
-     WindowCfg d_ls_th_cfg = { //thermometer
-    8,0, //y
-    50,12,     // width,height
-    false,  // auto align?
-    false,  // wrap text?
-    1,      // text size
-    false,  // borderless?
-    0xFFFF, // border color
-    0x0CC0, // background color
-    0xFFFF, // text color
-    1000};    // update ms
-
-
-
 
         lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
     windowManagerInstance->registerWindow(lockscreen_clock);
@@ -320,6 +341,8 @@ true,//border
 
         lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
     windowManagerInstance->registerWindow(lockscreen_thermometer);
+
+
    // DBG_PRINTLN("Thermo OK");
 
 TFillRect(0,0,128,128,0x0000);//black screen out
@@ -348,6 +371,64 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
 
 }//end void setup
 
+    int WatchScreenUpdateInterval=500;
+
+void WatchScreenTransition(WatchMode newmode){
+                switch (newmode){
+
+
+
+                case WM_MAIN:
+                WatchScreenUpdateInterval=500;
+                //update bg?
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height); lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y); //reset to original config size reguardless of original config
+                    break;
+
+                case WM_STOPWATCH: {
+                    WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
+                    lockscreen_clock->ResizeWindow(d_ls_c_cfg.width+14, d_ls_c_cfg.height);//expand for more digits, .xyz expand by 14 pixels
+                     lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y);//move 14 pixels to the left to offset more digits.
+                                                        //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
+                    break;
+                }
+
+                case WM_ALARMS:
+                    // TODO: Display upcoming alarms or alarm setup screen
+
+                    break;
+
+                case WM_TIMER:
+                    // TODO: Display remaining timer or timer setup
+
+                    break;
+
+                case WM_NTP_SYNCH:
+
+                    break;
+
+                case WM_SET_TIME:
+
+                    break;
+
+                case WM_SET_TIMEZONE:
+
+                    break;
+
+                default:
+                    Serial.println("Unknown WatchMode!");
+                    WatchScreenUpdateInterval=600;
+                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                    break;
+            }//end switch
+
+}//end fn
+
+
+
+
+
+
+int stopwatchElapsed=0;
 
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
@@ -363,22 +444,30 @@ void INPUT_tick(void *pvParameters) {
             switch (uinput.key) {
                 case key_left:
                     currentWatchMode = WM_STOPWATCH;
+                    WatchScreenTransition(WM_STOPWATCH);
                     break;
                 case key_right:
                 case key_back:
                     currentWatchMode = WM_MAIN;
+                    WatchScreenTransition(WM_MAIN);
                     // Do NOT reset stopwatchRunning here (keep state)
                     break;
                 case key_enter:
-                    if (currentWatchMode == WM_STOPWATCH) {
-                        stopwatchRunning = !stopwatchRunning;
-                        if (stopwatchRunning) {
-                            stopwatchStart = millis();
-                        }
-                    }
-                    break;
-                default:
-                    break;
+    if (currentWatchMode == WM_STOPWATCH) {
+        if (stopwatchRunning) {
+            stopwatchElapsed += millis() - stopwatchStart;
+            stopwatchRunning = false;
+
+           
+        } else {
+            stopwatchStart = millis();
+            stopwatchRunning = true;
+        }
+    }
+    break;
+
+    default:
+    break;
     }
 }
 
@@ -395,47 +484,97 @@ if (inputCount > 10) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
-
 void watchscreen(void *pvParameters) {
     (void)pvParameters;
+
+    // Shared buffers for display
+    char buf[80];
+    char thermoStr[8];
+    char hrStr[8];
+    //update rate changes per device yammering
+
+
     for (;;) {
         if (IsScreenOn && lockscreen_clock) {
-            char buf[80];
+
             unsigned long now = millis();
+
             switch (currentWatchMode.load()) {
+
                 case WM_MAIN:
+                WatchScreenUpdateInterval=500;
                     snprintf(buf, sizeof(buf), "%02d:%02d:%02d<n> %s %d",
                              CurrentNormieTime.hour,
                              CurrentNormieTime.minute,
                              CurrentNormieTime.second,
                              TRIchar_month_names[CurrentNormieTime.month],
                              CurrentNormieTime.day);
+                    lockscreen_clock->updateContent(buf);
+
+                    snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
+                    lockscreen_thermometer->updateContent(thermoStr);
+
+                    snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
+                    lockscreen_biomon->updateContent(hrStr);
                     break;
+
                 case WM_STOPWATCH: {
-                    unsigned long elapsed = stopwatchRunning ? now - stopwatchStart : now - stopwatchStart;
-                    unsigned int s = (elapsed / 1000) % 60;
-                    unsigned int m = (elapsed / 60000) % 60;
-                    unsigned int h = elapsed / 3600000;
-                    snprintf(buf, sizeof(buf), "%02u:%02u:%02u%s",
-                             h, m, s,
-                             stopwatchRunning ? " RUN" : " STOP");
+                    WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
+                    unsigned long elapsed;
+                    if (stopwatchRunning) {
+                        elapsed = stopwatchElapsed + (now - stopwatchStart);
+                    } else {
+                        elapsed = stopwatchElapsed;
+                    }
+                    
+                    unsigned int s  = (elapsed / 1000) % 60;
+                    unsigned int m  = (elapsed / 60000) % 60;
+                    unsigned int h  = elapsed / 3600000;
+                    unsigned int ms = elapsed % 1000;
+
+                    snprintf(buf, sizeof(buf), "%02u:%02u:%02u.%03u %s", h, m, s, ms,
+                                             stopwatchRunning ? "RUN" : "STOP");
+
+
+                    lockscreen_clock->updateContent(buf);
                     break;
                 }
+
+                case WM_ALARMS:
+                    // TODO: Display upcoming alarms or alarm setup screen
+                    lockscreen_clock->updateContent("ALARM MODE");
+                    break;
+
+                case WM_TIMER:
+                    // TODO: Display remaining timer or timer setup
+                    lockscreen_clock->updateContent("TIMER MODE");
+                    break;
+
+                case WM_NTP_SYNCH:
+                    lockscreen_clock->updateContent("Syncing Time...");
+                    break;
+
+                case WM_SET_TIME:
+                    lockscreen_clock->updateContent("Set Time Mode");
+                    break;
+
+                case WM_SET_TIMEZONE:
+                    lockscreen_clock->updateContent("Set TZ Mode");
+                    break;
+
+                default:
+                    Serial.println("Unknown WatchMode!");
+                    WatchScreenUpdateInterval=600;
+                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                    break;
             }
-            lockscreen_clock->updateContent(buf);
-
-            char thermoStr[8];
-            snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
-            lockscreen_thermometer->updateContent(thermoStr);
-
-            char hrStr[8];
-            snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
-            lockscreen_biomon->updateContent(hrStr);
         }
+
         updateCurrentTimeVars();
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(WatchScreenUpdateInterval));
     }
 }
+
 
 
 

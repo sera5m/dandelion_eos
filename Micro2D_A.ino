@@ -45,7 +45,7 @@ extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this 
 constexpr int MIN_WINDOW_WIDTH = 18;
 constexpr int MIN_WINDOW_HEIGHT = 12;
 
-
+uint16_t ScreenBackgroundColor=0x0000; //defined in the settings tab, you jerk off. this is just the default. you will have to use this in main and load pallette in main
 
 void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
   // Early out if nothing to draw
@@ -621,14 +621,19 @@ class WindowManager; //only make one of these on os start
 //declare structs and stuff of the elements of this stupid thing.
 
 // Window structure to hold Window properties
-struct WindowCfg {
+typedef struct {
     uint8_t x = 0, y = 0, width = 64, height = 64;
-    bool AutoAlignment=0,WrapText=1; // Align text centrally or not,WrapText text
-    int TextSize=1; //default text size inside this Window
-    bool borderless=false;
-    uint16_t BorderColor, bgColor, WinTextColor; // Colors -add defaults
-    uint16_t UpdateTickRate=500;//update every how many ms?
-}; 
+    bool AutoAlignment = false, WrapText = true;
+    int TextSize = 1;
+    bool borderless = false;
+
+    // Pointers to color values
+    const uint16_t* BorderColor = nullptr;
+    const uint16_t* bgColor = nullptr;
+    const uint16_t* WinTextColor = nullptr;
+
+    uint16_t UpdateTickRate = 500;
+} WindowCfg;
 
 enum class DrawType {
     Text, Line, Pixel, FRect, Rect, RFRect, RRect,
@@ -1134,9 +1139,7 @@ void ClearAll() {
 
 class Window : public std::enable_shared_from_this<Window> {
 public:
-//config.bgColor = 0x0000; // Black
-//config.BorderColor = 0xFFFF; // White
-//config.WinTextColor = 0xFFFF; // White
+
 
     std::string name;       // Window's name
     WindowCfg config;       // Window configuration
@@ -1151,7 +1154,12 @@ public:
     bool dirty = false;     // uased as redraw flag
 unsigned long lastUpdateTime = 0;  // in ms
 unsigned int lastFrameTime = 0;    // duration of last draw
-    uint16_t WindowBackgroundColor=config.bgColor;
+
+//define colors before constructor uses them as sane defaults for high vis
+    win_internal_color_background =0x0000; // default if nullptr
+    win_internal_color_border     =0xFFFF;
+    win_internal_color_text       =0xFFFF;
+
     bool IsWindowShown = true;//windows are shown by default on creation
 
        int scrollOffsetX=0; //scroll offsets for these Windows //TODO:MOVE THESE TO PRIVATE
@@ -1165,6 +1173,15 @@ Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& i
     //enforce window is at least the minimum size for safety reasons and to not drive me insane
     if (config.width < MIN_WINDOW_WIDTH) config.width = MIN_WINDOW_WIDTH;
     if (config.height < MIN_WINDOW_HEIGHT) config.height = MIN_WINDOW_HEIGHT;
+
+//define colors+load from config with bad ptr fallback
+    win_internal_color_background = cfg.bgColor ? *cfg.bgColor : 0x0000; // default if nullptr
+    win_internal_color_border     = cfg.BorderColor ? *cfg.BorderColor : 0xFFFF;
+    win_internal_color_text       = cfg.WinTextColor ? *cfg.WinTextColor : 0xFFFF;
+
+ UpdateTickRate = config.UpdateTickRate;
+
+
 }
 
 
@@ -1185,16 +1202,15 @@ void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen ca
     }
 }
 
-void MoveWindow(int newX, int newY) { //mofe from old location to new
-    if (config.x == newX && config.y == newY) return; // No change, no need to update
 
-    config.x = newX;
-    config.y = newY;
-    
-    ForceUpdate(true); // Force a redraw since the position changed
+void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
+  for (auto& canvas : canvases) {
+            // Force update on each canvas (even if off-screen or timer-based)
+            if (canvas) canvas->CanvasUpdate(true); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
+        }
 }
 
-
+//change properties===============================================================================================
 
 //why didn't i add this before
 void SetBgColor(uint16_t newColor) {
@@ -1202,17 +1218,18 @@ void SetBgColor(uint16_t newColor) {
         Serial.println("Invalid color value!");
         return;
     }
-    WindowBackgroundColor = newColor; //formerly set the struct, now sets the var color. not sure why it crashed?
+    win_internal_color_background = newColor; //sets internal ref, does not alter configs
     dirty = true;
 }
 
     // Set border color
-    void SetBorderColor(uint16_t newColor) {
-        if (config.BorderColor != newColor) {
-            config.BorderColor = newColor;
-            dirty = true;
-        }
+void SetBorderColor(uint16_t newColor) {
+    if (win_internal_color_border != newColor) {
+        win_internal_color_border = newColor;
+        dirty = true;
     }
+}
+
 
     // Toggle border visibility
     void ForceBorderState(bool isShown) {
@@ -1223,40 +1240,26 @@ void SetBgColor(uint16_t newColor) {
     }
 
 
-void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
-    int stepX = (targetX - config.x) / steps;
-    int stepY = (targetY - config.y) / steps;
-    
-    for (int i = 0; i < steps; i++) {
-        config.x += stepX;
-        config.y += stepY;
-        ForceUpdate(false);
-        delay(45); // Small delay to make animation visible
-    }
-    
-    // Ensure final position is exact
-    config.x = targetX;
-    config.y = targetY;
-    ForceUpdate(true);
-}
+//scaling
 
 void ResizeWindow(int newWidth, int newHeight) { 
     if (config.width == newWidth && config.height == newHeight) return; // No change, no need to update
-
+    TFillRect(config.x,config.y,config.width,config.height,ScreenBackgroundColor); //fill rect at the old place
     config.width = newWidth;
     config.height = newHeight;
-    
+
     ForceUpdate(true); // Force a redraw since the size changed. 
 }
-
-
-
-void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
-  for (auto& canvas : canvases) {
-            // Force update on each canvas (even if off-screen or timer-based)
-            if (canvas) canvas->CanvasUpdate(true); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
-        }
+void MoveWindow(int newX, int newY) { //mofe from old location to new
+    if (config.x == newX && config.y == newY) return; // No change, no need to update
+    TFillRect(config.x,config.y,config.width,config.height,ScreenBackgroundColor);//xywh
+    config.x = newX;
+    config.y = newY;
+    
+    ForceUpdate(true); // Force a redraw since the position changed
 }
+
+//================================================================================
 /*
 void setUpdateTickRate(int newRate) {
     UpdateTickRate = newRate;
@@ -1351,6 +1354,22 @@ accumDY += DY;
 }
 
 
+void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
+    int stepX = (targetX - config.x) / steps;
+    int stepY = (targetY - config.y) / steps;
+    
+    for (int i = 0; i < steps; i++) {
+        config.x += stepX;
+        config.y += stepY;
+        ForceUpdate(false);
+        delay(45); // Small delay to make animation visible
+    }
+    
+    // Ensure final position is exact
+    config.x = targetX;
+    config.y = targetY;
+    ForceUpdate(true);
+}
 
 
     // Draws the Window and its text content, then updates child canvases if they're visible.
@@ -1363,14 +1382,14 @@ if (IsWindowShown) {//if the window is shown,draw this
         // Clear the Window area
         //Serial.println("bg color is");
 
-        //Serial.println(WindowBackgroundColor);
-        TFillRect(config.x, config.y, config.width, config.height, WindowBackgroundColor); //fill the Window with the background color
+        //Serial.println(win_internal_color_background);
+        TFillRect(config.x, config.y, config.width, config.height, win_internal_color_background); //fill the Window with the background color
 
         //Serial.println("filled background");  if (!config.borderless) Serial.print("drew border"); 
         //draw background
 
          if(config.borderless){
-            drawOutlineRect(config.x, config.y, config.x+config.width, config.y+config.height, config.BorderColor);
+            drawOutlineRect(config.x, config.y, config.x+config.width, config.y+config.height, win_internal_color_border);
           }
 
         //draw lines
@@ -1379,7 +1398,7 @@ if (IsWindowShown) {//if the window is shown,draw this
         //TFillRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
         
         // Set text properties
-        tft.setTextColor(config.WinTextColor);
+        tft.setTextColor(win_internal_color_text);
         tft.setTextSize(config.TextSize);
 
         // Update wrapped lines from full content
@@ -1416,7 +1435,7 @@ if (IsWindowShown) {//if the window is shown,draw this
 
  void HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
-  TFillRect(config.x, config.y, config.width, config.height,0x0000);//fill the area with black, default color
+  TFillRect(config.x, config.y, config.width, config.height,ScreenBackgroundColor);//fill the area with background color to hide it
 
         // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
@@ -1453,16 +1472,16 @@ __attribute__((optimize("O2"))) // heehoo magic
 void drawVisibleLines() {
   if (IsWindowShown) {
     int baseTextSize = config.TextSize;
-    uint16_t currentColor = config.WinTextColor;
+    uint16_t currentColor = win_internal_color_text;
     int currentTextSize = baseTextSize;
-    uint16_t originalWinTexColor = config.WinTextColor;
+    uint16_t originalWinTexColor = win_internal_color_text;
     int charHeight = 8 * currentTextSize;
     int charWidth = 6 * currentTextSize;
     int startLine = scrollOffsetY / charHeight;
     int visibleLines = (config.height - 4) / charHeight;
     int y = config.y + 2 - (scrollOffsetY % charHeight);
 
-    //TFillRect(config.x, config.y, config.width, config.height, WindowBackgroundColor);
+    //TFillRect(config.x, config.y, config.width, config.height, win_internal_color_background);
     //square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
     //i don't think this should even be here as this is a string drawing function
 
