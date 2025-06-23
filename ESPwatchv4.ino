@@ -158,7 +158,7 @@ uint16_t tcol_background=0x29e6;
 
 list_Themes Current_Theme=mint; //set the current theme to a nice default
 
-SetDeviceTheme(mint);
+
 
 WindowCfg d_ls_c_cfg = { //clock
     14, 64, //xy
@@ -166,7 +166,7 @@ WindowCfg d_ls_c_cfg = { //clock
     false, false, //auto align,wraptext
     2, //text size
     true,//borderless?
-    &tcol_secondary, &tcol_background, &tcol_primary, // <-- pass addresses!. colors
+    tcol_secondary, tcol_background, tcol_primary, // <-- pass addresses!. colors
     1000 //update interval ms
 };
 
@@ -176,7 +176,7 @@ WindowCfg d_ls_b_cfg = {//heart monitor
     false, false,
     1,
     true,
-    &tcol_secondary, &tcol_background, &tcol_primary,
+    tcol_secondary, tcol_background, tcol_primary,
     1000
 };
 
@@ -186,7 +186,7 @@ WindowCfg d_ls_th_cfg = {//thermometer
     false, false,
     1,
     false,
-    &tcol_secondary, &tcol_background, &tcol_primary,
+    tcol_secondary, tcol_background, tcol_primary,
     1000
 };
 
@@ -254,7 +254,6 @@ void scanI2C() {
 void setup() {
 
 //set up structs and configs
-   ON_BOOT_VISUAL_CONFIG(); 
 
 
 //end setup struct+cfg
@@ -263,7 +262,7 @@ void setup() {
     
 
   delay(100); // Let this Bitch™ boot
-SetDeviceTheme(mint); //apply and boot
+//SetDeviceTheme(mint); //apply and boot
 
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
@@ -329,6 +328,7 @@ DBG_PRINTLN("hr sensor ok");
     } else {
         DBG_PRINTLN("WinMgr OK");
     }
+SetDeviceTheme(mint);
 
 
         lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
@@ -344,11 +344,12 @@ DBG_PRINTLN("hr sensor ok");
 
 
    // DBG_PRINTLN("Thermo OK");
+SetDeviceTheme(mint);//change the color pallette refs
 
-TFillRect(0,0,128,128,0x0000);//black screen out
+TFillRect(0,0,128,128,tcol_background);//black screen out
 
 
-
+windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
 
 
 

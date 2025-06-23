@@ -628,9 +628,9 @@ typedef struct {
     bool borderless = false;
 
     // Pointers to color values
-    const uint16_t* BorderColor = nullptr;
-    const uint16_t* bgColor = nullptr;
-    const uint16_t* WinTextColor = nullptr;
+    const uint16_t BorderColor;
+    const uint16_t BgColor;
+    const uint16_t WinTextColor;
 
     uint16_t UpdateTickRate = 500;
 } WindowCfg;
@@ -1156,9 +1156,9 @@ unsigned long lastUpdateTime = 0;  // in ms
 unsigned int lastFrameTime = 0;    // duration of last draw
 
 //define colors before constructor uses them as sane defaults for high vis
-    win_internal_color_background =0x0000; // default if nullptr
-    win_internal_color_border     =0xFFFF;
-    win_internal_color_text       =0xFFFF;
+ uint16_t   win_internal_color_background=0x0000; // default if nullptr
+ uint16_t    win_internal_color_border=0xFFFF;
+ uint16_t    win_internal_color_text=0xFFFF;
 
     bool IsWindowShown = true;//windows are shown by default on creation
 
@@ -1169,20 +1169,22 @@ unsigned int lastFrameTime = 0;    // duration of last draw
 
 
     // Constructor
-Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& initialContent = "")  : name(WindowName), config(cfg), content(initialContent) {
-    //enforce window is at least the minimum size for safety reasons and to not drive me insane
-    if (config.width < MIN_WINDOW_WIDTH) config.width = MIN_WINDOW_WIDTH;
-    if (config.height < MIN_WINDOW_HEIGHT) config.height = MIN_WINDOW_HEIGHT;
-
-//define colors+load from config with bad ptr fallback
-    win_internal_color_background = cfg.bgColor ? *cfg.bgColor : 0x0000; // default if nullptr
-    win_internal_color_border     = cfg.BorderColor ? *cfg.BorderColor : 0xFFFF;
-    win_internal_color_text       = cfg.WinTextColor ? *cfg.WinTextColor : 0xFFFF;
-
- UpdateTickRate = config.UpdateTickRate;
-
-
-}
+ Window(const std::string& WindowName,
+           const WindowCfg&   cfg,
+           const std::string& initialContent = "")
+      : name(WindowName),
+        config(cfg),
+        content(initialContent),
+        // initialize internals from cfg:
+        win_internal_color_background(cfg.BgColor),
+        win_internal_color_border(cfg.BorderColor),
+        win_internal_color_text(cfg.WinTextColor),
+        UpdateTickRate(cfg.UpdateTickRate)
+    {
+        // enforce minimum size
+        if (config.width  < MIN_WINDOW_WIDTH)  config.width  = MIN_WINDOW_WIDTH;
+        if (config.height < MIN_WINDOW_HEIGHT) config.height = MIN_WINDOW_HEIGHT;
+    }
 
 
     // Destructor: Clean up canvases
@@ -1190,6 +1192,15 @@ Window(const std::string& WindowName, const WindowCfg& cfg, const std::string& i
     //Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted
     // Any other custom cleanup tasks
 }
+void ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLOR) {
+    win_internal_color_background = BG_COLOR;
+    win_internal_color_border = BORDER_COLOR;
+    win_internal_color_text = WIN_TEXT_COLOR;
+    ForceUpdate(true);
+}
+
+
+
 
 void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
     dirty = true;
@@ -1860,7 +1871,19 @@ void UpdateAllWindows(bool Force,bool AndSubComps) {
 }
 
 
+void ApplyThemeAllWindows(uint16_t secondary, uint16_t background, uint16_t primary){
 
+    for (auto it = WindowRegistry.begin(); it != WindowRegistry.end(); ) {
+        if (auto winPtr = it->windowWeakPtr.lock()) {
+          winPtr->ApplyTheme(secondary, background,primary);//change colors
+            ++it;
+            } else {
+            it = WindowRegistry.erase(it);  // Remove invalid entry
+        }
+    }
+
+UpdateAllWindows(true,true);
+}
 
 
 void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
