@@ -150,7 +150,7 @@ enum WatchMode {
     WM_SET_TIMEZONE
 };
 uint16_t tcol_primary=0x07E0;
-uint16_t tcol_secondary=0x0000;
+uint16_t tcol_secondary=0xCCCC;
 uint16_t tcol_tertiary=0x4208;
 uint16_t tcol_highlight=0xF805;
 uint16_t tcol_background=0x29e6;
@@ -166,7 +166,7 @@ WindowCfg d_ls_c_cfg = { //clock
     false, false, //auto align,wraptext
     2, //text size
     true,//borderless?
-    tcol_secondary, tcol_background, tcol_primary, // <-- pass addresses!. colors
+    0xCCCC, 0x29e6, 0x07E0, // <-- pass addresses!. colors
     1000 //update interval ms
 };
 
@@ -176,7 +176,7 @@ WindowCfg d_ls_b_cfg = {//heart monitor
     false, false,
     1,
     true,
-    tcol_secondary, tcol_background, tcol_primary,
+    0xCCCC, 0x29e6, 0x07E0,
     1000
 };
 
@@ -186,7 +186,7 @@ WindowCfg d_ls_th_cfg = {//thermometer
     false, false,
     1,
     false,
-    tcol_secondary, tcol_background, tcol_primary,
+    0xCCCC, 0x29e6, 0x07E0,
     1000
 };
 
@@ -328,7 +328,7 @@ DBG_PRINTLN("hr sensor ok");
     } else {
         DBG_PRINTLN("WinMgr OK");
     }
-SetDeviceTheme(mint);
+
 
 
         lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
@@ -344,13 +344,14 @@ SetDeviceTheme(mint);
 
 
    // DBG_PRINTLN("Thermo OK");
+   /*
 SetDeviceTheme(mint);//change the color pallette refs
 
 TFillRect(0,0,128,128,tcol_background);//black screen out
 
 
 windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
-
+*/
 
 
 processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que

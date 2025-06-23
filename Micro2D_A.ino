@@ -1142,7 +1142,7 @@ public:
 
 
     std::string name;       // Window's name
-    WindowCfg config;       // Window configuration
+    WindowCfg cfg; //setup the var      // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
     std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  todo:move private
 
@@ -1169,22 +1169,21 @@ unsigned int lastFrameTime = 0;    // duration of last draw
 
 
     // Constructor
- Window(const std::string& WindowName,
-           const WindowCfg&   cfg,
-           const std::string& initialContent = "")
-      : name(WindowName),
-        config(cfg),
-        content(initialContent),
-        // initialize internals from cfg:
-        win_internal_color_background(cfg.BgColor),
-        win_internal_color_border(cfg.BorderColor),
-        win_internal_color_text(cfg.WinTextColor),
-        UpdateTickRate(cfg.UpdateTickRate)
+Window(const std::string& WindowName,
+       const WindowCfg& windowConfiguration,  // Parameter name changed
+       const std::string& initialContent = "")
+  : name(WindowName),
+    cfg(windowConfiguration),  // Now correctly using the parameter
+    content(initialContent),
+    win_internal_color_background(windowConfiguration.BgColor),
+    win_internal_color_border(windowConfiguration.BorderColor),
+    win_internal_color_text(windowConfiguration.WinTextColor),
+    UpdateTickRate(windowConfiguration.UpdateTickRate)
     {
-        // enforce minimum size
-        if (config.width  < MIN_WINDOW_WIDTH)  config.width  = MIN_WINDOW_WIDTH;
-        if (config.height < MIN_WINDOW_HEIGHT) config.height = MIN_WINDOW_HEIGHT;
-    }
+    //GET THE FUCKING SIZE
+    if (this->cfg.width  < MIN_WINDOW_WIDTH)  this->cfg.width  = MIN_WINDOW_WIDTH;
+    if (this->cfg.height < MIN_WINDOW_HEIGHT) this->cfg.height = MIN_WINDOW_HEIGHT;
+}
 
 
     // Destructor: Clean up canvases
@@ -1192,15 +1191,6 @@ unsigned int lastFrameTime = 0;    // duration of last draw
     //Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted
     // Any other custom cleanup tasks
 }
-void ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLOR) {
-    win_internal_color_background = BG_COLOR;
-    win_internal_color_border = BORDER_COLOR;
-    win_internal_color_text = WIN_TEXT_COLOR;
-    ForceUpdate(true);
-}
-
-
-
 
 void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
     dirty = true;
@@ -1211,6 +1201,13 @@ void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen ca
             if (canvas) canvas->CanvasUpdate(UpdateSubComps); //push canvas update for iterator-this makes sure canvas-> update checks for valid first
         }
     }
+}
+
+void ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLOR) {
+    win_internal_color_background = BG_COLOR;
+    win_internal_color_border = BORDER_COLOR;
+    win_internal_color_text = WIN_TEXT_COLOR;
+    ForceUpdate(true);
 }
 
 
@@ -1244,8 +1241,8 @@ void SetBorderColor(uint16_t newColor) {
 
     // Toggle border visibility
     void ForceBorderState(bool isShown) {
-        if (config.borderless != !isShown) {
-            config.borderless = !isShown;
+        if (cfg.borderless != !isShown) {
+            cfg.borderless = !isShown;
             dirty = true;
         }
     }
@@ -1254,18 +1251,18 @@ void SetBorderColor(uint16_t newColor) {
 //scaling
 
 void ResizeWindow(int newWidth, int newHeight) { 
-    if (config.width == newWidth && config.height == newHeight) return; // No change, no need to update
-    TFillRect(config.x,config.y,config.width,config.height,ScreenBackgroundColor); //fill rect at the old place
-    config.width = newWidth;
-    config.height = newHeight;
+    if (cfg.width == newWidth && cfg.height == newHeight) return; // No change, no need to update
+    TFillRect(cfg.x,cfg.y,cfg.width,cfg.height,ScreenBackgroundColor); //fill rect at the old place
+    cfg.width = newWidth;
+    cfg.height = newHeight;
 
     ForceUpdate(true); // Force a redraw since the size changed. 
 }
 void MoveWindow(int newX, int newY) { //mofe from old location to new
-    if (config.x == newX && config.y == newY) return; // No change, no need to update
-    TFillRect(config.x,config.y,config.width,config.height,ScreenBackgroundColor);//xywh
-    config.x = newX;
-    config.y = newY;
+    if (cfg.x == newX && cfg.y == newY) return; // No change, no need to update
+    TFillRect(cfg.x,cfg.y,cfg.width,cfg.height,ScreenBackgroundColor);//xywh
+    cfg.x = newX;
+    cfg.y = newY;
     
     ForceUpdate(true); // Force a redraw since the position changed
 }
@@ -1314,7 +1311,7 @@ const int scrollLimit = 3; // max scrolls per period
 const int scrollPeriod = 100; // in ms
 
 int calculateTotalTextWidth() {
-    int charWidth = 6 * config.TextSize; // Assuming fixed-width font
+    int charWidth = 6 * cfg.TextSize; // Assuming fixed-width font
     int maxWidth = 0;
     for (const auto& line : wrappedLines) {
         int lineWidth = line.length() * charWidth;
@@ -1339,13 +1336,13 @@ accumDY += DY;
         // update scroll offsets
         scrollOffsetX += accumDX;
         scrollOffsetY += accumDY;
-     int totalTextHeight = wrappedLines.size() * (8 * config.TextSize);  // Total height of all the wrapped text
-    int maxOffsetY = (totalTextHeight > config.height - 4) ? totalTextHeight - (config.height - 4) : 0;
+     int totalTextHeight = wrappedLines.size() * (8 * cfg.TextSize);  // Total height of all the wrapped text
+    int maxOffsetY = (totalTextHeight > cfg.height - 4) ? totalTextHeight - (cfg.height - 4) : 0;
     scrollOffsetY = std::max(0, std::min(scrollOffsetY, maxOffsetY));
     
     // Clamp horizontal scroll offset (if needed)
     int totalTextWidth = calculateTotalTextWidth();  // todo: add better logic for this so we can skip ahead in the text
-    int maxOffsetX = (totalTextWidth > config.width - 4) ? totalTextWidth - (config.width - 4) : 0;
+    int maxOffsetX = (totalTextWidth > cfg.width - 4) ? totalTextWidth - (cfg.width - 4) : 0;
     scrollOffsetX = std::max(0, std::min(scrollOffsetX, maxOffsetX));
         
         // Reset accumulators & update last time stamp BEFORE checking limits
@@ -1366,19 +1363,19 @@ accumDY += DY;
 
 
 void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
-    int stepX = (targetX - config.x) / steps;
-    int stepY = (targetY - config.y) / steps;
+    int stepX = (targetX - cfg.x) / steps;
+    int stepY = (targetY - cfg.y) / steps;
     
     for (int i = 0; i < steps; i++) {
-        config.x += stepX;
-        config.y += stepY;
+        cfg.x += stepX;
+        cfg.y += stepY;
         ForceUpdate(false);
         delay(45); // Small delay to make animation visible
     }
     
     // Ensure final position is exact
-    config.x = targetX;
-    config.y = targetY;
+    cfg.x = targetX;
+    cfg.y = targetY;
     ForceUpdate(true);
 }
 
@@ -1393,24 +1390,24 @@ if (IsWindowShown) {//if the window is shown,draw this
         // Clear the Window area
         //Serial.println("bg color is");
 
-        //Serial.println(win_internal_color_background);
-        TFillRect(config.x, config.y, config.width, config.height, win_internal_color_background); //fill the Window with the background color
+        //Serial.println(win_internal_color_background); 
+        TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, win_internal_color_background); //fill the Window with the background color
 
-        //Serial.println("filled background");  if (!config.borderless) Serial.print("drew border"); 
+        //Serial.println("filled background");  if (!cfg.borderless) Serial.print("drew border"); 
         //draw background
 
-         if(config.borderless){
-            drawOutlineRect(config.x, config.y, config.x+config.width, config.y+config.height, win_internal_color_border);
+         if(cfg.borderless){
+            drawOutlineRect(cfg.x, cfg.y, cfg.x+cfg.width, cfg.y+cfg.height, win_internal_color_border);
           }
 
         //draw lines
 
 
-        //TFillRect(config.x, config.y, config.width, config.height, config.BorderColor); //draw the rectangle outline
+        //TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, cfg.BorderColor); //draw the rectangle outline
         
         // Set text properties
         tft.setTextColor(win_internal_color_text);
-        tft.setTextSize(config.TextSize);
+        tft.setTextSize(cfg.TextSize);
 
         // Update wrapped lines from full content
         updateWrappedLines(); 
@@ -1424,10 +1421,10 @@ if (IsWindowShown) {//if the window is shown,draw this
          for (auto& canvas : canvases) { // Iterate over all canvases
          if (canvas) { // Ensure the pointer is valid
             // Calculate the canvas's absolute position relative to the Window.
-            int canvasAbsX = config.x + canvas->x;
-            int canvasAbsY = config.y + canvas->y;
+            int canvasAbsX = cfg.x + canvas->x;
+            int canvasAbsY = cfg.y + canvas->y;
             // Check if the canvas is completely off-screen relative to the Window.
-            if ((canvasAbsX + canvas->width) < config.x || canvasAbsX > (config.x + config.width) ||(canvasAbsY + canvas->height) < config.y || canvasAbsY > (config.y + config.height)) {
+            if ((canvasAbsX + canvas->width) < cfg.x || canvasAbsX > (cfg.x + cfg.width) ||(canvasAbsY + canvas->height) < cfg.y || canvasAbsY > (cfg.y + cfg.height)) {
                 //(if x> possible and y>possible)
                 continue;  // Skip draWing this canvas if it's entirely off-screen.
             }//end canvas check statement
@@ -1446,7 +1443,7 @@ if (IsWindowShown) {//if the window is shown,draw this
 
  void HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
-  TFillRect(config.x, config.y, config.width, config.height,ScreenBackgroundColor);//fill the area with background color to hide it
+  TFillRect(cfg.x, cfg.y, cfg.width, cfg.height,ScreenBackgroundColor);//fill the area with background color to hide it
 
         // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
@@ -1482,29 +1479,29 @@ bool isPartialDraw = false; // Are we in the middle of a partial draw?
 __attribute__((optimize("O2"))) // heehoo magic
 void drawVisibleLines() {
   if (IsWindowShown) {
-    int baseTextSize = config.TextSize;
+    int baseTextSize = cfg.TextSize;
     uint16_t currentColor = win_internal_color_text;
     int currentTextSize = baseTextSize;
     uint16_t originalWinTexColor = win_internal_color_text;
     int charHeight = 8 * currentTextSize;
     int charWidth = 6 * currentTextSize;
     int startLine = scrollOffsetY / charHeight;
-    int visibleLines = (config.height - 4) / charHeight;
-    int y = config.y + 2 - (scrollOffsetY % charHeight);
+    int visibleLines = (cfg.height - 4) / charHeight;
+    int y = cfg.y + 2 - (scrollOffsetY % charHeight);
 
-    //TFillRect(config.x, config.y, config.width, config.height, win_internal_color_background);
+    //TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, win_internal_color_background);
     //square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
     //i don't think this should even be here as this is a string drawing function
 
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
       const std::string &line = wrappedLines[i];
       int startChar = max(0, scrollOffsetX / charWidth);
-      int visibleChars = (config.width - 4) / charWidth;
+      int visibleChars = (cfg.width - 4) / charWidth;
 
       tft.setTextSize(currentTextSize);
       tft.setTextColor(currentColor);
 
-      int cursorX = config.x + 2;
+      int cursorX = cfg.x + 2;
       int cursorY = y;
       tft.setCursor(cursorX, cursorY);
 
@@ -1532,8 +1529,8 @@ void drawVisibleLines() {
               if (comma != std::string::npos) {
                 int newX = std::stoi(std::string(tag.substr(5, comma - 5)));
                 int newY = std::stoi(std::string(tag.substr(comma + 1, tag.find(')') - comma - 1)));
-                cursorX = config.x + newX;
-                cursorY = config.y + newY;
+                cursorX = cfg.x + newX;
+                cursorY = cfg.y + newY;
                 tft.setCursor(cursorX, cursorY);
               }
             }
@@ -1599,7 +1596,7 @@ void drawVisibleLines() {
           charsProcessed++;
           cursorX += charWidth;
         }
-        if (cursorX > config.x + config.width - 2)
+        if (cursorX > cfg.x + cfg.width - 2)
           break;
       }
       // Flush any remaining text in the segment for the line
@@ -1625,8 +1622,8 @@ void updateWrappedLines() {
 
 
     wrappedLines.clear();
-    int baseCharWidth = 6 * config.TextSize;
-    int maxCharsPerLine = (config.width - 4) / baseCharWidth;
+    int baseCharWidth = 6 * cfg.TextSize;
+    int maxCharsPerLine = (cfg.width - 4) / baseCharWidth;
 
     // Reserve some capacity for the current line to avoid repeated reallocations.
     std::string currentLine;
@@ -1815,7 +1812,7 @@ public:
         }
 
         // Clear Window from screen
-        TFillRect(Win->config.x, Win->config.y, Win->config.width, Win->config.height, 0x0000);
+        TFillRect(Win->cfg.x, Win->cfg.y, Win->cfg.width, Win->cfg.height, 0x0000);
     }
 
 /*
@@ -1827,7 +1824,7 @@ Serial.print("something deleted a Window.\n"); }
     void clearAllWindows() {
         for (auto& entry : WindowRegistry) {
             if (auto winPtr = entry.windowWeakPtr.lock()) {
-                TFillRect(winPtr->config.x, winPtr->config.y, winPtr->config.width, winPtr->config.height, 0x0000);
+                TFillRect(winPtr->cfg.x, winPtr->cfg.y, winPtr->cfg.width, winPtr->cfg.height, 0x0000);
             }
         }
         WindowRegistry.clear();  // Smart pointers clean up automatically
