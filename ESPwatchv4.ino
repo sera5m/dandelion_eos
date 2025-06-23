@@ -24,7 +24,7 @@
 int _dbg_ypos = 0;  // screen Y cursor
 
 
-#include "watch_Settings.h" //configuration file for settings
+//#include "watch_Settings.h" //configuration file for settings
 
 #include <SPI.h>
 SPIClass spiBus(HSPI);
@@ -118,6 +118,97 @@ extern int AVG_HR;
 //fuckj this were gonna put it wice
 // Globals.cpp or at the top of your main .ino (outside setup and loop)
 
+//default colors for face
+//tpallt means theme pallette
+typedef struct {
+    uint16_t primary;
+    uint16_t secondary;
+    uint16_t tertiary;  
+    uint16_t highlight;
+    uint16_t background;
+} ui_color_pallette;
+
+//default theme, plain
+ui_color_pallette UITHM_mint{
+    0x07ff, //teal
+    0x77f9, //i can't find a good green
+    0xe4ff,//lavender
+    0xd7fd,//very light green highlight
+    0x29e6//background
+};
+// Other themes
+ui_color_pallette UITHM_hacker = {
+    0x07E0, // green
+    0x0000, // black
+    0x4208, // dark gray
+    0x07F0, // neon green
+    0x0000  // black
+};
+
+ui_color_pallette UITHM_specOps = {
+    0x8803, // deep red
+    0x0001, // near black purple
+    0x300F, // deep indigo
+    0xF805, // ops pink
+    0x0000  // black
+};
+
+ui_color_pallette UITHM_terminal = {
+    0x07E0, // terminal green
+    0x0000, // black
+    0x4208, // old screen gray
+    0xC618, // light gray
+    0x0000  // black
+};
+ui_color_pallette UITHM_userCustom = {
+    0x07EF, 
+    0x0000, 
+    0x4208, 
+    0xFCCF, 
+    0x0000  
+};
+
+
+
+uint16_t tcol_primary=0x07E0;
+uint16_t tcol_secondary=0xCCCC;
+uint16_t tcol_tertiary=0x4208;
+uint16_t tcol_highlight=0xF805;
+uint16_t tcol_background=0x29e6;
+
+enum list_Themes{mint,hacker,specOps,terminal,userCustom};
+
+
+void SetDeviceTheme(list_Themes theme) {
+ui_color_pallette selectedTheme;
+
+    switch (theme) {
+        case mint:
+            selectedTheme = UITHM_mint;
+            break;
+        case hacker:
+            selectedTheme = UITHM_hacker;
+            break;
+        case specOps:
+            selectedTheme = UITHM_specOps;
+            break;
+        case terminal:
+            selectedTheme = UITHM_terminal;
+            break;
+        case userCustom:
+            // Handle custom theme loading here
+            return; // Skip the rest if custom
+    }
+
+    // Apply the selected theme
+    tcol_primary   = selectedTheme.primary;
+    tcol_secondary = selectedTheme.secondary;
+    tcol_tertiary  = selectedTheme.tertiary;
+    tcol_highlight = selectedTheme.highlight;
+    tcol_background= selectedTheme.background;
+    //warning no auto refresh
+    }//end fn
+
 
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
 bool deviceIsAwake=true;
@@ -137,7 +228,7 @@ bool IsScreenOn=true;
 
 #include <atomic>
 
-enum WatchMode {
+typedef enum{
     WM_MAIN, //THE general lock screen
     //other modes
     WM_STOPWATCH, 
@@ -148,13 +239,7 @@ enum WatchMode {
     WM_NTP_SYNCH, 
     WM_SET_TIME,
     WM_SET_TIMEZONE
-};
-uint16_t tcol_primary=0x07E0;
-uint16_t tcol_secondary=0xCCCC;
-uint16_t tcol_tertiary=0x4208;
-uint16_t tcol_highlight=0xF805;
-uint16_t tcol_background=0x29e6;
-//var references to set for the theme
+}WatchMode;
 
 list_Themes Current_Theme=mint; //set the current theme to a nice default
 
@@ -250,6 +335,58 @@ void scanI2C() {
 
 }
 
+int WatchScreenUpdateInterval=500;
+
+void WatchScreenTransition(WatchMode newmode){
+                switch (newmode){
+
+                case WM_MAIN:{
+                WatchScreenUpdateInterval=500;
+                //update bg?
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height); lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y); //reset to original config size reguardless of original config
+                    break;
+                }//30 minutes of debugging resulted in this } i swear
+                case WM_STOPWATCH: {
+                    WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
+                    lockscreen_clock->ResizeWindow(d_ls_c_cfg.width+14, d_ls_c_cfg.height);//expand for more digits, .xyz expand by 14 pixels
+                     lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y);//move 14 pixels to the left to offset more digits.
+                                                        //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
+                    break;
+                }
+
+                case WM_ALARMS:
+                    // TODO: Display upcoming alarms or alarm setup screen
+
+                    break;
+
+                case WM_TIMER:
+                    // TODO: Display remaining timer or timer setup
+
+                    break;
+
+                case WM_NTP_SYNCH:
+
+                    break;
+
+                case WM_SET_TIME:
+
+                    break;
+
+                case WM_SET_TIMEZONE:
+
+                    break;
+
+                default:
+                    Serial.println("Unknown WatchMode!");
+                    WatchScreenUpdateInterval=600;
+                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                    break;
+            }//end switch
+
+}//end fn
+
+
+
 
 void setup() {
 
@@ -262,7 +399,6 @@ void setup() {
     
 
   delay(100); // Let this Bitch™ boot
-//SetDeviceTheme(mint); //apply and boot
 
     _dbg_ypos = 0; // Reset debug print position
     spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
@@ -344,14 +480,14 @@ DBG_PRINTLN("hr sensor ok");
 
 
    // DBG_PRINTLN("Thermo OK");
-   /*
-SetDeviceTheme(mint);//change the color pallette refs
+   
+SetDeviceTheme(Current_Theme);//change the color pallette refs
 
 TFillRect(0,0,128,128,tcol_background);//black screen out
 
 
 windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
-*/
+
 
 
 processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
@@ -372,60 +508,6 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
     delay(100);
 
 }//end void setup
-
-    int WatchScreenUpdateInterval=500;
-
-void WatchScreenTransition(WatchMode newmode){
-                switch (newmode){
-
-
-
-                case WM_MAIN:
-                WatchScreenUpdateInterval=500;
-                //update bg?
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height); lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y); //reset to original config size reguardless of original config
-                    break;
-
-                case WM_STOPWATCH: {
-                    WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
-                    lockscreen_clock->ResizeWindow(d_ls_c_cfg.width+14, d_ls_c_cfg.height);//expand for more digits, .xyz expand by 14 pixels
-                     lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y);//move 14 pixels to the left to offset more digits.
-                                                        //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
-                    break;
-                }
-
-                case WM_ALARMS:
-                    // TODO: Display upcoming alarms or alarm setup screen
-
-                    break;
-
-                case WM_TIMER:
-                    // TODO: Display remaining timer or timer setup
-
-                    break;
-
-                case WM_NTP_SYNCH:
-
-                    break;
-
-                case WM_SET_TIME:
-
-                    break;
-
-                case WM_SET_TIMEZONE:
-
-                    break;
-
-                default:
-                    Serial.println("Unknown WatchMode!");
-                    WatchScreenUpdateInterval=600;
-                    lockscreen_clock->updateContent("ERROR: Bad Mode");
-                    break;
-            }//end switch
-
-}//end fn
-
-
 
 
 
