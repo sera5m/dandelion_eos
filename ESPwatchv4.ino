@@ -5,7 +5,8 @@
 #include "USB.h"
 #include "USBCDC.h"
 #include <Wire.h>
-
+#include "esp_heap_caps.h"
+#include "driver/spi_master.h"
 
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
@@ -25,10 +26,18 @@ int _dbg_ypos = 0;  // screen Y cursor
 
 
 //#include "watch_Settings.h" //configuration file for settings
+spi_device_handle_t oledSpiHandle;
+spi_device_handle_t sdSpiHandle;
+spi_device_handle_t nfcSpiHandle;
+//note otta put the fucking 
+//get fuckleries going
+#define SPANBUF_SIZE 64
+uint16_t* dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
 
-#include <SPI.h>
-SPIClass spiBus(HSPI);
+//#include <SPI.h>
+//SPIClass spiBus(HSPI);
 
+//
 
 //esp32 specifiic
 #include "esp_pm.h"
@@ -53,9 +62,31 @@ SPIClass spiBus(HSPI);
 #include "HardwareSerial.h"
 
 //arduino compats
-#include <Wire.h>
+
 #include <time.h>
 #include <stdio.h>
+
+
+//time
+#include "mdl_clock.h"
+
+//storate
+#include "SDFS.ino"
+#include <SD.h> //esp specific lib
+#include <nvs_flash.h>
+#include <nvs.h>
+
+#include <pgmspace.h>
+
+
+
+
+//include my own stuff
+ //#include "AT_SSD1351.ino"
+#include "Micro2D_A.ino"  // The library
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
 
 
 
@@ -85,32 +116,10 @@ MAX30105 particleSensor;//particle sensor object
 #include "mdl_accelerometer.ino"
 #define IMU_ADDRESS 0x68    //0x68 is the imu adress, if it needs to be fixed do that later
 //#define PERFORM_CALIBRATION //Comment to disable startup calibration
-MPU6500 IMU;               //Change to the name of any supported IMU! -extern so we can access this in accel module
+MPU6500 IMU;               //Change to the name of any supported IMU! 
 calData calib = { 0 };  //Calibration data
 AccelData imuAccel;      //Sensor data
 GyroData gyroData;
-
-
-//time
-#include "mdl_clock.h"
-
-//storate
-#include "SDFS.ino"
-#include <SD.h> //esp specific lib
-#include <nvs_flash.h>
-#include <nvs.h>
-
-#include <pgmspace.h>
-
-
-
-
-//include my own stuff
- //#include "AT_SSD1351.ino"
-#include "Micro2D_A.ino"  // The library
-
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1351.h>
 
 int16_t temp_c=69;
 extern int AVG_HR;
@@ -119,17 +128,44 @@ extern int AVG_HR;
 // Globals.cpp or at the top of your main .ino (outside setup and loop)
 
 //default colors for face
-//tpallt means theme pallette
-typedef struct {
+//tpallt means theme palette
+uint16_t tcol_primary = 0x07E0;
+uint16_t tcol_secondary = 0xCCCC;
+uint16_t tcol_tertiary = 0x4208;
+uint16_t tcol_highlight = 0xF805;
+uint16_t tcol_background = 0x29D7;
+
+//“dummy” object for GFX primitives
+class MySSD1351 : public Adafruit_SSD1351 {
+public:
+  using Adafruit_SSD1351::Adafruit_SSD1351;
+protected:
+  void writeCommand(uint8_t c) {
+    spi_transaction_t t = {};
+    t.length = 8;
+    t.tx_buffer = &c;
+    gpio_set_level(OLED_DC, 0);
+    spi_device_transmit(oledSpiHandle, &t);
+  }
+  void writeData(uint8_t *data, int len) {
+    spi_transaction_t t = {};
+    t.length = len * 8;
+    t.tx_buffer = data;
+    gpio_set_level(OLED_DC, 1);
+    spi_device_transmit(oledSpiHandle, &t);
+  }
+};
+/*
+typedef struct{
     uint16_t primary;
-    uint16_t secondary;
+    uint16_t secondary; 
     uint16_t tertiary;  
     uint16_t highlight;
     uint16_t background;
-} ui_color_pallette;
+}ui_color_palette;
 
 //default theme, plain
-ui_color_pallette UITHM_mint{
+ui_color_palette UITHM_mint{
     0x07ff, //teal
     0x77f9, //i can't find a good green
     0xe4ff,//lavender
@@ -137,7 +173,7 @@ ui_color_pallette UITHM_mint{
     0x29e6//background
 };
 // Other themes
-ui_color_pallette UITHM_hacker = {
+ui_color_palette UITHM_hacker = {
     0x07E0, // green
     0x0000, // black
     0x4208, // dark gray
@@ -145,7 +181,7 @@ ui_color_pallette UITHM_hacker = {
     0x0000  // black
 };
 
-ui_color_pallette UITHM_specOps = {
+ui_color_palette UITHM_specOps = {
     0x8803, // deep red
     0x0001, // near black purple
     0x300F, // deep indigo
@@ -153,14 +189,14 @@ ui_color_pallette UITHM_specOps = {
     0x0000  // black
 };
 
-ui_color_pallette UITHM_terminal = {
+ui_color_palette UITHM_terminal = {
     0x07E0, // terminal green
     0x0000, // black
     0x4208, // old screen gray
     0xC618, // light gray
     0x0000  // black
 };
-ui_color_pallette UITHM_userCustom = {
+ui_color_palette UITHM_userCustom = {
     0x07EF, 
     0x0000, 
     0x4208, 
@@ -168,49 +204,64 @@ ui_color_pallette UITHM_userCustom = {
     0x0000  
 };
 
-
-
-uint16_t tcol_primary=0x07E0;
-uint16_t tcol_secondary=0xCCCC;
-uint16_t tcol_tertiary=0x4208;
-uint16_t tcol_highlight=0xF805;
-uint16_t tcol_background=0x29e6;
-
 enum list_Themes{mint,hacker,specOps,terminal,userCustom};
+list_Themes Current_Theme=mint; //set the current theme to a nice default
+
+
 
 
 void SetDeviceTheme(list_Themes theme) {
-ui_color_pallette selectedTheme;
+    // Store the theme in the global so you know what the current one is
+    Current_Theme = theme;
+
+    const ui_color_palette* selectedTheme = nullptr;
 
     switch (theme) {
         case mint:
-            selectedTheme = UITHM_mint;
+            selectedTheme = &UITHM_mint;
             break;
         case hacker:
-            selectedTheme = UITHM_hacker;
+            selectedTheme = &UITHM_hacker;
             break;
         case specOps:
-            selectedTheme = UITHM_specOps;
+            selectedTheme = &UITHM_specOps;
             break;
         case terminal:
-            selectedTheme = UITHM_terminal;
+            selectedTheme = &UITHM_terminal;
             break;
         case userCustom:
-            // Handle custom theme loading here
-            return; // Skip the rest if custom
+            selectedTheme = &UITHM_userCustom;
+            break;
+        default:
+            Serial.println("Unknown theme enum. Defaulting to mint.");
+            selectedTheme = &UITHM_mint;
+            break;
     }
 
-    // Apply the selected theme
-    tcol_primary   = selectedTheme.primary;
-    tcol_secondary = selectedTheme.secondary;
-    tcol_tertiary  = selectedTheme.tertiary;
-    tcol_highlight = selectedTheme.highlight;
-    tcol_background= selectedTheme.background;
-    //warning no auto refresh
-    }//end fn
+    // Null check in case something goes off the rails
+    if (!selectedTheme) {
+        Serial.println("SetDeviceTheme: selectedTheme is null");
+        return;
+    }
 
+    // Apply palette safely
+    tcol_primary    = selectedTheme->primary;
+    tcol_secondary  = selectedTheme->secondary;
+    tcol_tertiary   = selectedTheme->tertiary;
+    tcol_highlight  = selectedTheme->highlight;
+    tcol_background = selectedTheme->background;
+}
 
-Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
+// You should also wrap the ApplyThemeAllWindows call to prevent invalid color usage
+void ApplyCurrentThemeToUI() {
+    // Always apply AFTER SetDeviceTheme
+    if (WinManagerInstance) {
+        WinManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary);
+    }
+}*/
+
+//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
+MySSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, -1, OLED_DC, OLED_RST);
 bool deviceIsAwake=true;
 
 //Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
@@ -226,22 +277,17 @@ static std::shared_ptr<Window> lockscreen_thermometer;
 bool IsScreenOn=true;
 
 
-#include <atomic>
-
 typedef enum{
     WM_MAIN, //THE general lock screen
-    //other modes
     WM_STOPWATCH, 
     WM_ALARMS, //set your alarms, they'll automatically run
     WM_TIMER,
-
-    //settings
-    WM_NTP_SYNCH, 
+    WM_NTP_SYNCH, //settings
     WM_SET_TIME,
     WM_SET_TIMEZONE
 }WatchMode;
 
-list_Themes Current_Theme=mint; //set the current theme to a nice default
+volatile WatchMode currentWatchMode = WM_MAIN;
 
 
 
@@ -251,7 +297,7 @@ WindowCfg d_ls_c_cfg = { //clock
     false, false, //auto align,wraptext
     2, //text size
     true,//borderless?
-    0xCCCC, 0x29e6, 0x07E0, // <-- pass addresses!. colors
+    0xCCCC, 0x29e6, 0x07E0, 
     1000 //update interval ms
 };
 
@@ -278,9 +324,9 @@ WindowCfg d_ls_th_cfg = {//thermometer
 
 
 
-extern QueueHandle_t processInputQueue;
+ QueueHandle_t processInputQueue;
 
-std::atomic<WatchMode> currentWatchMode = WM_MAIN;
+
 bool stopwatchRunning = false;
 unsigned long stopwatchStart = 0;
 
@@ -306,7 +352,7 @@ int currentSecond = 0;
 NormieTime CurrentNormieTime; //real current time
 
 
-QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
+
 
 
 void scanI2C() {
@@ -337,22 +383,192 @@ void scanI2C() {
 
 int WatchScreenUpdateInterval=500;
 
-void WatchScreenTransition(WatchMode newmode){
-                switch (newmode){
 
-                case WM_MAIN:{
+
+
+
+
+void setup() {
+
+//init hspi gigahell
+  // 1) Configure the HSPI bus for DMA
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = SPI_MOSI,
+        .miso_io_num = SPI_MISO,    // SD & NFC need MISO; SSD1351 doesn’t read
+        .sclk_io_num = SPI_SCLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = SPANBUF_SIZE * 2 + 16
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(HSPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+
+    // 2) Attach OLED device (no MISO)
+    spi_device_interface_config_t oledcfg = {
+        .clock_speed_hz = SPI_FREQUENCY_OLED,
+        .mode = 0,
+        .spics_io_num = SPI_CS_OLED,
+        .queue_size = 1,
+        .flags = SPI_DEVICE_NO_DUMMY
+    };
+    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &oledcfg, &oledSpiHandle));
+
+    // 3) Attach SD card
+    spi_device_interface_config_t sdcfg = {
+        .clock_speed_hz = 40000000,      // or whatever your SD uses
+        .mode = 0,
+        .spics_io_num = SPI_CS_SD,
+        .queue_size = 1
+    };
+    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &sdcfg, &sdSpiHandle));
+
+    // 4) Attach PN532
+    spi_device_interface_config_t nfccfg = {
+        .clock_speed_hz = 1000000,       // PN532 typical
+        .mode = 0,
+        .spics_io_num = SPI_CS_NFC,
+        .queue_size = 1
+    };
+    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &nfccfg, &nfcSpiHandle));
+
+//end setup struct+cfg
+    delay(148); 
+    Serial.begin(115200);
+    
+
+  delay(100); // Let this Bitch™ boot
+
+    _dbg_ypos = 0; // Reset debug print position
+    //spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+    
+    screen_on();
+    screen_startup();
+    tft.fillScreen(0x0000);
+    set_orientation(0);
+
+    DBG_PRINTLN("BOOT BEGIN");
+
+Wire.begin(SDA_PIN, SCL_PIN);
+
+        scanI2C();
+
+    SetupHardwareInput();
+    DBG_PRINTLN("Input OK");
+    
+/*
+    DBG_PRINTLN("Checking SD");
+    if (!SD.begin(SPI_CS_SD, spiBus)) {
+        DBG_PRINTLN("SD FAIL 1");
+        for (int i = 0; i < 3; ++i) {
+            delay(500);
+            if (SD.begin(SPI_CS_SD)) {
+                DBG_PRINTLN("SD OK");
+                break;
+            }
+        }
+    } else {
+        DBG_PRINTLN("SD OK 1");
+    }*/
+
+if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    Serial.println("MAX30105 was not found. Please check wiring/power.");
+    DBG_PRINTLN("HRSENSORFAILURE");
+  }
+else{
+  Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
+DBG_PRINTLN("hr sensor ok");
+  if (enableBloodOxygen) {
+    // Configure sensor for blood oxygen mode (Red + IR)
+    byte ledBrightness  = 60;
+    byte sampleAverage  = 4;
+    byte ledMode        = 2;      // Use Red + IR LEDs
+    byte sampleRate     = 100;
+    int pulseWidth      = 411;
+    int adcRange        = 4096;
+    particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
+  } else {
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+  }
+
+  
+}//end else
+
+
+    windowManagerInstance = WindowManager::getWinManagerInstance();
+    if (!windowManagerInstance) {
+        DBG_PRINTLN("WinMgr FAIL");
+        return;
+    } else {
+        DBG_PRINTLN("WinMgr OK");
+    }
+
+
+
+        lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
+    windowManagerInstance->registerWindow(lockscreen_clock);
+    DBG_PRINTLN("Clock OK");
+
+            lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
+    windowManagerInstance->registerWindow(lockscreen_biomon);
+    DBG_PRINTLN("Biomon OK");
+
+        lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
+    windowManagerInstance->registerWindow(lockscreen_thermometer);
+
+
+   // DBG_PRINTLN("Thermo OK");
+   
+//SetDeviceTheme(Current_Theme);//change the color palette refs
+
+TFillRect(0,0,128,128,0x0000);//black screen out
+
+
+//windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
+
+
+
+processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
+xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch screen 
+
+
+    //DBG_PRINTLN("watchscreen task OK");
+    xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); //core 1 sensor updates
+
+
+//evil spagetti
+//processInputQueue = lockscreenQueue;//2. tell input router to use that que
+currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to route to proscesses. we
+
+
+
+    DBG_PRINTLN("SETUP DONE");
+    delay(100);
+
+}//end void setup
+
+
+void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
+switch (desiredMode){
+
+                case WM_MAIN:
                 WatchScreenUpdateInterval=500;
-                //update bg?
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height); lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y); //reset to original config size reguardless of original config
-                    break;
-                }//30 minutes of debugging resulted in this } i swear
-                case WM_STOPWATCH: {
+                //update bg? 
+                lockscreen_clock->updateContent("");//fixes bug with text overflow
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
+
+                break;
+                
+                case WM_STOPWATCH:
                     WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
-                    lockscreen_clock->ResizeWindow(d_ls_c_cfg.width+14, d_ls_c_cfg.height);//expand for more digits, .xyz expand by 14 pixels
-                     lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y);//move 14 pixels to the left to offset more digits.
+                    lockscreen_clock->updateContent("");//fixes bug with text overflow
+                    lockscreen_clock->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
                                                         //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
+                         //resize window and force update as of 6/25/25 have the ability to not force the screen to update, preventing graphical glitches
                     break;
-                }
+                
 
                 case WM_ALARMS:
                     // TODO: Display upcoming alarms or alarm setup screen
@@ -381,135 +597,9 @@ void WatchScreenTransition(WatchMode newmode){
                     WatchScreenUpdateInterval=600;
                     lockscreen_clock->updateContent("ERROR: Bad Mode");
                     break;
-            }//end switch
-
-}//end fn
-
-
-
-
-void setup() {
-
-//set up structs and configs
-
-
-//end setup struct+cfg
-    delay(148); 
-    Serial.begin(115200);
-    
-
-  delay(100); // Let this Bitch™ boot
-
-    _dbg_ypos = 0; // Reset debug print position
-    spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
-    
-    screen_on();
-    screen_startup();
-    tft.fillScreen(tcol_background);
-    set_orientation(0);
-
-    DBG_PRINTLN("BOOT BEGIN");
-
-Wire.begin(SDA_PIN, SCL_PIN);
-
-scanI2C();
-
-    SetupHardwareInput();
-    DBG_PRINTLN("Input OK");
-
-    DBG_PRINTLN("Checking SD");
-    if (!SD.begin(SPI_CS_SD, spiBus)) {
-        DBG_PRINTLN("SD FAIL 1");
-        for (int i = 0; i < 3; ++i) {
-            delay(500);
-            if (SD.begin(SPI_CS_SD)) {
-                DBG_PRINTLN("SD OK");
-                break;
             }
-        }
-    } else {
-        DBG_PRINTLN("SD OK 1");
-    }
 
-if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30105 was not found. Please check wiring/power.");
-    DBG_PRINTLN("HRSENSORFAILURE");
-  }
-else{
-  Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
-DBG_PRINTLN("hr sensor ok");
-  if (enableBloodOxygen) {
-    // Configure sensor for blood oxygen mode (Red + IR)
-    byte ledBrightness  = 60;
-    byte sampleAverage  = 4;
-    byte ledMode        = 2;      // Use Red + IR LEDs
-    byte sampleRate     = 100;
-    int pulseWidth      = 411;
-    int adcRange        = 4096;
-    particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
-  } else {
-    particleSensor.setup();
-    particleSensor.setPulseAmplitudeRed(0x0A);
-    particleSensor.setPulseAmplitudeGreen(0);
-  }
-
-  
 }
-
-
-    windowManagerInstance = WindowManager::getWinManagerInstance();
-    if (!windowManagerInstance) {
-        DBG_PRINTLN("WinMgr FAIL");
-        return;
-    } else {
-        DBG_PRINTLN("WinMgr OK");
-    }
-
-
-
-        lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
-    windowManagerInstance->registerWindow(lockscreen_clock);
-    DBG_PRINTLN("Clock OK");
-
-            lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
-    windowManagerInstance->registerWindow(lockscreen_biomon);
-    DBG_PRINTLN("Biomon OK");
-
-        lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
-    windowManagerInstance->registerWindow(lockscreen_thermometer);
-
-
-   // DBG_PRINTLN("Thermo OK");
-   
-SetDeviceTheme(Current_Theme);//change the color pallette refs
-
-TFillRect(0,0,128,128,tcol_background);//black screen out
-
-
-windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
-
-
-
-processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
-xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch screen 
-
-
-    //DBG_PRINTLN("watchscreen task OK");
-    xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); //core 1 sensor updates
-
-
-//evil spagetti
-//processInputQueue = lockscreenQueue;//2. tell input router to use that que
-currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to route to proscesses. we
-
-
-
-    DBG_PRINTLN("SETUP DONE");
-    delay(100);
-
-}//end void setup
-
-
 
 
 int stopwatchElapsed=0;
@@ -528,12 +618,14 @@ void INPUT_tick(void *pvParameters) {
             switch (uinput.key) {
                 case key_left:
                     currentWatchMode = WM_STOPWATCH;
-                    WatchScreenTransition(WM_STOPWATCH);
+                    
+                    WATCH_SCREEN_TRANSITION(WM_STOPWATCH);
                     break;
                 case key_right:
                 case key_back:
                     currentWatchMode = WM_MAIN;
-                    WatchScreenTransition(WM_MAIN);
+                   // buf=" ";
+                   WATCH_SCREEN_TRANSITION(WM_MAIN);
                     // Do NOT reset stopwatchRunning here (keep state)
                     break;
                 case key_enter:
@@ -568,7 +660,7 @@ if (inputCount > 10) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
-void watchscreen(void *pvParameters) {
+void watchscreen(void *pvParameters) { 
     (void)pvParameters;
 
     // Shared buffers for display
@@ -583,11 +675,11 @@ void watchscreen(void *pvParameters) {
 
             unsigned long now = millis();
 
-            switch (currentWatchMode.load()) {
+            switch (currentWatchMode) {
 
                 case WM_MAIN:
                 WatchScreenUpdateInterval=500;
-                    snprintf(buf, sizeof(buf), "%02d:%02d:%02d<n> %s %d",
+                    snprintf(buf, sizeof(buf), "%02d:%02d<textsize(1)>:%02d<n><textsize(2)>%s %d",
                              CurrentNormieTime.hour,
                              CurrentNormieTime.minute,
                              CurrentNormieTime.second,
@@ -603,7 +695,7 @@ void watchscreen(void *pvParameters) {
                     break;
 
                 case WM_STOPWATCH: {
-                    WatchScreenUpdateInterval=100;//update WAY more frequently at 100ms
+                    WatchScreenUpdateInterval=200;//update WAY more frequently at 200ms
                     unsigned long elapsed;
                     if (stopwatchRunning) {
                         elapsed = stopwatchElapsed + (now - stopwatchStart);
@@ -616,8 +708,7 @@ void watchscreen(void *pvParameters) {
                     unsigned int h  = elapsed / 3600000;
                     unsigned int ms = elapsed % 1000;
 
-                    snprintf(buf, sizeof(buf), "%02u:%02u:%02u.%03u %s", h, m, s, ms,
-                                             stopwatchRunning ? "RUN" : "STOP");
+                    snprintf(buf, sizeof(buf), "%02u:%02u:%02u<n><textsize(1)>.%03u", h, m, s, ms, stopwatchRunning ? "<n><textsize(1)>RUN" : "<n><textsize(1)>STOP");//modes not working i dunno whyyy
 
 
                     lockscreen_clock->updateContent(buf);

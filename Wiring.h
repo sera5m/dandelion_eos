@@ -55,8 +55,8 @@ void StartSPI() {
 //msc hardware configurations
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 128 
-#define SPI_FREQUENCY 40*million 
-#define SPI_FREQUENCY_OLED 20*million //used for spi burst mode things 
+#define SPI_FREQUENCY 28*million 
+#define SPI_FREQUENCY_OLED 18*million //used for spi burst mode things 
 
 //custom hal. bloat is BAD (shocker) but this is arduino ide so we have to take off the baby shoes because pio is evil makefile hell
 #define FGPIO_HIGH(pin) REG_WRITE(GPIO_OUT_W1TS_REG, BIT(pin))

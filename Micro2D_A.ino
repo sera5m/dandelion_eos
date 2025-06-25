@@ -3,7 +3,8 @@
 #ifndef Micro2D_A_H
 #define Micro2D_A_H
 
-
+#include "esp_heap_caps.h"
+#include "driver/spi_master.h"
 #include <memory>
 #include "Wiring.h"
 #include <vector> 
@@ -36,72 +37,69 @@
 
 //other color defaults
 #define PEACH   0xFD20 
-#define MAX_SPAN   ((SCREEN_WIDTH > SCREEN_HEIGHT) ? SCREEN_WIDTH : SCREEN_HEIGHT)
-static uint8_t spanBuf[MAX_SPAN * 2];
 
 extern SPIClass spiBus;
 extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 constexpr int MIN_WINDOW_WIDTH = 18;
 constexpr int MIN_WINDOW_HEIGHT = 12;
-
 uint16_t ScreenBackgroundColor=0x0000; //defined in the settings tab, you jerk off. this is just the default. you will have to use this in main and load pallette in main
 
-void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
-  // Early out if nothing to draw
-  if (x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT) return;
+#define MAX_SPAN   ((SCREEN_WIDTH > SCREEN_HEIGHT) ? SCREEN_WIDTH : SCREEN_HEIGHT)
+#define SPANBUF_SIZE 64
+//extern uint16_t* dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA); //it's in main,jagoff. do not enable this goober
 
-  // Clip width and height if going out of bounds
+
+extern spi_device_handle_t oledSpiHandle;
+
+void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
+  if (!dmaBuf) return; // bail if DMA buffer failed
+  if (x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT) return;
   if (x + w > SCREEN_WIDTH) w = SCREEN_WIDTH - x;
   if (y + h > SCREEN_HEIGHT) h = SCREEN_HEIGHT - y;
+  if (w == 0 || h == 0) return;
 
-  uint8_t hi = color >> 8, lo = color & 0xFF;
-  uint32_t totalPixels = (uint32_t)w * h;
-
-  // Prepare batch buffer (color repeated)
-  static uint8_t buf[BATCH_SIZE * 2];
-  for (int i = 0; i < BATCH_SIZE; ++i) {
-    buf[2 * i]     = hi;
-    buf[2 * i + 1] = lo;
+  // Fill the DMA buffer with desired color
+  for (int i = 0; i < SPANBUF_SIZE; ++i) {
+    dmaBuf[i] = color;
   }
 
-  // --- START TIMER ---
-  //unsigned long start = millis();
-  
-  spiBus.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));
+  for (uint8_t row = y; row < y + h; ++row) {
+    // Set column and row window
+    uint8_t colCmd[] = { 0x15, x, uint8_t(x + w - 1) };   // Set column
+    uint8_t rowCmd[] = { 0x75, row, row };               // Set row
+    uint8_t ramCmd   = 0x5C;                             // Write RAM
 
-  // Select OLED (CS low)
-  FGPIO_LOW(SPI_CS_OLED);
-  FGPIO_LOW(OLED_DC);
-  spiBus.write(0x15);  // Set column address
-  FGPIO_HIGH(OLED_DC);
-  spiBus.write(x);
-  spiBus.write(x + w - 1);
+    spi_transaction_t t = {};
+    t.length = 8 * sizeof(colCmd);
+    t.tx_buffer = colCmd;
+    t.user = (void*)0;  // You can use this if you want to toggle DC line in pre/post callbacks
+    spi_device_transmit(oledSpiHandle, &t);
 
-  FGPIO_LOW(OLED_DC);
-  spiBus.write(0x75);  // Set row address
-  FGPIO_HIGH(OLED_DC);
-  spiBus.write(y);
-  spiBus.write(y + h - 1);
+    t.length = 8 * sizeof(rowCmd);
+    t.tx_buffer = rowCmd;
+    spi_device_transmit(oledSpiHandle, &t);
 
-  FGPIO_LOW(OLED_DC);
-  spiBus.write(0x5C);  // Write RAM
-  FGPIO_HIGH(OLED_DC);
+    t.length = 8;
+    t.tx_buffer = &ramCmd;
+    spi_device_transmit(oledSpiHandle, &t);
 
-  // Write pixel data in chunks
-  uint32_t remaining = totalPixels;
-  while (remaining > 0) {
-    uint32_t cnt = remaining > BATCH_SIZE ? BATCH_SIZE : remaining;
-    spiBus.writeBytes(buf, cnt * 2);
-    remaining -= cnt;
+    // Send the pixel data in batches using DMA
+    uint32_t pixelsRemaining = w;
+    while (pixelsRemaining > 0) {
+      uint32_t batch = (pixelsRemaining > SPANBUF_SIZE) ? SPANBUF_SIZE : pixelsRemaining;
+
+      t = {};
+      t.length = batch * 16; // bits
+      t.tx_buffer = dmaBuf;
+      spi_device_transmit(oledSpiHandle, &t);
+
+      pixelsRemaining -= batch;
+    }
   }
-
-  FGPIO_HIGH(SPI_CS_OLED);  // CS high to end transaction
-  spiBus.endTransaction();
-
-  // --- END TIMER ---
-  //unsigned long end = millis();Serial.print("TFillRect took ");Serial.print(end - start);Serial.println(" ms");
 }
+
+
 
 
 // Draw a vertical line at column x, from row y0 to y1 (inclusive)
@@ -1138,8 +1136,8 @@ void ClearAll() {
 
 
 class Window : public std::enable_shared_from_this<Window> {
-public:
 
+public:
 
     std::string name;       // Window's name
     WindowCfg cfg; //setup the var      // Window configuration
@@ -1160,6 +1158,12 @@ unsigned int lastFrameTime = 0;    // duration of last draw
  uint16_t    win_internal_color_border=0xFFFF;
  uint16_t    win_internal_color_text=0xFFFF;
 
+
+uint16_t win_internal_width=16;
+uint16_t win_internal_height=10;
+uint16_t win_internal_x=32;
+uint16_t win_internal_y=32;
+
     bool IsWindowShown = true;//windows are shown by default on creation
 
        int scrollOffsetX=0; //scroll offsets for these Windows //TODO:MOVE THESE TO PRIVATE
@@ -1175,14 +1179,16 @@ Window(const std::string& WindowName,
   : name(WindowName),
     cfg(windowConfiguration),  // Now correctly using the parameter
     content(initialContent),
-    win_internal_color_background(windowConfiguration.BgColor),
-    win_internal_color_border(windowConfiguration.BorderColor),
-    win_internal_color_text(windowConfiguration.WinTextColor),
-    UpdateTickRate(windowConfiguration.UpdateTickRate)
+    win_internal_color_background(cfg.BgColor),
+    win_internal_color_border(cfg.BorderColor),
+    win_internal_color_text(cfg.WinTextColor),
+    UpdateTickRate(cfg.UpdateTickRate)
     {
     //GET THE FUCKING SIZE
-    if (this->cfg.width  < MIN_WINDOW_WIDTH)  this->cfg.width  = MIN_WINDOW_WIDTH;
-    if (this->cfg.height < MIN_WINDOW_HEIGHT) this->cfg.height = MIN_WINDOW_HEIGHT;
+win_internal_width  = std::max<int>(MIN_WINDOW_WIDTH, cfg.width);
+win_internal_height = std::max<int>(MIN_WINDOW_HEIGHT, cfg.height);
+win_internal_x=cfg.x;
+win_internal_y=cfg.y;
 }
 
 
@@ -1222,10 +1228,6 @@ void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
 
 //why didn't i add this before
 void SetBgColor(uint16_t newColor) {
-    if(newColor > 0xFFFF) {
-        Serial.println("Invalid color value!");
-        return;
-    }
     win_internal_color_background = newColor; //sets internal ref, does not alter configs
     dirty = true;
 }
@@ -1249,22 +1251,30 @@ void SetBorderColor(uint16_t newColor) {
 
 
 //scaling
+void ResizeWindow(int newW, int newH,bool fUpdate) {
+    if (win_internal_width == newW && win_internal_height == newH)
+        return;
 
-void ResizeWindow(int newWidth, int newHeight) { 
-    if (cfg.width == newWidth && cfg.height == newHeight) return; // No change, no need to update
-    TFillRect(cfg.x,cfg.y,cfg.width,cfg.height,ScreenBackgroundColor); //fill rect at the old place
-    cfg.width = newWidth;
-    cfg.height = newHeight;
+    // Erase the _old_ area first:
+    TFillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height, ScreenBackgroundColor);
 
-    ForceUpdate(true); // Force a redraw since the size changed. 
+    // Now update your internals:
+    win_internal_width  = newW;
+    win_internal_height = newH;
+
+    // And redraw at the new size:
+    ForceUpdate(fUpdate);
 }
-void MoveWindow(int newX, int newY) { //mofe from old location to new
-    if (cfg.x == newX && cfg.y == newY) return; // No change, no need to update
-    TFillRect(cfg.x,cfg.y,cfg.width,cfg.height,ScreenBackgroundColor);//xywh
-    cfg.x = newX;
-    cfg.y = newY;
+
+
+
+void MoveWindow(int newX, int newY,bool fUpdate) { //mofe from old location to new
+    if (win_internal_x == newX && win_internal_y == newY) return; // No change, no need to update
+    TFillRect(win_internal_x,win_internal_y,win_internal_width,win_internal_height,ScreenBackgroundColor);//xywh
+    win_internal_x = newX;
+    win_internal_y = newY;
     
-    ForceUpdate(true); // Force a redraw since the position changed
+    ForceUpdate(fUpdate); // Force a redraw since the position changed
 }
 
 //================================================================================
@@ -1337,12 +1347,13 @@ accumDY += DY;
         scrollOffsetX += accumDX;
         scrollOffsetY += accumDY;
      int totalTextHeight = wrappedLines.size() * (8 * cfg.TextSize);  // Total height of all the wrapped text
-    int maxOffsetY = (totalTextHeight > cfg.height - 4) ? totalTextHeight - (cfg.height - 4) : 0;
+    int maxOffsetY = (totalTextHeight > win_internal_height - 4) ? totalTextHeight - (win_internal_height - 4) : 0;
     scrollOffsetY = std::max(0, std::min(scrollOffsetY, maxOffsetY));
     
     // Clamp horizontal scroll offset (if needed)
     int totalTextWidth = calculateTotalTextWidth();  // todo: add better logic for this so we can skip ahead in the text
-    int maxOffsetX = (totalTextWidth > cfg.width - 4) ? totalTextWidth - (cfg.width - 4) : 0;
+int maxOffsetX = (totalTextWidth > win_internal_width - 4) ? totalTextWidth - (win_internal_width - 4) : 0;
+
     scrollOffsetX = std::max(0, std::min(scrollOffsetX, maxOffsetX));
         
         // Reset accumulators & update last time stamp BEFORE checking limits
@@ -1363,19 +1374,19 @@ accumDY += DY;
 
 
 void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
-    int stepX = (targetX - cfg.x) / steps;
-    int stepY = (targetY - cfg.y) / steps;
+    int stepX = (targetX - win_internal_x) / steps;
+    int stepY = (targetY - win_internal_y) / steps;
     
     for (int i = 0; i < steps; i++) {
-        cfg.x += stepX;
-        cfg.y += stepY;
+        win_internal_x += stepX;
+        win_internal_y += stepY;
         ForceUpdate(false);
         delay(45); // Small delay to make animation visible
     }
     
     // Ensure final position is exact
-    cfg.x = targetX;
-    cfg.y = targetY;
+    win_internal_x = targetX;
+    win_internal_y = targetY;
     ForceUpdate(true);
 }
 
@@ -1391,19 +1402,19 @@ if (IsWindowShown) {//if the window is shown,draw this
         //Serial.println("bg color is");
 
         //Serial.println(win_internal_color_background); 
-        TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, win_internal_color_background); //fill the Window with the background color
+        TFillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height, win_internal_color_background); //fill the Window with the background color
 
         //Serial.println("filled background");  if (!cfg.borderless) Serial.print("drew border"); 
         //draw background
 
          if(cfg.borderless){
-            drawOutlineRect(cfg.x, cfg.y, cfg.x+cfg.width, cfg.y+cfg.height, win_internal_color_border);
+            drawOutlineRect(win_internal_x, win_internal_y, win_internal_x+win_internal_width, win_internal_y+win_internal_height, win_internal_color_border); //draw a little square around it
           }
 
         //draw lines
 
 
-        //TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, cfg.BorderColor); //draw the rectangle outline
+        //TFillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, cfg.BorderColor); //draw the rectangle outline
         
         // Set text properties
         tft.setTextColor(win_internal_color_text);
@@ -1419,15 +1430,14 @@ if (IsWindowShown) {//if the window is shown,draw this
 
         // Update/draw each canvas only if it's at least partially within the Window.
          for (auto& canvas : canvases) { // Iterate over all canvases
-         if (canvas) { // Ensure the pointer is valid
+         if (canvas){ // Ensure the pointer is valid
             // Calculate the canvas's absolute position relative to the Window.
-            int canvasAbsX = cfg.x + canvas->x;
-            int canvasAbsY = cfg.y + canvas->y;
+            int canvasAbsX = win_internal_x + canvas->x;
+            int canvasAbsY = win_internal_y + canvas->y;
             // Check if the canvas is completely off-screen relative to the Window.
-            if ((canvasAbsX + canvas->width) < cfg.x || canvasAbsX > (cfg.x + cfg.width) ||(canvasAbsY + canvas->height) < cfg.y || canvasAbsY > (cfg.y + cfg.height)) {
-                //(if x> possible and y>possible)
-                continue;  // Skip draWing this canvas if it's entirely off-screen.
-            }//end canvas check statement
+            if ((canvasAbsX + canvas->width) < win_internal_x ||
+    canvasAbsX > (win_internal_x + win_internal_width) ||(canvasAbsY + canvas->height) < win_internal_y || canvasAbsY > (win_internal_y + win_internal_height))  continue;  // Skip draWing this canvas if it's entirely off-screen.
+                }//end canvas check statement
             Serial.println("draw canvas");
             canvas->CanvasUpdate(true);  // Update/draw the canvas. todo: do a better method than force
         }//end if valid statement
@@ -1435,15 +1445,14 @@ if (IsWindowShown) {//if the window is shown,draw this
 
 
   }//end of is window shown?
-    //else { //Serial.println("Window hidden (IsWindowShown = false)");  } //you never know. probably should remove later but... debug print statements are important
-    //Serial.println("void draw done");
 
- }//end void draw
+
+
 
 
  void HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
-  TFillRect(cfg.x, cfg.y, cfg.width, cfg.height,ScreenBackgroundColor);//fill the area with background color to hide it
+  TFillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,ScreenBackgroundColor);//fill the area with background color to hide it
 
         // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
@@ -1487,21 +1496,21 @@ void drawVisibleLines() {
     int charWidth = 6 * currentTextSize;
     int startLine = scrollOffsetY / charHeight;
     int visibleLines = (cfg.height - 4) / charHeight;
-    int y = cfg.y + 2 - (scrollOffsetY % charHeight);
+    int y = win_internal_y + 2 - (scrollOffsetY % charHeight);
 
-    //TFillRect(cfg.x, cfg.y, cfg.width, cfg.height, win_internal_color_background);
+    //TFillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, win_internal_color_background);
     //square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
     //i don't think this should even be here as this is a string drawing function
 
     for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
       const std::string &line = wrappedLines[i];
       int startChar = max(0, scrollOffsetX / charWidth);
-      int visibleChars = (cfg.width - 4) / charWidth;
+      int visibleChars = (win_internal_width - 4) / charWidth;
 
       tft.setTextSize(currentTextSize);
       tft.setTextColor(currentColor);
 
-      int cursorX = cfg.x + 2;
+      int cursorX = win_internal_x + 2;
       int cursorY = y;
       tft.setCursor(cursorX, cursorY);
 
@@ -1529,8 +1538,8 @@ void drawVisibleLines() {
               if (comma != std::string::npos) {
                 int newX = std::stoi(std::string(tag.substr(5, comma - 5)));
                 int newY = std::stoi(std::string(tag.substr(comma + 1, tag.find(')') - comma - 1)));
-                cursorX = cfg.x + newX;
-                cursorY = cfg.y + newY;
+                cursorX = win_internal_x + newX;
+                cursorY = win_internal_y + newY;
                 tft.setCursor(cursorX, cursorY);
               }
             }
@@ -1543,6 +1552,7 @@ void drawVisibleLines() {
                   std::string_view colorStr = tag.substr(start, endParen - start);
                   uint8_t windownewtextsize = std::stoul(std::string(colorStr), nullptr, 8); //bad copied code
                   tft.setTextSize(windownewtextsize);
+                  //todo set current text size here to fix bugs
                 } else {
                   printf("Error: Malformed size tag");
                 }
@@ -1556,7 +1566,7 @@ void drawVisibleLines() {
                 size_t endParen = tag.find(')', start);
                 if (endParen != std::string::npos && endParen > start) {
                   std::string_view colorStr = tag.substr(start, endParen - start);
-                  uint32_t rawColor = std::stoul(std::string(colorStr), nullptr, 16); //shouldn't be 32 bit, colors are 16 bit wtf fix this
+                  uint16_t rawColor = std::stoul(std::string(colorStr), nullptr, 16); //shouldn't be 32 bit, colors are 16 bit wtf fix this
                   uint16_t color16 = rawColor & 0xFFFF;
                   tft.setTextColor(color16);
                 } else {
@@ -1596,7 +1606,7 @@ void drawVisibleLines() {
           charsProcessed++;
           cursorX += charWidth;
         }
-        if (cursorX > cfg.x + cfg.width - 2)
+        if (cursorX > win_internal_x + win_internal_width - 2)
           break;
       }
       // Flush any remaining text in the segment for the line
@@ -1608,6 +1618,7 @@ void drawVisibleLines() {
       currentTextSize = baseTextSize;
       tft.setTextSize(currentTextSize);
       tft.setTextColor(originalWinTexColor);
+      currentColor = originalWinTexColor;//update after proscessing text tags
     }
   }
 }
@@ -1623,7 +1634,7 @@ void updateWrappedLines() {
 
     wrappedLines.clear();
     int baseCharWidth = 6 * cfg.TextSize;
-    int maxCharsPerLine = (cfg.width - 4) / baseCharWidth;
+    int maxCharsPerLine = (win_internal_width - 4) / baseCharWidth;
 
     // Reserve some capacity for the current line to avoid repeated reallocations.
     std::string currentLine;
@@ -1766,7 +1777,7 @@ public:
         IsWindowHandlerAlive = false;
 
         Serial.print("WindowManager destroyed.\n");
-        tft.fillScreen(0x0000);
+        tft.fillScreen(ScreenBackgroundColor);
         tft.print("graphics system disabled");
     }//DEStructor
 
@@ -1776,7 +1787,7 @@ public:
     static WindowManager* getWinManagerInstance() {
         // Only create if graphics are enabled
         if (!AreGraphicsEnabled) {Serial.print("Error: Graphics not enabled. WindowManager will not start.");
-        tft.setCursor(0,64);tft.fillScreen(0x0000);tft.print("err: graphics disabled"); //notify usr
+        tft.setCursor(0,64);tft.fillScreen(ScreenBackgroundColor);tft.print("err: graphics disabled"); //notify usr
             return nullptr;//really hope this doesn't cause a memeory leak
         }
         // Check if WinManagerInstance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
@@ -1812,7 +1823,7 @@ public:
         }
 
         // Clear Window from screen
-        TFillRect(Win->cfg.x, Win->cfg.y, Win->cfg.width, Win->cfg.height, 0x0000);
+        TFillRect(Win->cfg.x, Win->cfg.y, Win->win_internal_width, Win->win_internal_height, ScreenBackgroundColor);
     }
 
 /*
@@ -1824,11 +1835,11 @@ Serial.print("something deleted a Window.\n"); }
     void clearAllWindows() {
         for (auto& entry : WindowRegistry) {
             if (auto winPtr = entry.windowWeakPtr.lock()) {
-                TFillRect(winPtr->cfg.x, winPtr->cfg.y, winPtr->cfg.width, winPtr->cfg.height, 0x0000);
+                TFillRect(winPtr->cfg.x, winPtr->cfg.y, winPtr->cfg.width, winPtr->cfg.height, ScreenBackgroundColor);
             }
         }
         WindowRegistry.clear();  // Smart pointers clean up automatically
-        tft.fillScreen(0x0000);  // Black wipe the whole screen
+        tft.fillScreen(ScreenBackgroundColor);  // Black wipe the whole screen
     }
 
     // Get Window by name
@@ -1909,7 +1920,7 @@ void selfDestructWinManager(){ //for when we need to delete the manager becausse
 //TODO, MAKE SURE I'M PROPERLY KILLING SINGLETON
     clearAllWindows();
   tft.setCursor(0,64);
-  tft.fillScreen(0x0000); 
+  tft.fillScreen(ScreenBackgroundColor); 
   tft.print("graphics disabled"); //put on screen and it should just stay like that till they restart
   Serial.print("shutting down all the fucking graphics. hope you have something to restart it later. try not to call anything when it's shut down.");
   }
