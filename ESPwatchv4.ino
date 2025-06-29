@@ -1,4 +1,5 @@
 //do not touch
+//_Static_assert(Sizeof(oledcfg.clock_speed_hz)==4,"oopsies, clockspeedhz isn't an int");
 #include "Wiring.h" //my hardware definitions
 
 //esp32-s3 hardware
@@ -6,46 +7,13 @@
 #include "USBCDC.h"
 #include <Wire.h>
 #include "esp_heap_caps.h"
-#include "driver/spi_master.h"
+#include "C:\Users\dev\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.4-2f7dcd86-v1\esp32s3\include\esp_driver_spi\include\driver\spi_master.h" //i do not take chances
 
-#define DO_ONCE(name)       \
-    static bool _did_##name = false; \
-    if (!_did_##name)       \
-        for (_did_##name = true; _did_##name; _did_##name = false)
-#define RESET_DO_ONCE(name) (_did_##name = false)
-
-#define DBG_PRINTLN(x)  do { \
-    tft.setCursor(0, _dbg_ypos); \
-    tft.setTextColor(WHITE); \
-    tft.setTextSize(1); \
-    tft.println(x); \
-    _dbg_ypos += 10; \
-} while(0)
-
-int _dbg_ypos = 0;  // screen Y cursor
-
-
-//#include "watch_Settings.h" //configuration file for settings
-spi_device_handle_t oledSpiHandle;
-spi_device_handle_t sdSpiHandle;
-spi_device_handle_t nfcSpiHandle;
-//note otta put the fucking 
-//get fuckleries going
-#define SPANBUF_SIZE 64
-uint16_t* dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
-
-//#include <SPI.h>
-//SPIClass spiBus(HSPI);
-
-//
-
-//esp32 specifiic
 #include "esp_pm.h"
 #include "esp_wifi.h"
 #include "esp_bt.h"
 #include "esp_sleep.h"
 #include "esp_system.h" 
-
 //std 
 #include <stdbool.h>
 #include <cstdlib>  // For rand()
@@ -75,8 +43,57 @@ uint16_t* dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), 
 #include <SD.h> //esp specific lib
 #include <nvs_flash.h>
 #include <nvs.h>
-
 #include <pgmspace.h>
+
+
+/*
+#define DBG_PRINTLN(x)  do { \
+    tft.setCursor(0, _dbg_ypos); \
+    tft.setTextColor(WHITE); \
+    tft.setTextSize(1); \
+    tft.println(x); \
+    _dbg_ypos += 10; \                               
+} while(0)*/
+
+//int _dbg_ypos = 0;  // screen Y cursor
+
+
+//#include "watch_Settings.h" //configuration file for settings
+spi_device_handle_t oledSpiHandle;
+spi_device_handle_t sdSpiHandle;
+spi_device_handle_t nfcSpiHandle;
+//note otta put the fucking 
+//get fuckleries going
+#define SPANBUF_SIZE 64
+#include "esp_heap_caps.h"
+
+if (!esp_spiram_is_initialized()) {
+    printf("PSRAM not initialized!\n");
+    return;
+    //stp[ jere]
+}
+
+size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+printf("Free PSRAM: %d bytes\n", free_psram);
+size_t buffer_size = 16 * 128*128; // screen width*ht*colors
+void* vram_buffer = heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
+if (vram_buffer == NULL) {
+    printf("Failed to allocate PSRAM buffer!\n");
+} else {
+    printf("Allocated %d bytes from PSRAM\n", buffer_size);
+}
+
+
+// === Arduino SPI handle ===
+//#include <SPI.h>
+//#include <Adafruit_PN532.h>
+//SPIClass myHSPI(HSPI);
+//Adafruit_PN532 nfc(myHSPI, SPI_CS_NFC/*SPI_SCK,SPI_MISO,SPI_MOSI,SPI_CS_NFC*/); //unsure if i need to pass hspi because the example showed use of only a chip sel pin
+
+
+// === ESP-IDF SPI device handles ===
+spi_device_handle_t oled_handle;
+spi_device_handle_t sd_handle;
 
 
 
@@ -136,26 +153,8 @@ uint16_t tcol_highlight = 0xF805;
 uint16_t tcol_background = 0x29D7;
 
 //“dummy” object for GFX primitives
-class MySSD1351 : public Adafruit_SSD1351 {
-public:
-  using Adafruit_SSD1351::Adafruit_SSD1351;
-protected:
-  void writeCommand(uint8_t c) {
-    spi_transaction_t t = {};
-    t.length = 8;
-    t.tx_buffer = &c;
-    gpio_set_level(OLED_DC, 0);
-    spi_device_transmit(oledSpiHandle, &t);
-  }
-  void writeData(uint8_t *data, int len) {
-    spi_transaction_t t = {};
-    t.length = len * 8;
-    t.tx_buffer = data;
-    gpio_set_level(OLED_DC, 1);
-    spi_device_transmit(oledSpiHandle, &t);
-  }
-};
-/*
+
+
 typedef struct{
     uint16_t primary;
     uint16_t secondary; 
@@ -163,46 +162,7 @@ typedef struct{
     uint16_t highlight;
     uint16_t background;
 }ui_color_palette;
-
-//default theme, plain
-ui_color_palette UITHM_mint{
-    0x07ff, //teal
-    0x77f9, //i can't find a good green
-    0xe4ff,//lavender
-    0xd7fd,//very light green highlight
-    0x29e6//background
-};
-// Other themes
-ui_color_palette UITHM_hacker = {
-    0x07E0, // green
-    0x0000, // black
-    0x4208, // dark gray
-    0x07F0, // neon green
-    0x0000  // black
-};
-
-ui_color_palette UITHM_specOps = {
-    0x8803, // deep red
-    0x0001, // near black purple
-    0x300F, // deep indigo
-    0xF805, // ops pink
-    0x0000  // black
-};
-
-ui_color_palette UITHM_terminal = {
-    0x07E0, // terminal green
-    0x0000, // black
-    0x4208, // old screen gray
-    0xC618, // light gray
-    0x0000  // black
-};
-ui_color_palette UITHM_userCustom = {
-    0x07EF, 
-    0x0000, 
-    0x4208, 
-    0xFCCF, 
-    0x0000  
-};
+/*
 
 enum list_Themes{mint,hacker,specOps,terminal,userCustom};
 list_Themes Current_Theme=mint; //set the current theme to a nice default
@@ -260,11 +220,11 @@ void ApplyCurrentThemeToUI() {
     }
 }*/
 
-//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST);
-MySSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, -1, OLED_DC, OLED_RST);
+//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC_DIRECT_REF, OLED_RST);
+//MySSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, -1, OLED_DC_DIRECT_REF, OLED_RST);
 bool deviceIsAwake=true;
 
-//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
+//Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC_DIRECT_REF, OLED_RST); //note: &spiBus is required to pass main spi 
 
 //init windows
 WindowManager* windowManagerInstance = nullptr;
@@ -332,9 +292,8 @@ unsigned long stopwatchStart = 0;
 
 
 //nfc-rfid
-#include <Adafruit_PN532.h>
+
 //#include <Adafruit_Sensor.h>
-Adafruit_PN532 nfc(HSPI, SPI_CS_NFC); // Create an instance of the PN532 using hardware SPI
 
 //wireles comunication
 //#include <RadioLib.h>
@@ -365,8 +324,8 @@ void scanI2C() {
     error = Wire.endTransmission();
 
     if (error == 0) {
-      Serial.print("I2C device found at address 0x"); DBG_PRINTLN("ok");
-      Serial.println(address, HEX); DBG_PRINTLN(String(address, HEX));
+      Serial.print("I2C device found at address 0x"); //DBG_PRINTLN("ok");
+      Serial.println(address, HEX); //DBG_PRINTLN(String(address, HEX));
       nDevices++;
     } else if (error == 4) {
       Serial.print("Unknown error at 0x");// DBG_PRINTLN("err at");
@@ -375,61 +334,101 @@ void scanI2C() {
   }
 
   if (nDevices == 0){
-    Serial.println("No I2C devices found\n"); DBG_PRINTLN("0I2c devices"); }
-  else{
-    Serial.println("I2C scan complete\n"); DBG_PRINTLN("I2C done");}
+    Serial.println("No I2C devices found\n"); //DBG_PRINTLN("0I2c devices"); 
+    } else{
+    Serial.println("I2C scan complete\n"); //DBG_PRINTLN("I2C done");
+    }
 
 }
 
 int WatchScreenUpdateInterval=500;
 
-
-
-
+//please for the love of christ use c++20 designated initializers to avoid old 8 bit c header legacy dogshit or the arduino ide preproscessor will eat your fucking lunch
+// and try narrowing this EVEN THOUGH the struct itself for this in spi_mater.h 
+//located at esp32-s3 C:\Users\user\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.4-2f7dcd86-v1\esp32s3\include\esp_driver_spi\include\driver\spi_master.h
+//sory linux bros i don't know where that is on here
 
 
 void setup() {
 
+
 //init hspi gigahell
-  // 1) Configure the HSPI bus for DMA
-    spi_bus_config_t buscfg = {
+spi_bus_config_t buscfg = {
         .mosi_io_num = SPI_MOSI,
-        .miso_io_num = SPI_MISO,    // SD & NFC need MISO; SSD1351 doesn’t read
-        .sclk_io_num = SPI_SCLK,
+        .miso_io_num = SPI_MISO,
+        .sclk_io_num = SPI_CLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = SPANBUF_SIZE * 2 + 16
+        .max_transfer_sz = SPANBUF_SIZE * 3 + 16
     };
-    ESP_ERROR_CHECK(spi_bus_initialize(HSPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+      esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  if (ret != ESP_OK) {
+    Serial.printf("spi_bus_initialize failed: %d\n", ret);
+    while (1);
+  }
+    // On ESP32-S3, use SPI2_HOST for what Arduino calls HSPI
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-    // 2) Attach OLED device (no MISO)
-    spi_device_interface_config_t oledcfg = {
-        .clock_speed_hz = SPI_FREQUENCY_OLED,
-        .mode = 0,
-        .spics_io_num = SPI_CS_OLED,
-        .queue_size = 1,
-        .flags = SPI_DEVICE_NO_DUMMY
-    };
-    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &oledcfg, &oledSpiHandle));
 
-    // 3) Attach SD card
+// 1) Attach OLED device
+spi_device_interface_config_t oledcfg = {
+    .command_bits = 0,
+    .address_bits = 0,
+    .dummy_bits = 0,
+    .mode = 0,
+    .clock_source = SPI_CLK_SRC_DEFAULT,
+    .duty_cycle_pos = 128,  // 50% duty cycle
+    .cs_ena_pretrans = 0,
+    .cs_ena_posttrans = 0,
+    .clock_speed_hz = 26666666,  // 26.6MHz
+    .input_delay_ns = 0,
+    .spics_io_num = SPI_CS_OLED,
+    .flags = SPI_DEVICE_NO_DUMMY,
+    .queue_size = 1,
+    .pre_cb = nullptr,
+    .post_cb = nullptr
+};
+
+    //ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &oledcfg, &oledSpiHandle));
+
+// 2) Attach SD card
+
     spi_device_interface_config_t sdcfg = {
-        .clock_speed_hz = 40000000,      // or whatever your SD uses
-        .mode = 0,
-        .spics_io_num = SPI_CS_SD,
-        .queue_size = 1
+    .command_bits = 0,
+    .address_bits = 0,
+    .dummy_bits = 0,
+    .mode = 0,
+    .clock_source = SPI_CLK_SRC_DEFAULT,
+    .duty_cycle_pos = 128,  // 50% duty cycle
+    .cs_ena_pretrans = 0,
+    .cs_ena_posttrans = 0,
+    .clock_speed_hz = 26666666,  // 26.6MHz
+    .input_delay_ns = 0,
+    .spics_io_num = SPI_CS_SD,
+    .flags = SPI_DEVICE_NO_DUMMY,
+    .queue_size = 1,
+    .pre_cb = nullptr,
+    .post_cb = nullptr
     };
-    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &sdcfg, &sdSpiHandle));
+    ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &sdcfg, &sdSpiHandle));
 
-    // 4) Attach PN532
-    spi_device_interface_config_t nfccfg = {
-        .clock_speed_hz = 1000000,       // PN532 typical
-        .mode = 0,
-        .spics_io_num = SPI_CS_NFC,
-        .queue_size = 1
-    };
-    ESP_ERROR_CHECK(spi_bus_add_device(HSPI_HOST, &nfccfg, &nfcSpiHandle));
+  // === 3) Init Arduino SPI wrapper on same HSPI bus ===
+  // This does NOT re-init the bus — it just binds the pins.
+  //myHSPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, -1);
 
+  // === 4) Init Adafruit PN532 ===
+  /*
+  if (!nfc.begin()) {
+    Serial.println("PN532 init failed!");
+  }
+  else{
+  Serial.println("PN532 init OK");}*/
+
+app_main();
+//allocate buffer for screen writing. yes, it's tiny for low ram use
+
+
+ //   ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &nfccfg, &nfcSpiHandle));
 //end setup struct+cfg
     delay(148); 
     Serial.begin(115200);
@@ -437,22 +436,22 @@ void setup() {
 
   delay(100); // Let this Bitch™ boot
 
-    _dbg_ypos = 0; // Reset debug print position
+   // _dbg_ypos = 0; // Reset debug print position
     //spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
     
     screen_on();
     screen_startup();
-    tft.fillScreen(0x0000);
-    set_orientation(0);
+    tft_Fillscreen(0x0000);
+   // set_orientation(0);
 
-    DBG_PRINTLN("BOOT BEGIN");
+    //DBG_PRINTLN("BOOT BEGIN");
 
 Wire.begin(SDA_PIN, SCL_PIN);
 
         scanI2C();
 
     SetupHardwareInput();
-    DBG_PRINTLN("Input OK");
+    //DBG_PRINTLN("Input OK");
     
 /*
     DBG_PRINTLN("Checking SD");
@@ -471,11 +470,11 @@ Wire.begin(SDA_PIN, SCL_PIN);
 
 if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("MAX30105 was not found. Please check wiring/power.");
-    DBG_PRINTLN("HRSENSORFAILURE");
+    //DBG_PRINTLN("HRSENSORFAILURE");
   }
 else{
   Serial.println("Place your index finger or wrist on the sensor with steady pressure.");
-DBG_PRINTLN("hr sensor ok");
+//DBG_PRINTLN("hr sensor ok");
   if (enableBloodOxygen) {
     // Configure sensor for blood oxygen mode (Red + IR)
     byte ledBrightness  = 60;
@@ -497,27 +496,27 @@ DBG_PRINTLN("hr sensor ok");
 
     windowManagerInstance = WindowManager::getWinManagerInstance();
     if (!windowManagerInstance) {
-        DBG_PRINTLN("WinMgr FAIL");
+        //DBG_PRINTLN("WinMgr FAIL");
         return;
     } else {
-        DBG_PRINTLN("WinMgr OK");
+        //DBG_PRINTLN("WinMgr OK");
     }
 
 
 
         lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
     windowManagerInstance->registerWindow(lockscreen_clock);
-    DBG_PRINTLN("Clock OK");
+    //DBG_PRINTLN("Clock OK");
 
             lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
     windowManagerInstance->registerWindow(lockscreen_biomon);
-    DBG_PRINTLN("Biomon OK");
+    //DBG_PRINTLN("Biomon OK");
 
         lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
     windowManagerInstance->registerWindow(lockscreen_thermometer);
 
 
-   // DBG_PRINTLN("Thermo OK");
+   // //DBG_PRINTLN("Thermo OK");
    
 //SetDeviceTheme(Current_Theme);//change the color palette refs
 
@@ -532,7 +531,7 @@ processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
 xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch screen 
 
 
-    //DBG_PRINTLN("watchscreen task OK");
+    ////DBG_PRINTLN("watchscreen task OK");
     xTaskCreatePinnedToCore(INPUT_tick, "INPUT_tick", 2048, NULL, 2, NULL, 1); //core 1 sensor updates
 
 
@@ -542,7 +541,7 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
 
 
 
-    DBG_PRINTLN("SETUP DONE");
+    //DBG_PRINTLN("SETUP DONE");
     delay(100);
 
 }//end void setup

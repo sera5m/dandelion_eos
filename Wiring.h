@@ -8,8 +8,10 @@
 
 
 #define SPI_SCK   12 //may aslo be called clk
-#define SPI_MOSI  11
-#define SPI_MISO  13
+#define SPI_CLK 12 //UGH
+
+#define SPI_MOSI  11//aster out slave in
+#define SPI_MISO  13//master in slave out
 
 
 #define BUZZER_PIN 2
@@ -17,10 +19,7 @@
 
 //spi needs seperate cs for each chip 
 #define SPI_CS_NFC 10 //PN532
-
 #define SPI_CS_OLED 17//SSD 1351 oled display, 128*128 16 bit color
-
-
 //#define SPI_CS_RADIO //cc1101 chipset 
 #define SPI_CS_SD 6 //generic sdcard on g6
 
@@ -28,19 +27,19 @@
 //i2c pins
 //hardware known connected: max30012 hr sensor, mpu6050 gyro, 
 #define SDA_PIN 8
-#define SCL_PIN 9
-
+#define SCL_PIN 9//if i read the data right these are also acessable by the ulp co-proscessor
 
 //other pins
 #define IRQ 16 //notify from input devices
 
 #define OLED_DC 4
+#define OLED_DC_DIRECT_REF GPIO_NUM_4
 #define OLED_RST 5
 
 #define NEOPIXEL_PIN 48 
 
 //warning undefined
-#define IR_IO_Pin
+#define IR_IO_Pin 46
 
 //you may be wondering why i'm abstracting this. keep wondering. 
 
@@ -56,7 +55,7 @@ void StartSPI() {
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 128 
 #define SPI_FREQUENCY 28*million 
-#define SPI_FREQUENCY_OLED 18*million //used for spi burst mode things 
+#define SPI_FREQUENCY_OLED 18000000 //used for spi burst mode things 
 
 //custom hal. bloat is BAD (shocker) but this is arduino ide so we have to take off the baby shoes because pio is evil makefile hell
 #define FGPIO_HIGH(pin) REG_WRITE(GPIO_OUT_W1TS_REG, BIT(pin))

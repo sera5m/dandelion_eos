@@ -38,72 +38,240 @@
 //other color defaults
 #define PEACH   0xFD20 
 
-extern SPIClass spiBus;
-extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
+//extern SPIClass spiBus;
+//extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this not treated as a global object from the fucking screen setup*/
 
 constexpr int MIN_WINDOW_WIDTH = 18;
 constexpr int MIN_WINDOW_HEIGHT = 12;
 uint16_t ScreenBackgroundColor=0x0000; //defined in the settings tab, you jerk off. this is just the default. you will have to use this in main and load pallette in main
 
-#define MAX_SPAN   ((SCREEN_WIDTH > SCREEN_HEIGHT) ? SCREEN_WIDTH : SCREEN_HEIGHT)
-#define SPANBUF_SIZE 64
-//extern uint16_t* dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA); //it's in main,jagoff. do not enable this goober
 
 
+static uint16_t* colBuf = (uint16_t*)heap_caps_malloc(8 * sizeof(uint16_t), MALLOC_CAP_DMA);//this is for the text rendering, and may be fucky because this is before the dmaa line writer code
+extern const uint8_t font5x7[256][5];//ref that font in the other thing
 extern spi_device_handle_t oledSpiHandle;
 
-void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
-  if (!dmaBuf) return; // bail if DMA buffer failed
-  if (x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT) return;
-  if (x + w > SCREEN_WIDTH) w = SCREEN_WIDTH - x;
-  if (y + h > SCREEN_HEIGHT) h = SCREEN_HEIGHT - y;
-  if (w == 0 || h == 0) return;
 
-  // Fill the DMA buffer with desired color
-  for (int i = 0; i < SPANBUF_SIZE; ++i) {
-    dmaBuf[i] = color;
+
+void OLED_sendCommand(const uint8_t *data, size_t len) {
+  gpio_set_level(OLED_DC_DIRECT_REF, 0); // Command mode
+  spi_transaction_t t = {};
+  t.length = 8 * len;
+  t.tx_buffer = data;
+  spi_device_transmit(oledSpiHandle, &t);
+}
+
+void OLED_sendData(const void *data, size_t bits) {
+  gpio_set_level(OLED_DC_DIRECT_REF, 1); // Data mode
+  spi_transaction_t t = {};
+  t.length = bits;
+  t.tx_buffer = data;
+  spi_device_transmit(oledSpiHandle, &t);
+}
+
+void OLED_transaction_start(uint8_t x, uint8_t y, uint8_t w, uint8_t h) {
+  uint8_t colCmd[] = { 0x15, x, uint8_t(x + w - 1) };
+  uint8_t rowCmd[] = { 0x75, y, uint8_t(y + h - 1) };
+  uint8_t ramCmd = 0x5C;
+
+  OLED_sendCommand(colCmd, sizeof(colCmd));
+  OLED_sendCommand(rowCmd, sizeof(rowCmd));
+  OLED_sendCommand(&ramCmd, 1);
+}
+
+
+void OLED_transaction_end() {
+  // Nothing special for SSD1351
+}
+
+
+void OLED_reset() {
+  gpio_set_level(OLED_RES_PIN, 0);
+  vTaskDelay(pdMS_TO_TICKS(20));
+  gpio_set_level(OLED_RES_PIN, 1);
+  vTaskDelay(pdMS_TO_TICKS(20));
+}
+
+void OLED_sendInitSequence() {
+  // ⚡ EXAMPLE SSD1351 sequence — adjust as needed.
+  uint8_t cmds[][2] = {
+    {0xFD, 0x12},   // Unlock command lock
+    {0xFD, 0xB1},   // Unlock all commands
+    {0xAE, 0x00},   // Display off
+    {0xB3, 0xF1},   // Clock div
+    {0xCA, 0x7F},   // MUX ratio 127
+    {0xA0, 0x74},   // Color depth, remap
+    {0x15, 0x00},   // Set column address range start
+    {0x75, 0x00},   // Set row address range start
+    {0xA1, 0x00},   // Display start line
+    {0xA2, 0x00},   // Display offset
+    {0xB5, 0x00},   // GPIO
+    {0xAB, 0x01},   // VDD regulator on
+    {0xB1, 0x32},   // Pre-charge
+    {0xBE, 0x05},   // VCOMH
+    {0xA6, 0x00},   // Normal display
+    {0xAF, 0x00}    // Display ON
+  };
+
+  for (int i = 0; i < sizeof(cmds) / sizeof(cmds[0]); ++i) {
+    OLED_sendCommand(&cmds[i][0], 1);
+    if (cmds[i][1] != 0x00) {
+      OLED_sendCommand(&cmds[i][1], 1);
+    }
+  }
+}
+
+void OLED_init() {
+  // GPIO init
+  gpio_reset_pin(OLED_DC_DIRECT_REF);
+  gpio_set_direction(OLED_DC_DIRECT_REF, GPIO_MODE_OUTPUT);
+
+  gpio_reset_pin(OLED_RES_PIN);
+  gpio_set_direction(OLED_RES_PIN, GPIO_MODE_OUTPUT);
+
+  // SPI init
+  spi_bus_config_t buscfg = {};
+  buscfg.miso_io_num = -1; // not used
+  buscfg.mosi_io_num = 23; // your MOSI pin
+  buscfg.sclk_io_num = 18; // your CLK pin
+  buscfg.quadwp_io_num = -1;
+  buscfg.quadhd_io_num = -1;
+
+  spi_bus_initialize(HSPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+
+  spi_device_interface_config_t devcfg = {};
+  devcfg.clock_speed_hz = 10 * 1000 * 1000; // 10MHz
+  devcfg.mode = 0;
+  devcfg.spics_io_num = OLED_CS_PIN;
+  devcfg.queue_size = 1;
+
+  spi_bus_add_device(HSPI_HOST, &devcfg, &oledSpiHandle);
+
+  // Reset & init sequence
+  OLED_reset();
+  OLED_sendInitSequence();
+
+  // DMA buffer
+  dmaBuf = (uint16_t*)heap_caps_malloc(SPANBUF_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
+}
+
+
+void drawChar5x7(int cx, int cy, char c,uint16_t fgColor, uint16_t bgColor) {
+
+  uint8_t* glyph = (uint8_t*)font5x7[(uint8_t)c];
+
+  for (int col = 0; col < 5; col++) {
+    uint8_t bits = glyph[col];
+
+    // Build one column of 8 pixels (7 bits + 1 blank row)
+    for (int row = 0; row < 7; row++) {
+      colBuf[row] = (bits & (1 << row)) ? fgColor : bgColor;
+    }
+    // Optional blank bottom pixel for separation
+    colBuf[7] = bgColor;
+
+    // 1) Set column window (single-column wide)
+    uint8_t cmdCol[] = { 0x15, uint8_t(cx + col), uint8_t(cx + col) };
+    spi_transaction_t t = {};
+    t.length   = sizeof(cmdCol) * 8;
+    t.tx_buffer= cmdCol;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
+    spi_device_transmit(oledSpiHandle, &t);
+
+    // 2) Set row window for these 8 pixels
+    uint8_t cmdRow[] = { 0x75, uint8_t(cy), uint8_t(cy + 7) };
+    t = {};
+    t.length    = sizeof(cmdRow) * 8;
+    t.tx_buffer = cmdRow;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
+    spi_device_transmit(oledSpiHandle, &t);
+
+    // 3) RAM-write command
+    uint8_t wr = 0x5C;
+    t = {};
+    t.length    = 8;
+    t.tx_buffer = &wr;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
+    spi_device_transmit(oledSpiHandle, &t);
+
+    // 4) Send the 8 pixels (16 bits each) via DMA
+    t = {};
+    t.length    = 8 * 16;    // 8 pixels × 16 bits
+    t.tx_buffer = colBuf;
+    gpio_set_level(OLED_DC_DIRECT_REF, 1);
+    spi_device_transmit(oledSpiHandle, &t);
   }
 
-  for (uint8_t row = y; row < y + h; ++row) {
-    // Set column and row window
-    uint8_t colCmd[] = { 0x15, x, uint8_t(x + w - 1) };   // Set column
-    uint8_t rowCmd[] = { 0x75, row, row };               // Set row
-    uint8_t ramCmd   = 0x5C;                             // Write RAM
-
+  // 1-pixel spacing column (all bg)
+  for (int row = 0; row < 8; row++) colBuf[row] = bgColor;
+  int spx = cx + 5;
+  {
+    uint8_t cmdCol[] = { 0x15, uint8_t(spx), uint8_t(spx) };
     spi_transaction_t t = {};
-    t.length = 8 * sizeof(colCmd);
-    t.tx_buffer = colCmd;
-    t.user = (void*)0;  // You can use this if you want to toggle DC line in pre/post callbacks
+    t.length    = sizeof(cmdCol) * 8;
+    t.tx_buffer = cmdCol;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
     spi_device_transmit(oledSpiHandle, &t);
 
-    t.length = 8 * sizeof(rowCmd);
-    t.tx_buffer = rowCmd;
+    uint8_t cmdRow[] = { 0x75, uint8_t(cy), uint8_t(cy + 7) };
+    t = {};
+    t.length    = sizeof(cmdRow) * 8;
+    t.tx_buffer = cmdRow;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
     spi_device_transmit(oledSpiHandle, &t);
 
-    t.length = 8;
-    t.tx_buffer = &ramCmd;
+    uint8_t wr = 0x5C;
+    t = {};
+    t.length    = 8;
+    t.tx_buffer = &wr;
+    gpio_set_level(OLED_DC_DIRECT_REF, 0);
     spi_device_transmit(oledSpiHandle, &t);
 
-    // Send the pixel data in batches using DMA
+    t = {};
+    t.length    = 8 * 16;
+    t.tx_buffer = colBuf;
+    gpio_set_level(OLED_DC_DIRECT_REF, 1);
+    spi_device_transmit(oledSpiHandle, &t);
+  }
+}
+
+// Draw a null-terminated string starting at (x,y)
+void drawString5x7(int x, int y,const char* str,uint16_t fgColor, uint16_t bgColor) {
+  int px = x;
+  while (*str) {
+    drawChar5x7(px, y, *str++, fgColor, bgColor);
+    px += 6;  // 5 pixels + 1 blank
+    if (px + 5 >= SCREEN_WIDTH) break; // avoid overflow
+  }
+}
+
+void TFillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color) {
+  if (!dmaBuf) return;
+
+  for (int i = 0; i < SPANBUF_SIZE; ++i) dmaBuf[i] = color;
+
+  for (uint8_t row = y; row < y + h; ++row) {
+    OLED_transaction_start(x, row, w, 1);
+
     uint32_t pixelsRemaining = w;
     while (pixelsRemaining > 0) {
       uint32_t batch = (pixelsRemaining > SPANBUF_SIZE) ? SPANBUF_SIZE : pixelsRemaining;
-
-      t = {};
-      t.length = batch * 16; // bits
-      t.tx_buffer = dmaBuf;
-      spi_device_transmit(oledSpiHandle, &t);
-
+      OLED_sendData(dmaBuf, batch * 16);
       pixelsRemaining -= batch;
     }
   }
 }
 
 
+//replace adafruit shit
+void tft_Fillscreen(uint16_t color){
+TFillRect(0,0,128,128,color);
+}
+
 
 
 // Draw a vertical line at column x, from row y0 to y1 (inclusive)
-void drawVerticalLine(int x, int y0, int y1, uint16_t color) {
+void drawVerticalLine(int x, int y0, int y1, uint16_t color) {/*
   // Clip
   x  = constrain(x, 0, SCREEN_WIDTH - 1);
   y0 = constrain(y0, 0, SCREEN_HEIGHT - 1);
@@ -136,11 +304,13 @@ void drawVerticalLine(int x, int y0, int y1, uint16_t color) {
 
   FGPIO_HIGH(SPI_CS_OLED);
   spiBus.endTransaction();
+  */
 }
 
 
 // Draw a horizontal line at row y, from column x0 to x1 (inclusive)
 void drawHorizontalLine(int y, int x0, int x1, uint16_t color) {
+    /*
   // Clip
   y  = constrain(y, 0, SCREEN_HEIGHT - 1);
   x0 = constrain(x0, 0, SCREEN_WIDTH  - 1);
@@ -173,6 +343,7 @@ void drawHorizontalLine(int y, int x0, int x1, uint16_t color) {
 
   FGPIO_HIGH(SPI_CS_OLED);
   spiBus.endTransaction();
+  */
 }
 
 void drawOutlineRect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint16_t color) {
@@ -570,12 +741,12 @@ void screen_startup() {
   //not having serial cfg here because it needs to be setup in the main code anyway
    //SPI.begin(SPI_SCK, MISO, MOSI_PIN, CS_PIN);
    //SPI.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));  // Set SPI speed to 40 MHz
-  tft.begin();
-  tft.fillScreen(BLACK);
-  tft.setCursor(32, 64);
-  tft.setTextColor(WHITE);
-  tft.setTextSize(1);
-  tft.print("booting..... ");
+  //////////tft.begin();
+  tft_Fillscreen(BLACK);
+  ////////tft.setCursor(32, 64);
+  ////////tft.setTextColor(WHITE);
+  //////tft.setTextSize(1);
+  //////tft.print("booting..... ");
 
     //Serial.println("screen rdy");
 }
@@ -594,11 +765,6 @@ void screen_off() {
    //Serial.println("Screen turned off");
 }
 
-void set_orientation(uint8_t rotation) {
-   tft.setRotation(rotation); 
-   //Serial.print("Screen rotation set to ");
-   Serial.println(rotation);
-}
 
 
 
@@ -968,29 +1134,30 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
     // then sorts and draws the drawable elements by layer.
     void CanvasDraw() {
     if(DrawBG) TFillRect(x, y, width, height, bgColor);
-    if(!borderless) tft.drawRect(x, y, width, height, BorderColor);
-
+    if(!borderless) //////tft.drawRect(x, y, width, height, BorderColor);
+//
     std::sort(drawElements.begin(), drawElements.end(), 
         [](const DrawableElement& a, const DrawableElement& b) {
             return a.layer < b.layer;
         });
 
-    for(const auto& elem : drawElements) {
+    for(const auto& elem : drawElements) { //blocking this out temporarily
         switch(elem.type) {
+          /*
             case DrawType::Text:
-                tft.setTextColor(elem.command.text.color);
-                tft.setTextSize(elem.command.text.txtsize);
-                tft.setCursor(x + elem.command.text.posX, y + elem.command.text.posY);
-                tft.print(elem.command.text.text);
+                //////tft.setTextColor(elem.command.text.color);
+                //////tft.setTextSize(elem.command.text.txtsize);
+                //////tft.setCursor(x + elem.command.text.posX, y + elem.command.text.posY);
+                //////tft.print(elem.command.text.text);
                 break;
             
             case DrawType::Line: {
     const auto& l = elem.command.line;  // define l here
 //NEED TO REPLACE TODO FIX MEEE
     if(l.posX0 == l.posX1) {
-        tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), std::abs(l.posY1 - l.posY0), l.color);
+        //////tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), std::abs(l.posY1 - l.posY0), l.color);
     } else if(l.posY0 == l.posY1) {
-        tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, std::abs(l.posX1 - l.posX0), l.color);
+        //////tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, std::abs(l.posX1 - l.posX0), l.color);
     } else {
         drawLine(x + l.posX0, y + l.posY0, x + l.posX1, y + l.posY1, l.color);
     }
@@ -999,7 +1166,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
 
             
             case DrawType::Pixel:
-                tft.drawPixel(x + elem.command.pixel.posX, 
+                //////tft.drawPixel(x + elem.command.pixel.posX, 
                              y + elem.command.pixel.posY, 
                              elem.command.pixel.color);
                 break;
@@ -1015,7 +1182,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::Rect:
-                tft.drawRect(x + elem.command.rect.posX,
+                //////tft.drawRect(x + elem.command.rect.posX,
                             y + elem.command.rect.posY,
                             elem.command.rect.w,
                             elem.command.rect.h,
@@ -1023,7 +1190,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::RFRect:
-                tft.fillRoundRect(x + elem.command.rfrect.posX,
+                //////tft.fillRoundRect(x + elem.command.rfrect.posX,
                                 y + elem.command.rfrect.posY,
                                 elem.command.rfrect.w,
                                 elem.command.rfrect.h,
@@ -1032,7 +1199,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::RRect:
-                tft.drawRoundRect(x + elem.command.rrect.posX,
+                //////tft.drawRoundRect(x + elem.command.rrect.posX,
                                 y + elem.command.rrect.posY,
                                 elem.command.rrect.w,
                                 elem.command.rrect.h,
@@ -1041,7 +1208,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::Triangle:
-                tft.drawTriangle(x + elem.command.triangle.x0,
+                //////tft.drawTriangle(x + elem.command.triangle.x0,
                                 y + elem.command.triangle.y0,
                                 x + elem.command.triangle.x1,
                                 y + elem.command.triangle.y1,
@@ -1051,7 +1218,7 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::FTriangle:
-                tft.fillTriangle(x + elem.command.ftriangle.x0,
+                //////tft.fillTriangle(x + elem.command.ftriangle.x0,
                                 y + elem.command.ftriangle.y0,
                                 x + elem.command.ftriangle.x1,
                                 y + elem.command.ftriangle.y1,
@@ -1061,14 +1228,14 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 break;
                 
             case DrawType::FCircle:
-                tft.fillCircle(x + elem.command.fcircle.posX,
+                //////tft.fillCircle(x + elem.command.fcircle.posX,
                                y + elem.command.fcircle.posY,
                                elem.command.fcircle.r,
                                elem.command.fcircle.color);
                 break;
                 
             case DrawType::Circle:
-                tft.drawCircle(x + elem.command.circle.posX,
+                //////tft.drawCircle(x + elem.command.circle.posX,
                               y + elem.command.circle.posY,
                               elem.command.circle.r,
                               elem.command.circle.color);
@@ -1076,9 +1243,9 @@ void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int lay
                 
             case DrawType::Bitmap: {
                 const auto& bmp = elem.command.bitmap;
-                tft.drawRGBBitmap(x + bmp.posX, y + bmp.posY, bmp.bitmap, bmp.w, bmp.h);
+                //////tft.drawRGBBitmap(x + bmp.posX, y + bmp.posY, bmp.bitmap, bmp.w, bmp.h);
                 break;
-            }
+            }*/
                 
             default:
                 // Handle unexpected types (should never happen)
@@ -1417,8 +1584,8 @@ if (IsWindowShown) {//if the window is shown,draw this
         //TFillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, cfg.BorderColor); //draw the rectangle outline
         
         // Set text properties
-        tft.setTextColor(win_internal_color_text);
-        tft.setTextSize(cfg.TextSize);
+        //////tft.setTextColor(win_internal_color_text);
+        //////tft.setTextSize(cfg.TextSize);
 
         // Update wrapped lines from full content
         updateWrappedLines(); 
@@ -1507,12 +1674,12 @@ void drawVisibleLines() {
       int startChar = max(0, scrollOffsetX / charWidth);
       int visibleChars = (win_internal_width - 4) / charWidth;
 
-      tft.setTextSize(currentTextSize);
-      tft.setTextColor(currentColor);
+      //////tft.setTextSize(currentTextSize);
+      //////tft.setTextColor(currentColor);
 
       int cursorX = win_internal_x + 2;
       int cursorY = y;
-      tft.setCursor(cursorX, cursorY);
+      //////tft.setCursor(cursorX, cursorY);
 
       std::string segment;
       int charsProcessed = 0;
@@ -1524,7 +1691,7 @@ void drawVisibleLines() {
           if (tagEnd != std::string::npos) {
             // Flush any accumulated text before handling the tag
             if (!segment.empty()) {
-              tft.print(segment.c_str());
+              //////tft.print(segment.c_str());
               segment.clear();
             }
 
@@ -1540,7 +1707,7 @@ void drawVisibleLines() {
                 int newY = std::stoi(std::string(tag.substr(comma + 1, tag.find(')') - comma - 1)));
                 cursorX = win_internal_x + newX;
                 cursorY = win_internal_y + newY;
-                tft.setCursor(cursorX, cursorY);
+                //////tft.setCursor(cursorX, cursorY);
               }
             }
              else if (tag.substr(0, Delim_Sizechange.length()) ==Delim_Sizechange){ //damn thing wasn't here before
@@ -1551,7 +1718,7 @@ void drawVisibleLines() {
                 if (endParen != std::string::npos && endParen > start) {
                   std::string_view colorStr = tag.substr(start, endParen - start);
                   uint8_t windownewtextsize = std::stoul(std::string(colorStr), nullptr, 8); //bad copied code
-                  tft.setTextSize(windownewtextsize);
+                  //////tft.setTextSize(windownewtextsize);
                   //todo set current text size here to fix bugs
                 } else {
                   printf("Error: Malformed size tag");
@@ -1568,7 +1735,7 @@ void drawVisibleLines() {
                   std::string_view colorStr = tag.substr(start, endParen - start);
                   uint16_t rawColor = std::stoul(std::string(colorStr), nullptr, 16); //shouldn't be 32 bit, colors are 16 bit wtf fix this
                   uint16_t color16 = rawColor & 0xFFFF;
-                  tft.setTextColor(color16);
+                  //////tft.setTextColor(color16);
                 } else {
                   printf("Error: Malformed color tag");
                 }
@@ -1576,14 +1743,14 @@ void drawVisibleLines() {
             }
             else if (tag == Delim_Underline) {
               int lineY = cursorY + charHeight - 1;
-              tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
+              //////tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
             }
             else if (tag == Delim_Strikethr) {
               int lineY = cursorY + (charHeight / 2);
-              tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
+              //////tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
             }
             else if (tag == Delim_Seperator) { // Print a space for separator
-              tft.print(" ");
+              //////tft.print(" ");
               charsProcessed++;
               cursorX += charWidth;
             }
@@ -1611,13 +1778,13 @@ void drawVisibleLines() {
       }
       // Flush any remaining text in the segment for the line
       if (!segment.empty()) {
-        tft.print(segment.c_str());
+        //////tft.print(segment.c_str());
       }
       y += charHeight;
       // Reset text size & color for next line
       currentTextSize = baseTextSize;
-      tft.setTextSize(currentTextSize);
-      tft.setTextColor(originalWinTexColor);
+      //////tft.setTextSize(currentTextSize);
+      //////tft.setTextColor(originalWinTexColor);
       currentColor = originalWinTexColor;//update after proscessing text tags
     }
   }
@@ -1777,8 +1944,8 @@ public:
         IsWindowHandlerAlive = false;
 
         Serial.print("WindowManager destroyed.\n");
-        tft.fillScreen(ScreenBackgroundColor);
-        tft.print("graphics system disabled");
+        tft_Fillscreen(ScreenBackgroundColor);
+        //////tft.print("graphics system disabled");
     }//DEStructor
 
 
@@ -1787,7 +1954,7 @@ public:
     static WindowManager* getWinManagerInstance() {
         // Only create if graphics are enabled
         if (!AreGraphicsEnabled) {Serial.print("Error: Graphics not enabled. WindowManager will not start.");
-        tft.setCursor(0,64);tft.fillScreen(ScreenBackgroundColor);tft.print("err: graphics disabled"); //notify usr
+        //////tft.setCursor(0,64);tft_Fillscreen(ScreenBackgroundColor);//////tft.print("err: graphics disabled"); //notify usr
             return nullptr;//really hope this doesn't cause a memeory leak
         }
         // Check if WinManagerInstance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
@@ -1839,7 +2006,7 @@ Serial.print("something deleted a Window.\n"); }
             }
         }
         WindowRegistry.clear();  // Smart pointers clean up automatically
-        tft.fillScreen(ScreenBackgroundColor);  // Black wipe the whole screen
+        tft_Fillscreen(ScreenBackgroundColor);  // Black wipe the whole screen
     }
 
     // Get Window by name
@@ -1919,9 +2086,9 @@ void selfDestructWinManager(){ //for when we need to delete the manager becausse
 
 //TODO, MAKE SURE I'M PROPERLY KILLING SINGLETON
     clearAllWindows();
-  tft.setCursor(0,64);
-  tft.fillScreen(ScreenBackgroundColor); 
-  tft.print("graphics disabled"); //put on screen and it should just stay like that till they restart
+  //////tft.setCursor(0,64);
+  tft_Fillscreen(ScreenBackgroundColor); 
+  //////tft.print("graphics disabled"); //put on screen and it should just stay like that till they restart
   Serial.print("shutting down all the fucking graphics. hope you have something to restart it later. try not to call anything when it's shut down.");
   }
 

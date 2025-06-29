@@ -14,7 +14,11 @@ this is more or less a file full of all the window structures, programs, and so 
 
 
 
-
+enum HealthScreenState{
+    body, //a little screen with a signalis-inspired body thing
+    fullgraph, //a plot of your heart rate and history. 
+    HRMONITOR_settings
+};
 
 
 //unordered default structures for some structures
