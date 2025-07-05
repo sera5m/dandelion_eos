@@ -35,6 +35,7 @@
 #define OLED_DC 4
 #define OLED_DC_DIRECT_REF GPIO_NUM_4
 #define OLED_RST 5
+#define NFC_RST_PIN 15//uhhhhhhhhhhh
 
 #define NEOPIXEL_PIN 48 
 
@@ -77,7 +78,7 @@ void StartSPI() {
 
 
 //periphrials
-#define PWR_NFC 45 //this gipo can't be used on boot, which is why i got ts right here for nfc which will only be powered after boot
+//#define PWR_NFC 45 //this gipo can't be used on boot, which is why i got ts right here for nfc which will only be powered after boot. also we don't have the hardware for that rn but whateves
 
 #define IR_INPUT_PIN 46 //input-only and must be used only after boot - it is a strapping pin primarily used for boot mode configuration and enabling/disabling ROM messages during booting
 

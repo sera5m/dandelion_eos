@@ -1,12 +1,12 @@
 //do not touch
 #include "Wiring.h" //my hardware definitions
-
 //esp32-s3 hardware
 #include "USB.h"
 #include "USBCDC.h"
 #include <Wire.h>
 #include <esp32-hal-spi.h>
 #include "apps.ino"//GOSHIES I WONDER WHAT COULD BE IN HERE
+#include "NFC.h"
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
     if (!_did_##name)       \
@@ -31,7 +31,76 @@ HMM_DAYHISTORY,    //a bar graph over the past x days.
    HMM_SETTINGS   //idk man what do you even config here?
 }HealthmonitorMode;
 
+//typedef enum{NFC_OFF,NFC_PLAYBACK,NFC_RECORD,}NFC_MODE;
+//remember
+typedef enum {
+    GSLC_POWER,         // sleep modes
+    GSLC_ALERTS,        // notifications, alarms
+    GSLC_DISPLAY,       // screen settings
+    GSLC_DATA,          // storage, sd card
+    GSLC_WIRELESS,      // wifi, bt
+    GSLC_EXT_HARDWARE,  // modules, sensors
+    GSLC_CATEGORY_COUNT
+} GlobalSettingsListCategory;
+typedef enum {
+    PWR_ULTRA,
+    PWR_AGGRESSIVE,
+    PWR_HEAVY,
+    PWR_MODERATE,
+    PWR_LIGHT,
+    PWR_NONE
+} PowerMode;
+
+typedef enum {
+    ALERT_SRC_PHONE,
+    ALERT_SRC_MISC_INTERNAL,
+    ALERT_SRC_CLOCK
+} AlertSource;
 //#include "watch_Settings.h" //configuration file for settings
+const char* GlobalSettingsListCategoryNames[] = {
+    "power",        // sleep modes
+    "alerts",       // notifications, alarms
+    "display",      // screen settings
+    "data",         // storage, sd card
+    "wireless",     // wifi, bt
+    "ext_hardware"  // modules, sensors
+};
+
+
+typedef struct {
+PowerMode mode;
+} PowerSettings;
+
+typedef struct {
+    uint8_t intensity;  // 0-255 maybe
+    int flash_light;    // bool
+    AlertSource source;
+} AlertsSettings;
+
+typedef struct {
+    uint8_t brightness; // 0-255
+    int greyscale;      // bool
+    int fast_refresh;   // bool
+} DisplaySettings;
+
+typedef struct {
+    int nfc_enabled;  // bool
+    int wifi_enabled; // bool
+    int bt_enabled;   // bool
+} WirelessSettings;
+
+typedef struct {
+    uint32_t storage_used_mb;
+    uint32_t storage_total_mb;
+} DataSettings;
+typedef struct {
+    PowerSettings power;
+    AlertsSettings alerts;
+    DisplaySettings display;
+    DataSettings data;
+    WirelessSettings wireless;
+    // ext_hardware can be fleshed out later
+} GlobalSettings;
 
 #include <SPI.h>
 SPIClass spiBus(HSPI);
@@ -694,149 +763,169 @@ void watchscreen(void *pvParameters) {
 //app health monitor================================================================================================================================================
 std::shared_ptr<Window> hrmonitor;
 
-//HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopitalHMM_DAYHISTORY,    //a bar graph over the past x days.HMM_HISTORY, //this month/historical trends. on long scales of time we'll just store average hr as waking/sleeping HMM_SETTINGS   //idk man what do you even config here?
-//moved to the before thing
-
-
-WindowCfg w_conf_hrmon = { //hr mon
-    0, 0, //xy
-    128 , 128, //wh
-    false, false, //auto align,wraptext
-    2, //text size
-    true,//borderless?
-    tcol_secondary, tcol_background, tcol_primary, // <-- pass addresses!. colors
-    1000 //update interval ms
+WindowCfg w_conf_hrmon = {
+  0, 0, 128, 128,
+  false, false,
+  2, true,
+  tcol_secondary, tcol_background, tcol_primary,
+  1000
 };
 
-
-void CREATE_Healthmonitor_WINDOWS(){
-    hrmonitor = std::make_shared<Window>("hrmonitor", w_conf_hrmon, "x");
-    windowManagerInstance->registerWindow(hrmonitor);
-    DBG_PRINTLN("Clock OK");
-
-
+void CREATE_Healthmonitor_WINDOWS() {
+  hrmonitor = std::make_shared<Window>("hrmonitor", w_conf_hrmon, "x");
+  windowManagerInstance->registerWindow(hrmonitor);
+  DBG_PRINTLN("HR Monitor OK");
 }
 
+void HR_MONITOR_SCREEN_TRANSITION(HealthmonitorMode desiredMode) {
+  switch (desiredMode) {
+    case HMM_BIOMONITOR:
+      hrmonitor->updateContent("Mode: Biomonitor");
+      break;
+    case HMM_DAYHISTORY:
+      hrmonitor->updateContent("Mode: Day History");
+      break;
+    case HMM_HISTORY:
+      hrmonitor->updateContent("Mode: History");
+      break;
+    case HMM_SETTINGS:
+      hrmonitor->updateContent("Mode: Settings");
+      break;
+    default:
+      Serial.println("Unknown HealthMonitorMode!");
+      hrmonitor->updateContent("ERROR: Bad Mode");
+      break;
+  }
+}
 
-void HR_MONITR_SCREEN_TRANSITION(HealthmonitorMode desiredMode){
-    switch (desiredMode) {  // Note: `desiredMode` is the variable being checked
-        case HMM_BIOMONITOR:  // Colon, not semicolon
-            break;
-        case HMM_DAYHISTORY:
-            break;
-        case HMM_HISTORY:
-            break;
-        case HMM_SETTINGS:
-            break;
-        default:
-            Serial.println("Unknown WatchMode!");
-            WatchScreenUpdateInterval = 600;
-            lockscreen_clock->updateContent("ERROR: Bad Mode");
-            break;
+void healthMonitorTask(void *pvParameters) {
+  HealthmonitorMode currentMode = HMM_BIOMONITOR;
+  unsigned long lastUpdate = millis();
+
+  while (1) {
+    if (IsScreenOn && hrmonitor) {
+      // Do your reading here
+      HR_MONITOR_SCREEN_TRANSITION(currentMode);
     }
+
+    clearScreenEveryXCalls(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 }
 
-//HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopital
-//HMM_DAYHISTORY,    //a bar graph over the past x days.
-//HMM_HISTORY, //this month/historical trends. on long scales of time we'll just store average hr as waking/sleeping 
-//HMM_SETTINGS
+// app nfc===================================================================================================================================================================================// NFC globals
+std::shared_ptr<NFCManager> nfc_manager; // Keeps alive
+TaskHandle_t nfcTaskHandle = NULL;
+static std::shared_ptr<Window> nfcStatusWindow;
 
-void HR_MONITR_SCREEN(void *pvParameters) { 
-    (void)pvParameters;
-
-    // Shared buffers for display
-    char HM_buf[80];
-    HealthmonitorMode currentMode = HMM_BIOMONITOR;  // Actual variable to switch on
-
-
-//i hate every minute of this dogshit
-    for (;;) {
-        if (IsScreenOn && lockscreen_clock) {
-            unsigned long now = millis();
-            switch (currentMode) {  // Switching on a variable, not a type
-                case HMM_BIOMONITOR:
-                    // Handle biomonitor mode
-                    break;
-                case HMM_DAYHISTORY:
-                    // Handle day history
-                    break;
-                case HMM_HISTORY:
-                    // Handle long-term history
-                    break;
-                case HMM_SETTINGS:
-                    // Handle settings
-                    break;
-                default:
-                    Serial.println("Unknown hpmode!");
-                    WatchScreenUpdateInterval = 600;
-                    lockscreen_clock->updateContent("ERROR: Bad Mode");
-                    break;
-            }
-        }
-        clearScreenEveryXCalls(1000); //sometimes screen has weird update colisions, this resets it. sure it's spagetti and will make it stutter, but whatever man. temp only, do not use in prod. 
-       vTaskDelay(pdMS_TO_TICKS(WatchScreenUpdateInterval));
-    }//end for;;
-}
-
-// app nfc===================================================================================================================================================================================
-std::shared_ptr<Window> nfc_app;
-typedef enum{
-NFC_OFF,
-NFC_PLAYBACK,
-NFC_RECORD,
-}NFC_MODE;
-
-    WindowCfg nfcStatusCfg = {
-    10, 50,         // x, y
-    100, 20,        // width, height
-    false, false,   // auto-align, wrap text
-    1,              // text size
-    true,           // borderless
-    tcol_secondary, tcol_background, tcol_primary,
-    500             // update interval (ms)
+WindowCfg nfcStatusCfg = {
+  10, 50, 100, 20, false, false, 1, true,
+  tcol_secondary, tcol_background, tcol_primary,
+  500
 };
-/*
-// Create during setup
 
 void setupNFCUI() {
-    nfcStatusWindow = std::make_shared<Window>("nfc_app", nfcStatusCfg, "NFC: OFF");
-    windowManagerInstance->registerWindow(nfcStatusWindow);
+  nfcStatusWindow = std::make_shared<Window>("nfc_app", nfcStatusCfg, "NFC: OFF");
+  windowManagerInstance->registerWindow(nfcStatusWindow);
+ nfc_manager = std::make_shared<NFCManager>(IRQ, NFC_RST_PIN);
+
 }
 
-static std::shared_ptr<Window> nfcStatusCfg;
+void start_nfc_task() {
+  if (nfc_manager == nullptr) {
+    Serial.println("[ERROR] NFC Manager is null!");
+    return;
+  }
 
-void NFC_SCREEN_TRANSITION(NFC_MODE desiredMode) {
-    // Update UI first
-    switch(desiredMode) {
-        case NFC_OFF:
-            nfcStatusLabel->updateContent("NFC: rdy");
-            break;
-        case NFC_PLAYBACK:
-            nfcStatusLabel->updateContent("NFC: PLAYBACK");
-            //need to have a submenu for this? that lists em off the disk?
-            break;
-        case NFC_RECORD:
-            nfcStatusLabel->updateContent("NFC: RECORDING");
-            break;
-    }
-    
-    // Then change hardware mode
-    nfcManager.setMode(desiredMode);
+  xTaskCreatePinnedToCore(
+    nfcTask,
+    "NFCTask",
+    8192,
+    nfc_manager.get(),  // Pass raw pointer
+    1,
+    &nfcTaskHandle,
+    1
+  );
 }
-
 
 void nfcTask(void *pvParameters) {
-    NFCManager nfcManager(IRQ, RST);//should probably be in setup but
-    nfcManager.begin(); 
-    setupNFCUI();//we can't begin this in main for obvious reasons
-    for (;;) {
-        nfcManager.update();
-        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz update rate
+  NFCManager* local_manager = static_cast<NFCManager*>(pvParameters);
+  uint8_t uid[7];
+  uint8_t uidLength;
+  char NFC_filepath[80];
+
+  while (1) {
+    Serial.println("[NFC] Scanning...");
+
+    bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 200);
+
+    if (!success) {
+      vTaskDelay(pdMS_TO_TICKS(200));
+      continue;
     }
+
+    Serial.print("[NFC] Found Tag UID: ");
+    for (uint8_t i = 0; i < uidLength; i++) {
+      Serial.printf("%02X ", uid[i]);
+    }
+    Serial.println();
+
+    snprintf(NFC_filepath, sizeof(NFC_filepath), "/nfc");
+    if (!SD.exists(NFC_filepath)) {
+      SD.mkdir(NFC_filepath);
+    }
+
+    snprintf(NFC_filepath, sizeof(NFC_filepath),
+             "/nfc/%02X%02X%02X%02X%02X%02X%02X.nfcdat",
+             uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6]);
+
+    File dataFile = SD.open(NFC_filepath, FILE_WRITE);
+    if (!dataFile) {
+      Serial.println("[SD] Couldn't open file to write");
+    } else {
+      Serial.println("[SD] Writing tag data...");
+
+      uint8_t data[4];
+      for (uint8_t page = 0; page < 42; page++) {
+        success = nfc.ntag2xx_ReadPage(page, data);
+        if (success) {
+          dataFile.printf("PAGE %02d: %02X %02X %02X %02X\n",
+                          page, data[0], data[1], data[2], data[3]);
+        } else {
+          dataFile.printf("PAGE %02d: Read Error\n", page);
+        }
+      }
+      dataFile.close();
+      Serial.printf("[SD] Saved: %s\n", NFC_filepath);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
 }
+
+void NFC_SCREEN_TRANSITION(NFC_MODE desiredMode) {
+  switch (desiredMode) {
+    case NFC_OFF: nfcStatusWindow->updateContent("NFC: rdy"); break;
+    case NFC_PLAYBACK: nfcStatusWindow->updateContent("NFC: PLAYBACK"); break;
+    case NFC_RECORD: nfcStatusWindow->updateContent("NFC: RECORDING"); break;
+  }
+
+  if (nfc_manager) {
+    nfc_manager->setMode(desiredMode);
+  }
+}
+
+void end_nfc_task() {
+  if (nfcTaskHandle) {
+    vTaskDelete(nfcTaskHandle);
+    nfcTaskHandle = NULL;
+  }
+}
+
+
 //app settings [dogshit gear icon,general settings]================================================================================================================================================
 //=================================================================================================================================================================================================
-typedef enum {
+/*
     GSLC_POWER,         // sleep modes
     GSLC_ALERTS,        // notifications, alarms
     GSLC_DISPLAY,       // screen settings
@@ -844,16 +933,9 @@ typedef enum {
     GSLC_WIRELESS,      // wifi, bt
     GSLC_EXT_HARDWARE,  // modules, sensors
     GSLC_CATEGORY_COUNT
-} GlobalSettingsListCategory;
+*/
 
-const char* GlobalSettingsListCategoryNames[] = {
-    "power",        // sleep modes
-    "alerts",       // notifications, alarms
-    "display",      // screen settings
-    "data",         // storage, sd card
-    "wireless",     // wifi, bt
-    "ext_hardware"  // modules, sensors
-};
+
 
 // mode_select_settings function with empty switch
 void mode_select_settings(GlobalSettingsListCategory category) {
@@ -874,56 +956,7 @@ void mode_select_settings(GlobalSettingsListCategory category) {
             break;
     }
 }
-typedef struct {
-    PowerSettings power;
-    AlertsSettings alerts;
-    DisplaySettings display;
-    DataSettings data;
-    WirelessSettings wireless;
-    // ext_hardware can be fleshed out later
-} GlobalSettings;
 
-typedef struct {
-PowerMode mode;
-} PowerSettings;
-
-typedef struct {
-    uint8_t intensity;  // 0-255 maybe
-    int flash_light;    // bool
-    AlertSource source;
-} AlertsSettings;
-
-typedef struct {
-    uint8_t brightness; // 0-255
-    int greyscale;      // bool
-    int fast_refresh;   // bool
-} DisplaySettings;
-
-typedef struct {
-    int nfc_enabled;  // bool
-    int wifi_enabled; // bool
-    int bt_enabled;   // bool
-} WirelessSettings;
-
-typedef struct {
-    uint32_t storage_used_mb;
-    uint32_t storage_total_mb;
-} DataSettings;
-
-typedef enum {
-    PWR_ULTRA,
-    PWR_AGGRESSIVE,
-    PWR_HEAVY,
-    PWR_MODERATE,
-    PWR_LIGHT,
-    PWR_NONE
-} PowerMode;
-
-typedef enum {
-    ALERT_SRC_PHONE,
-    ALERT_SRC_MISC_INTERNAL,
-    ALERT_SRC_CLOCK
-} AlertSource;
 
 void mode_select_settings(GlobalSettingsListCategory category, GlobalSettings* settings) {
     switch (category) {
@@ -969,22 +1002,16 @@ void mode_select_settings(GlobalSettingsListCategory category, GlobalSettings* s
         default:
             break;
     }
-}*/
+}
 
 
+
 //infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 //infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 //infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 //infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 //infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-typedef enum {
-    IR_RECORD, //record witht hte on device ir sensor
-    IR_IDLE, //do nothing
-    IR_PLAYBACK,//remote controll emulation-ir blaster
-    IR_FLASHLIGHT,//what do you think,genius
-    IR_BEACON //flash with adjustable r8
-}IR_REMOTE_ACTION;
 
 std::shared_ptr<Window> IR_REMOTE_WIN; //declare existance of the window for the application
 
@@ -998,11 +1025,11 @@ WindowCfg w_conf_IR_REMOTE = { //hr mon
     1000 //update interval ms
 };
 
+//guess what buddy i dont wanna program this rn
 
 
 
 
 
-
-//void loop() { } //i remember when merely this was how arduino code was written before freerots. we'd have to setup non blocking delay spagetti. 
+void loop() { } //i remember when merely this was how arduino code was written before freerots. we'd have to setup non blocking delay spagetti. 
 // you could only do one thing at once that way, and it was funny. this was back when i wanted to make a "smart" watch when i was a teenager, but didn't fully-ass it like i'm doing right now

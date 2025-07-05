@@ -6,6 +6,351 @@
 
 //rememver, use this pin: IR_IO_Pin
 
+#ifndef IR_Remote_C
+#define IR_Remote_C
+
+#include "Wiring.h"
+#include "driver/rmt_tx.h"
+#include "driver/rmt_rx.h"
+#include "esp_heap_caps.h"
+
+// RMT configuration
+const uint32_t RMT_RESOLUTION_HZ = 1000000; // 1 µs resolution
+const uint16_t RMT_MEM_BLOCK_SYMBOLS = 64;
+const uint8_t RMT_TX_QUEUE_DEPTH = 4;
+const uint16_t RMT_RX_FILTER_US = 100;     // 100µs filter
+const uint16_t RMT_RX_IDLE_THRESHOLD_US = 5000; // 5ms end of frame
+
+// IR protocols
+const uint16_t IR_NEC_FREQUENCY = 38000;
+const uint16_t IR_SAMSUNG_FREQUENCY = 40000;
+const uint16_t IR_SONY_FREQUENCY = 40000;
+
+class IRWorker {
+public:
+    enum IRWORKER_MODE { //i need to make the ir have the prior state transition model
+        IDLE,
+        RECORDING,
+        EMITTING,
+        BEACON
+    };
+
+    IRWorker(uint8_t irPin) : 
+        irPin_(irPin),
+        currentMode_(IDLE),
+        tx_chan_(NULL),
+        rx_chan_(NULL),
+        buffer_(NULL),
+        buffer_size_(0),
+        recorded_symbols_(0),
+        beacon_freq_(38000),
+        task_handle_(NULL) {}
+
+    ~IRWorker() {
+        cleanup();
+    }
+
+    enum IRWORKER_MODE {
+        IDLE,
+        RECORD_PRIMED,
+        RECORDING,
+        EMIT_PRIMED,
+        EMITTING,
+        SAVING,
+        PROCESSING,
+        BEACON
+    };
+
+bool validateTransition(IRWORKER_MODE current, IRWORKER_MODE next) {//not sure if this should still even be here idk
+        static const bool validTransitions[8][8] = {
+            /* IDLE */       {0,1,0,1,0,0,1,1},
+            /* RECORD_PRIMED*/{1,0,1,0,0,0,0,0},
+            /* RECORDING */   {1,0,0,0,0,0,0,0},
+            /* EMIT_PRIMED */ {1,0,0,0,1,0,0,0},
+            /* EMITTING */    {1,0,0,0,0,0,0,0},
+            /* SAVING */      {1,0,0,0,0,0,0,0},
+            /* PROCESSING */  {1,0,0,0,0,0,0,0},
+            /* BEACON */      {1,0,0,0,0,0,0,0} 
+        
+        };
+        return validTransitions[current][next];
+    }
+
+
+
+    bool startRecording(size_t duration_ms) {
+        if (currentMode_ != IDLE) return false;
+        
+        // Allocate PSRAM buffer
+        buffer_size_ = duration_ms * 1000 / 26;  // 38kHz ≈ 26µs per sample
+        buffer_ = (rmt_symbol_word_t*)ps_malloc(buffer_size_ * sizeof(rmt_symbol_word_t));
+        
+        if (!buffer_) {
+            Serial.println("PSRAM allocation failed");
+            return false;
+        }
+
+        // Initialize RMT RX
+        if (!setup_rx()) {
+            Serial.println("RMT RX setup failed");
+            free(buffer_);
+            buffer_ = NULL;
+            return false;
+        }
+
+        // Start recording task
+        xTaskCreatePinnedToCore(
+            recording_task, "IRRec", 4096, this, 2, &task_handle_, 1
+        );
+
+        currentMode_ = RECORDING;
+        return true;
+    }
+
+    bool startEmission() {
+        if (currentMode_ != IDLE || !buffer_ || recorded_symbols_ == 0) 
+            return false;
+
+        // Initialize RMT TX
+        if (!setup_tx()) {
+            Serial.println("RMT TX setup failed");
+            return false;
+        }
+
+        // Start emission task
+        xTaskCreatePinnedToCore(
+            emission_task, "IREmit", 4096, this, 2, &task_handle_, 1
+        );
+
+        currentMode_ = EMITTING;
+        return true;
+    }
+
+    bool startBeacon(uint16_t frequency = 38000) {
+        if (currentMode_ != IDLE) return false;
+        
+        beacon_freq_ = frequency;
+        xTaskCreatePinnedToCore(
+            beacon_task, "IRBeacon", 2048, this, 1, &task_handle_, 1
+        );
+        
+        currentMode_ = BEACON;
+        return true;
+    }
+
+    void stop() {
+        if (currentMode_ != IDLE) {
+            currentMode_ = IDLE;
+            if (task_handle_) {
+                vTaskDelay(10); // Allow task to exit
+                task_handle_ = NULL;
+            }
+            cleanup();
+        }
+    }
+
+    size_t getRecordedSamples() const { return recorded_symbols_; }
+    bool isRecording() const { return currentMode_ == RECORDING; }
+    bool isEmitting() const { return currentMode_ == EMITTING; }
+
+private:
+    uint8_t irPin_;
+    IRWORKER_MODE currentMode_;
+    rmt_channel_handle_t tx_chan_;
+    rmt_channel_handle_t rx_chan_;
+    rmt_symbol_word_t* buffer_;
+    size_t buffer_size_;
+    size_t recorded_symbols_;
+    uint16_t beacon_freq_;
+    TaskHandle_t task_handle_;
+
+    bool setup_tx() {
+        if (!tx_chan_) {
+            rmt_tx_channel_config_t tx_cfg = {
+                .gpio_num = irPin_,
+                .clk_src = RMT_CLK_SRC_DEFAULT,
+                .resolution_hz = RMT_RESOLUTION_HZ,
+                .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
+                .trans_queue_depth = RMT_TX_QUEUE_DEPTH,
+                .flags = {
+                    .invert_out = false,
+                    .with_dma = false,
+                }
+            };
+            if (rmt_new_tx_channel(&tx_cfg, &tx_chan_) != ESP_OK) {
+                return false;
+            }
+        }
+        return rmt_enable(tx_chan_) == ESP_OK;
+    }
+
+    bool setup_rx() {
+        if (!rx_chan_) {
+            rmt_rx_channel_config_t rx_cfg = {
+                .gpio_num = irPin_,
+                .clk_src = RMT_CLK_SRC_DEFAULT,
+                .resolution_hz = RMT_RESOLUTION_HZ,
+                .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
+                .flags = {
+                    .invert_in = false,
+                    .with_dma = false,
+                }
+            };
+            if (rmt_new_rx_channel(&rx_cfg, &rx_chan_) != ESP_OK) {
+                return false;
+            }
+        }
+
+        rmt_rx_event_callbacks_t cbs = {
+            .on_recv_done = recv_done_callback
+        };
+        return rmt_rx_register_event_callbacks(rx_chan_, &cbs, this) == ESP_OK &&
+               rmt_enable(rx_chan_) == ESP_OK;
+    }
+
+    static bool recv_done_callback(rmt_channel_handle_t channel, 
+                                  const rmt_rx_done_event_data_t *edata, 
+                                  void *user_data) {
+        IRWorker* self = static_cast<IRWorker*>(user_data);
+        
+        // Calculate how much space remains in buffer
+        size_t remaining = self->buffer_size_ - self->recorded_symbols_;
+        size_t to_copy = (edata->num_symbols < remaining) ? 
+                         edata->num_symbols : remaining;
+        
+        // Copy symbols to buffer
+        memcpy(self->buffer_ + self->recorded_symbols_, 
+               edata->received_symbols, 
+               to_copy * sizeof(rmt_symbol_word_t));
+        
+        self->recorded_symbols_ += to_copy;
+        
+        // If buffer full, stop recording
+        if (self->recorded_symbols_ >= self->buffer_size_) {
+            self->stop();
+        }
+        return false;
+    }
+
+    static void recording_task(void* arg) {
+        IRWorker* self = static_cast<IRWorker*>(arg);
+        
+        // Configure RX settings
+        rmt_receive_config_t rx_cfg = {
+            .signal_range_min_ns = RMT_RX_FILTER_US * 1000,
+            .signal_range_max_ns = RMT_RX_IDLE_THRESHOLD_US * 1000
+        };
+        
+        // Start receiving
+        rmt_receive(self->rx_chan_, self->buffer_, 
+                   self->buffer_size_ * sizeof(rmt_symbol_word_t), &rx_cfg);
+
+        // Wait for stop signal
+        while (self->currentMode_ == RECORDING) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        
+        // Cleanup
+        rmt_disable(self->rx_chan_);
+        self->currentMode_ = IDLE;
+        vTaskDelete(NULL);
+    }
+
+    static void emission_task(void* arg) {
+        IRWorker* self = static_cast<IRWorker*>(arg);
+        
+        // Create copy encoder
+        rmt_copy_encoder_config_t enc_cfg = {};
+        rmt_encoder_handle_t encoder;
+        rmt_new_copy_encoder(&enc_cfg, &encoder);
+        
+        // Transmit configuration
+        rmt_transmit_config_t tx_cfg = {
+            .loop_count = 0,
+            .flags = {
+                .eot_level = 0
+            }
+        };
+        
+        // Transmit symbols
+        rmt_transmit(self->tx_chan_, encoder, self->buffer_, 
+                    self->recorded_symbols_ * sizeof(rmt_symbol_word_t), &tx_cfg);
+        
+        // Wait for transmission to complete
+        rmt_tx_wait_all_done(self->tx_chan_, portMAX_DELAY);
+        
+        // Cleanup
+        rmt_del_encoder(encoder);
+        rmt_disable(self->tx_chan_);
+        self->currentMode_ = IDLE;
+        vTaskDelete(NULL);
+    }
+
+    static void beacon_task(void* arg) {
+        IRWorker* self = static_cast<IRWorker*>(arg);
+        
+        // Calculate timing for carrier frequency
+        const uint32_t half_period = 1000000 / (self->beacon_freq_ * 2); // in µs
+        
+        // Create symbols for one carrier cycle
+        rmt_symbol_word_t symbol = {
+            .duration0 = half_period,
+            .level0 = 1,
+            .duration1 = half_period,
+            .level1 = 0
+        };
+        
+        // Create encoder and config
+        rmt_copy_encoder_config_t enc_cfg = {};
+        rmt_encoder_handle_t encoder;
+        rmt_new_copy_encoder(&enc_cfg, &encoder);
+        
+        rmt_transmit_config_t tx_cfg = {
+            .loop_count = -1, // Infinite loop
+            .flags = {
+                .eot_level = 0
+            }
+        };
+        
+        // Start beacon transmission
+        rmt_transmit(self->tx_chan_, encoder, &symbol, sizeof(symbol), &tx_cfg);
+        
+        // Keep task running while beacon is active
+        while (self->currentMode_ == BEACON) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        
+        // Cleanup
+        rmt_disable(self->tx_chan_);
+        rmt_del_encoder(encoder);
+        self->currentMode_ = IDLE;
+        vTaskDelete(NULL);
+    }
+
+    void cleanup() {
+        if (buffer_) {
+            free(buffer_);
+            buffer_ = NULL;
+            buffer_size_ = 0;
+            recorded_symbols_ = 0;
+        }
+        
+        if (tx_chan_) {
+            rmt_del_channel(tx_chan_);
+            tx_chan_ = NULL;
+        }
+        
+        if (rx_chan_) {
+            rmt_disable(rx_chan_);
+            rmt_del_channel(rx_chan_);
+            rx_chan_ = NULL;
+        }
+    }
+};
+
+#endif
+
+/*
 const float pollFrequencyKhz = 80.0;
 const int pollIntervalUs = 1000 / pollFrequencyKhz;
 
@@ -217,14 +562,15 @@ private:
     // ---- Mode Validation ----
     bool validateTransition(IRWORKER_MODE current, IRWORKER_MODE next) {
         static const bool validTransitions[8][8] = {
-            /* IDLE */       {0,1,0,1,0,0,1,1},
-            /* RECORD_PRIMED*/ {1,0,1,0,0,0,0,0},
-            /* RECORDING */   {1,0,0,0,0,0,0,0},
-            /* EMIT_PRIMED */ {1,0,0,0,1,0,0,0},
-            /* EMITTING */    {1,0,0,0,0,0,0,0},
-            /* SAVING */      {1,0,0,0,0,0,0,0},
-            /* PROCESSING */  {1,0,0,0,0,0,0,0},
-            /* BEACON */      {1,0,0,0,0,0,0,0}
+            /* IDLE */      // {0,1,0,1,0,0,1,1},
+            /* RECORD_PRIMED*/ //{1,0,1,0,0,0,0,0},
+            /* RECORDING */   //{1,0,0,0,0,0,0,0},
+            /* EMIT_PRIMED */ //{1,0,0,0,1,0,0,0},
+            /* EMITTING */   // {1,0,0,0,0,0,0,0},
+            /* SAVING */     // {1,0,0,0,0,0,0,0},
+            /* PROCESSING */ // {1,0,0,0,0,0,0,0},
+            /* BEACON */     // {1,0,0,0,0,0,0,0} 
+        /*
         };
         return validTransitions[current][next];
     }
@@ -330,7 +676,7 @@ private:
     }
 };
 
-
+*/
 
 //frequency is in bands. 33-40 and 50-60khz, most common is the nec protocol at 38khz. 
 //given this we will poll at 80khz or so to get all of the datapoints in, even if these don't perfectly match up
