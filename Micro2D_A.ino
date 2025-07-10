@@ -30,7 +30,15 @@
 #define SSD1351_CMD_ENHANCE       0xB2
 #define SSD1351_CMD_DISPLAYON     0xAF
 
- 
+ struct TextChunk {
+    bool isTag;
+    std::string value;
+};
+
+using WrappedLine = std::vector<TextChunk>;
+
+std::vector<std::vector<TextChunk>> wrappedLines;
+
 #define BATCH_SIZE 64
 
 #define icon_transparency_color 0x5220; //this disgusting brown color will be parsed as clear by the bitmap parser
@@ -106,6 +114,9 @@ void pushToScreen() {
     tft.endWrite();
 }
 
+
+#define DefaultCharHeight  8
+#define DefaultCharWidth  6
 /*
 void flushFramebuffer() {
     if (!framebuffer) return;
@@ -624,20 +635,31 @@ void screen_reboot() {
   delay(150);                   // Delay for stability
 }
 
+void writeCommand(uint8_t cmd) {
+  digitalWrite(OLED_DC, LOW);  // Command mode
+  digitalWrite(SPI_CS_OLED, LOW);
+  SPI.transfer(cmd);
+  digitalWrite(SPI_CS_OLED, HIGH);
+}
 
-void screen_startup() {
-  //not having serial cfg here because it needs to be setup in the main code anyway
-   //SPI.begin(SPI_SCK, MISO, MOSI_PIN, CS_PIN);
-   //SPI.beginTransaction(SPISettings(SPI_FREQUENCY_OLED, MSBFIRST, SPI_MODE0));  // Set SPI speed to 40 MHz
+void writeData(uint8_t data) {
+  digitalWrite(OLED_DC, HIGH);  // Data mode
+  digitalWrite(SPI_CS_OLED, LOW);
+  SPI.transfer(data);
+  digitalWrite(SPI_CS_OLED, HIGH);
+}
+ void screen_startup() {
   tft.begin();
   tft.fillScreen(BLACK);
+
+ // SPI.beginTransaction(SPISettings(12000000, MSBFIRST, SPI_MODE0));  writeCommand(SSD1351_CMD_CONTRASTABC);  writeData(0xFF);  writeData(0xFF);  writeData(0xFF);  SPI.endTransaction();
+
   tft.setCursor(32, 64);
   tft.setTextColor(WHITE);
   tft.setTextSize(1);
   tft.print("booting..... ");
-
-    //Serial.println("screen rdy");
 }
+
 
 
 void screen_on() {
@@ -1198,7 +1220,7 @@ public:
     std::string name;       // Window's name
     WindowCfg cfg; //setup the var      // Window configuration
     std::string content;    // Full text content (may be longer than visible area)
-    std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  todo:move private
+   // std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  todo:move private
 
     // List of canvases attached to this Window
     std::vector<std::shared_ptr<Canvas>> canvases; // Vector of smart pointers
@@ -1214,7 +1236,7 @@ unsigned int lastFrameTime = 0;    // duration of last draw
  uint16_t    win_internal_color_border=0xFFFF;
  uint16_t    win_internal_color_text=0xFFFF;
 
-
+uint8_t win_internal_textsize=1;
 uint16_t win_internal_width=16;
 uint16_t win_internal_height=10;
 uint16_t win_internal_x=32;
@@ -1231,15 +1253,13 @@ uint16_t win_internal_y=32;
     // Constructor
 Window(const std::string& WindowName,
        const WindowCfg& windowConfiguration,  // Parameter name changed
-       const std::string& initialContent = "")
-  : name(WindowName),
-    cfg(windowConfiguration),  // Now correctly using the parameter
+       const std::string& initialContent = ""): name(WindowName),cfg(windowConfiguration),  // Now correctly using the parameter
     content(initialContent),
+    win_internal_textsize(cfg.TextSize),
     win_internal_color_background(cfg.BgColor),
     win_internal_color_border(cfg.BorderColor),
     win_internal_color_text(cfg.WinTextColor),
-    UpdateTickRate(cfg.UpdateTickRate)
-    {
+    UpdateTickRate(cfg.UpdateTickRate){
     //GET THE FUCKING SIZE
 win_internal_width  = std::max<int>(MIN_WINDOW_WIDTH, cfg.width);
 win_internal_height = std::max<int>(MIN_WINDOW_HEIGHT, cfg.height);
@@ -1252,6 +1272,9 @@ win_internal_y=cfg.y;
 ~Window() {
     //Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted
     // Any other custom cleanup tasks
+}
+void setWinTextSize(uint8_t t){
+    win_internal_textsize=t;
 }
 
 void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
@@ -1364,10 +1387,10 @@ const int scrollLimit = 3; // max scrolls per period
 const int scrollPeriod = 100; // in ms
 
 int calculateTotalTextWidth() {
-    int charWidth = 6 * cfg.TextSize; // Assuming fixed-width font
+    int charWidth = 6 * win_internal_textsize; // Assuming fixed-width font
     int maxWidth = 0;
     for (const auto& line : wrappedLines) {
-        int lineWidth = line.length() * charWidth;
+        int lineWidth = line.size() * charWidth;
         if (lineWidth > maxWidth) {
             maxWidth = lineWidth;
         }
@@ -1389,7 +1412,7 @@ accumDY += DY;
         // update scroll offsets
         scrollOffsetX += accumDX;
         scrollOffsetY += accumDY;
-     int totalTextHeight = wrappedLines.size() * (8 * cfg.TextSize);  // Total height of all the wrapped text
+     int totalTextHeight = wrappedLines.size() * (8 * win_internal_textsize);  // Total height of all the wrapped text
     int maxOffsetY = (totalTextHeight > win_internal_height - 4) ? totalTextHeight - (win_internal_height - 4) : 0;
     scrollOffsetY = std::max(0, std::min(scrollOffsetY, maxOffsetY));
     
@@ -1408,7 +1431,8 @@ int maxOffsetX = (totalTextWidth > win_internal_width - 4) ? totalTextWidth - (w
 
         // Notify components to update only if scroll changed
         if (scrollOffsetX != prevOffsetX || scrollOffsetY != prevOffsetY) {
-            ForceUpdate(true); // push an update RIGHT FUCKING NOW
+            
+            (true); // push an update RIGHT FUCKING NOW
           
         }
 
@@ -1434,82 +1458,10 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
 }
 
 
-    // Draws the Window and its text content, then updates child canvases if they're visible.
-    void WinDraw() {
-if (IsWindowShown) {//if the window is shown,draw this
-    //validation  mrowl //what did i mean when i typed this? i blame tiredness? 
-          tft.fillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,ScreenBackgroundColor);//fill the area with background color to hide it. when we finish switching to the dma freamebuffer this and all tft. will be removed!
-
-    
-          unsigned long startTime = millis();//framerate counter, time counter start
-        // Clear the Window area
-        //Serial.println("bg color is");
-
-        //Serial.println(win_internal_color_background); 
-       // TFillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height, win_internal_color_background); //fill the Window with the background color
-
-        //Serial.println("filled background");  if (!cfg.borderless) Serial.print("drew border"); 
-        //draw background
-
-         if(cfg.borderless){
-            drawOutlineRect(win_internal_x, win_internal_y, win_internal_x+win_internal_width, win_internal_y+win_internal_height, win_internal_color_border); //draw a little square around it
-          }
-
-        //draw lines
-
-
-        //TFillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, cfg.BorderColor); //draw the rectangle outline
-        
-        // Set text properties
-        tft.setTextColor(win_internal_color_text);
-        tft.setTextSize(cfg.TextSize);
-
-        // Update wrapped lines from full content
-        updateWrappedLines(); 
-       // Serial.println("wrapped lines updated");
-
-
-        lastFrameTime = millis() - startTime;
-        dirty = false;
-
-        // Update/draw each canvas only if it's at least partially within the Window.
-         for (auto& canvas : canvases) { // Iterate over all canvases
-         if (canvas){ // Ensure the pointer is valid
-            // Calculate the canvas's absolute position relative to the Window.
-            int canvasAbsX = win_internal_x + canvas->x;
-            int canvasAbsY = win_internal_y + canvas->y;
-            // Check if the canvas is completely off-screen relative to the Window.
-            if ((canvasAbsX + canvas->width) < win_internal_x ||
-    canvasAbsX > (win_internal_x + win_internal_width) ||(canvasAbsY + canvas->height) < win_internal_y || canvasAbsY > (win_internal_y + win_internal_height))  continue;  // Skip draWing this canvas if it's entirely off-screen.
-                }//end canvas check statement
-            Serial.println("draw canvas");
-            canvas->CanvasUpdate(true);  // Update/draw the canvas. todo: do a better method than force
-        }//end if valid statement
-    }//end canvas iterator
-
-
-  }//end of is window shown?
-
-
-
-    // Update the Window's content and mark as dirty
-void updateContent(const std::string& newContent) {
-    //Serial.println("updateContent called");  Serial.print("New content size: "); Serial.println(newContent.size());
-
-    if (content != newContent) {
-        //Serial.println("Content differs, updating...");
-        content = newContent;
-        dirty = true;
-        WinDraw(); // <- this is where it probably crashes
-    } else {
-        //Serial.println("Content is same, skipping");
-    }
-}
-
 
  void HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
-  TFillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,ScreenBackgroundColor);//fill the area with background color to hide it
+  tft.fillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,ScreenBackgroundColor);//fill the area with background color to hide it
 
         // Optionally, instruct sub-elements (Canvases) to hide themselves.-needs a fix later
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
@@ -1521,10 +1473,125 @@ void updateContent(const std::string& newContent) {
         // Optionally, instruct all sub-elements (Canvases) to show themselves.
     }//end show window
 
+ void setUpdateMode(bool manualOnly) {
+        manualUpdateOnly = manualOnly;
+        Serial.printf("[Config] Update mode set to %s\n", 
+                     manualOnly ? "MANUAL" : "AUTO");
+    }
+
+
+void updateContent(const std::string &newContent) {
+    if (content == newContent) return;
+    content = newContent;
+    dirty = true;
+}
+
+void WinDraw() {
+    if (!IsWindowShown/*|| !dirty*/) return;
+
+    // 1) Clear the window area
+    tft.fillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,win_internal_color_background);
+
+
+    // 2) Tokenize the content
+    auto chunks = tokenize(content);
+
+    // 3) Setup initial TextState
+    struct TextState {
+      uint16_t color;
+      uint8_t size;
+      int16_t x, y;
+    } state {
+      win_internal_color_text,
+      win_internal_textsize,
+      int16_t(win_internal_x + 2),
+      int16_t(win_internal_y + 2)
+    };
+
+    tft.setTextColor(state.color);
+    tft.setTextSize(state.size);
+    tft.setCursor(state.x, state.y);
+
+    // 4) Render each chunk
+    for (auto &chunk : chunks) {
+        if (chunk.isTag) {
+            // apply tag
+            if (chunk.value.starts_with("<setcolor(")) {
+                Serial.printf("color tag");
+
+                auto hex = chunk.value.substr(10, chunk.value.find(')')-10);
+                state.color = strtol(hex.c_str(), nullptr, 16);
+                tft.setTextColor(state.color);
+                
+            }
+            else if (chunk.value.starts_with("<textsize(")) {
+                auto s = chunk.value.substr(10, chunk.value.find(')')-10);
+                state.size = atoi(s.c_str());
+                tft.setTextSize(state.size);
+                Serial.printf("text size");
+            }
+            else if (chunk.value == "<n>") {
+                Serial.printf("newline tag");
+                // newline: move cursor to next line
+                state.y += DefaultCharHeight * state.size;
+                state.x = win_internal_x + 2;
+                tft.setCursor(state.x, state.y);
+            }
+            // handle other tags (<pos>, <_<>, underline, etc.)…
+        }
+        else {
+            // plain text
+            tft.print(chunk.value.c_str());
+            Serial.printf("no tags applied");
+            // advance X cursor manually if you need exact control:
+            // state.x += chunk.value.length() * DefaultCharWidth * state.size;
+            // tft.setCursor(state.x, state.y);
+        }
+    }
+
+    dirty = false;
+}
 
 
 
 private:
+/*
+struct TextChunk {
+  bool isTag;
+  std::string value;
+};*/
+
+using WrappedLine = std::vector<TextChunk>;
+std::vector<WrappedLine> wrappedLines;
+
+static std::vector<TextChunk> tokenize(const std::string &input) {
+    std::vector<TextChunk> chunks;
+    size_t pos = 0, len = input.size();
+
+    while (pos < len) {
+        if (input[pos] == '<') {
+            size_t end = input.find('>', pos);
+            if (end == std::string::npos) {
+                // malformed: consume one char
+                chunks.push_back({false, input.substr(pos,1)});
+                pos++;
+            } else {
+                chunks.push_back({true, input.substr(pos, end-pos+1)});
+                pos = end+1;
+            }
+        } else {
+            size_t next = input.find('<', pos);
+            if (next == std::string::npos) next = len;
+            chunks.push_back({false, input.substr(pos, next-pos)});
+            pos = next;
+            Serial.printf("next parse pos");
+        }
+    }
+    return chunks;
+    Serial.printf("chunks ret");
+}
+    bool manualUpdateOnly = true; // Default to manual-only mode
+    uint32_t lastContentUpdate = 0;
 //defaults for delimiters for orderlyness
 std::string Delim_LinBreak ="<n>";
 std::string Delim_Seperator ="<_>";
@@ -1537,254 +1604,263 @@ std::string Delim_Sizechange = "<textsize(";
 std::string Delim_Strikethr = "<s>";        // Italic text 
 std::string Delim_Underline = "<u>";  // Underline text 
 
-const int linesPerFrame = 3; //drawing 4 and over lines of text at once occasionally results in data corruption in the vram of the display, this is a countermeasure where we draw lines as chunks
-int currentDrawingPosition = 0; // Track our position in the wrappedLines vector
-bool isPartialDraw = false; // Are we in the middle of a partial draw?
+// ================== Text Rendering Engine ==================
 
-#define DefaultCharWidth 6
-#define DefaultCharHeight 8
-// ================== drawVisibleLines ==================
-__attribute__((optimize("O2"))) // heehoo magic
-void drawVisibleLines() {
-  if (IsWindowShown) {
-    int baseTextSize = cfg.TextSize;
-    uint16_t currentColor = win_internal_color_text;
-    int currentTextSize = baseTextSize;
-    uint16_t originalWinTexColor = win_internal_color_text;
-    int charHeight = DefaultCharHeight * currentTextSize;
-    int charWidth = DefaultCharWidth * currentTextSize;
-    int startLine = scrollOffsetY / charHeight;
-    int visibleLines = (cfg.height - 4) / charHeight;
-    int y = win_internal_y + 2 - (scrollOffsetY % charHeight);
+    struct TextState {
+        uint16_t color;
+        uint8_t size;
+        int16_t cursorX;
+        int16_t cursorY;
+        bool underline;
+        bool strikethrough;
+    };
 
-    //TFillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, win_internal_color_background);
-    //square should be aware of window size in the future but why bother. todo make it aware of textsize by basic mult
-    //i don't think this should even be here as this is a string drawing function
-
-    for (int i = startLine; i < wrappedLines.size() && i < startLine + visibleLines; i++) {
-      const std::string &line = wrappedLines[i];
-      int startChar = max(0, scrollOffsetX / charWidth);
-      int visibleChars = (win_internal_width - 4) / charWidth;
-
-     tft.setTextSize(currentTextSize);
-       tft.setTextColor(currentColor);
-
-      int cursorX = win_internal_x + 2;
-      int cursorY = y;
-       tft.setCursor(cursorX, cursorY);
-
-      std::string segment;
-      int charsProcessed = 0;
-      size_t pos = startChar;
-
-      while (pos < line.length() && charsProcessed < visibleChars) {
-        if (line[pos] == '<') {
-          size_t tagEnd = line.find('>', pos);
-          if (tagEnd != std::string::npos) {
-            // Flush any accumulated text before handling the tag
-            if (!segment.empty()) {
-               tft.print(segment.c_str());
-              segment.clear();
-            }
-
-            std::string_view tag(&line[pos], tagEnd - pos + 1);
-            if (tag == Delim_LinBreak) { // Line break: stop processing further
-              break;
-            }
-
-            else if (tag.substr(0, 5) == Delim_PosChange) {
-              size_t comma = tag.find(',');
-              if (comma != std::string::npos) {
-                int newX = std::stoi(std::string(tag.substr(5, comma - 5)));
-                int newY = std::stoi(std::string(tag.substr(comma + 1, tag.find(')') - comma - 1)));
-                cursorX = win_internal_x + newX;
-                cursorY = win_internal_y + newY;
-                 tft.setCursor(cursorX, cursorY);
-              }
-            }
-             else if (tag.substr(0, Delim_Sizechange.length()) ==Delim_Sizechange){ //damn thing wasn't here before
-              size_t start = tag.find('(');
-              if (start != std::string::npos) {
-                start++; // move past '('
-                size_t endParen = tag.find(')', start);
-                if (endParen != std::string::npos && endParen > start) {
-                  std::string_view colorStr = tag.substr(start, endParen - start);
-                  uint8_t windownewtextsize = std::stoul(std::string(colorStr), nullptr, 8); //bad copied code
-                   tft.setTextSize(windownewtextsize);
-                  //todo set current text size here to fix bugs
-                } else {
-                  printf("Error: Malformed size tag");
-                }
-              }
-            
-             }
-            else if (tag.substr(0, Delim_ColorChange.length()) == Delim_ColorChange) {
-              size_t start = tag.find('(');
-              if (start != std::string::npos) {
-                start++; // move past '('
-                size_t endParen = tag.find(')', start);
-                if (endParen != std::string::npos && endParen > start) {
-                  std::string_view colorStr = tag.substr(start, endParen - start);
-                  uint16_t rawColor = std::stoul(std::string(colorStr), nullptr, 16); //shouldn't be 32 bit, colors are 16 bit wtf fix this
-                  uint16_t color16 = rawColor & 0xFFFF;
-                   tft.setTextColor(color16);
-                } else {
-                  printf("Error: Malformed color tag");
-                }
-              }
-            }
-            else if (tag == Delim_Underline) {
-              int lineY = cursorY + charHeight - 1;
-               tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
-            }
-            else if (tag == Delim_Strikethr) {
-              int lineY = cursorY + (charHeight / 2);
-               tft.drawFastHLine(cursorX, lineY, (visibleChars - charsProcessed) * charWidth, currentColor);
-            }
-            else if (tag == Delim_Seperator) { // Print a space for separator
-               tft.print(" ");
-              charsProcessed++;
-              cursorX += charWidth;
-            }
-            else {
-              // If unrecognized, optionally add the tag text to the segment
-              segment.append(tag);
-            }
-            pos = tagEnd + 1;
-          }
-          else { // Malformed tag; treat as normal char
-            segment.push_back(line[pos]);
-            pos++;
-            charsProcessed++;
-            cursorX += charWidth;
-          }
-        }
-        else { // Normal character
-          segment.push_back(line[pos]);
-          pos++;
-          charsProcessed++;
-          cursorX += charWidth;
-        }
-        if (cursorX > win_internal_x + win_internal_width - 2)
-          break;
-      }
-      // Flush any remaining text in the segment for the line
-      if (!segment.empty()) {
-         tft.print(segment.c_str());
-      }
-      y += charHeight;
-      // Reset text size & color for next line
-      currentTextSize = baseTextSize;
-       tft.setTextSize(currentTextSize);
-       tft.setTextColor(originalWinTexColor);
-      currentColor = originalWinTexColor;//update after proscessing text tags
+    void applyTextState(const TextState& state) {
+        tft.setTextColor(state.color);
+        tft.setTextSize(state.size);
+        tft.setCursor(state.cursorX, state.cursorY);
     }
-  }
-}
 
+    void handleTextTag(const std::string& tag, TextState& state) {
+        if (tag == Delim_LinBreak) {
+            return; // Handled during line wrapping
+        }
+        else if (tag == Delim_Underline) {
+            state.underline = true;
+        }
+        else if (tag == Delim_Strikethr) {
+            state.strikethrough = true;
+        }
+        else if (tag == Delim_Seperator) {
+            // Space is handled during rendering
+        }
+        else if (tag.starts_with(Delim_ColorChange)) {
+            size_t start = Delim_ColorChange.size();
+            size_t end = tag.find(')', start);
+            if (end != std::string::npos) {
+                uint16_t color = std::stoul(tag.substr(start, end - start), nullptr, 16);
+                state.color = color;
+            }
+        }
+        else if (tag.starts_with(Delim_Sizechange)) {
+            size_t start = Delim_Sizechange.size();
+            size_t end = tag.find(')', start);
+            if (end != std::string::npos) {
+                uint8_t size = std::stoul(tag.substr(start, end - start));
+                state.size = size;
+            }
+        }
+        else if (tag.starts_with(Delim_PosChange)) {
+            size_t start = Delim_PosChange.size();
+            size_t end = tag.find(')', start);
+            if (end != std::string::npos) {
+                size_t comma = tag.find(',', start);
+                if (comma != std::string::npos) {
+                    int x = std::stoi(tag.substr(start, comma - start));
+                    int y = std::stoi(tag.substr(comma + 1, end - comma - 1));
+                    state.cursorX = win_internal_x + x;
+                    state.cursorY = win_internal_y + y;
+                }
+            }
+        }
+    }
 
-void updateWrappedLines() {
+    void renderTextLine(const std::string& line, int yPos, TextState initialState) {
+        
+        TextState currentState = initialState;
+        applyTextState(currentState);
 
+        size_t pos = 0;
+        std::string textSegment;
+        textSegment.reserve(32); // Pre-allocate to reduce allocations
 
-  //Serial.println(esp_timer_get_time());
-  //Serial.println("init line wrap calc");
+        while (pos < line.size()) {
+            if (line[pos] == '<') {
+                // Flush any accumulated text
+                if (!textSegment.empty()) {
+                    tft.print(textSegment.c_str());
+                    textSegment.clear();
+                }
 
+                // Find tag end
+                size_t tagEnd = line.find('>', pos);
+                if (tagEnd == std::string::npos) {
+                    // Malformed tag, skip
+                    pos++;
+                    continue;
+                }
 
+                std::string tag = line.substr(pos, tagEnd - pos + 1);
+                handleTextTag(tag, currentState);
+                applyTextState(currentState);
 
+                // Handle special rendering for formatting tags
+                if (tag == Delim_Underline || tag == Delim_Strikethr) {
+                    int lineY = currentState.cursorY;
+                    if (tag == Delim_Underline) {
+                        lineY += DefaultCharHeight * currentState.size - 1;
+                    } else { // Strikethrough
+                        lineY += (DefaultCharHeight * currentState.size) / 2;
+                    }
+                    tft.drawFastHLine(currentState.cursorX, lineY, 
+                                    tft.width() - currentState.cursorX, 
+                                    currentState.color);
+                }
+
+                pos = tagEnd + 1;
+            } else {
+                textSegment += line[pos++];
+            }
+        }
+
+        // Flush remaining text
+        if (!textSegment.empty()) {
+            tft.print(textSegment.c_str());
+        }
+        
+    }
+
+void updateWrappedLinesOptimized() {
     wrappedLines.clear();
-    int baseCharWidth = 6 * cfg.TextSize;
-    int maxCharsPerLine = (win_internal_width - 4) / baseCharWidth;
+    if (content.empty()) return;
 
-    // Reserve some capacity for the current line to avoid repeated reallocations.
-    std::string currentLine;
-    currentLine.reserve(maxCharsPerLine);
+    const int maxCharsPerLine = (win_internal_width - 4) / (DefaultCharWidth * win_internal_textsize);
 
-    const size_t len = content.length();
+    WrappedLine currentLine;
+    std::string currentText;
+
     size_t pos = 0;
-    int currentLineLength = 0;
-
-    while (pos < len) {
+    while (pos < content.size()) {
         if (content[pos] == '<') {
-            // Find the closing '>' manually
-            size_t end = pos;
-            while (end < len && content[end] != '>') { 
-                ++end;
+            // Flush any buffered text
+            if (!currentText.empty()) {
+                wrapTextIntoLines(currentText, currentLine, maxCharsPerLine);
+                currentText.clear();
             }
-            if (end < len && content[end] == '>') {
-                // Instead of constructing a new string using substr,
-                // we use a temporary string_view (or minimal string copy) if available.
-                // Here, we do a simple copy; in embedded cases you might avoid even that.
-                std::string tag(content, pos, end - pos + 1);
-                
-                if (tag == Delim_LinBreak) { // Hard line break
-                    wrappedLines.push_back(currentLine);
-                    currentLine.clear();
-                    currentLineLength = 0;
-                }
-                else if (tag == Delim_Seperator) { // Separator tag
-                    if (currentLineLength + 1 <= maxCharsPerLine) {
-                        currentLine.push_back(' ');
-                        currentLineLength++;
-                    }
 
+            // Extract tag as a chunk
+            size_t tagEnd = content.find('>', pos);
+            if (tagEnd == std::string::npos) {
+                // Invalid, treat as text
+                currentText += content[pos++];
+                continue;
+            }
 
-                    else {
-                        wrappedLines.push_back(currentLine);
-                        currentLine = " ";
-                        currentLineLength = 1;
-                    }
-                }
-                else if (tag == Delim_Underline || tag == Delim_Strikethr) {
-                    // Simply append the tag for formatting purposes.
-                    currentLine.append(tag);
-                }
-                else {
-                    currentLine.append(tag);
-                }
-                pos = end + 1;
-            }
-            else { // Malformed tag: no closing '>'
-                currentLine.push_back(content[pos]);
-                currentLineLength++;
-                pos++;
-            }
-        }
-        else { // Normal character
-            char c = content[pos];
-            if (c == ' ') { // Word wrap point
-                if (currentLineLength + 1 > maxCharsPerLine) {
+            std::string tag = content.substr(pos, tagEnd - pos + 1);
+
+            if (tag == Delim_LinBreak) {
+                // Force line break
+                if (!currentLine.empty()) {
                     wrappedLines.push_back(currentLine);
                     currentLine.clear();
-                    currentLineLength = 0;
                 }
-                else {
-                    currentLine.push_back(' ');
-                    currentLineLength++;
-                }
+            } else {
+                // Keep tag in line
+                currentLine.push_back({true, tag});
             }
-            else { // Regular character
-                if (currentLineLength >= maxCharsPerLine) {
-                    wrappedLines.push_back(currentLine);
-                    currentLine.clear();
-                    currentLineLength = 0;
-                }
-                currentLine.push_back(c);
-                currentLineLength++;
-            }
-            pos++;
+
+            pos = tagEnd + 1;
+        } else {
+            // Normal text, build word
+            size_t wordEnd = content.find_first_of(" <", pos);
+            if (wordEnd == std::string::npos) wordEnd = content.size();
+
+            currentText += content.substr(pos, wordEnd - pos);
+            pos = wordEnd;
         }
+    }
+
+    // Flush trailing text
+    if (!currentText.empty()) {
+        wrapTextIntoLines(currentText, currentLine, maxCharsPerLine);
     }
 
     if (!currentLine.empty()) {
         wrappedLines.push_back(currentLine);
     }
-
-    // Draw the visible lines after processing
-          //Serial.println(esp_timer_get_time());
-  //Serial.println("final line wrap");
-    drawVisibleLines();
-
 }
+
+
+   void wrapTextIntoLines(const std::string& text, WrappedLine& currentLine, int maxCharsPerLine) {
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t nextSpace = text.find(' ', start);
+        if (nextSpace == std::string::npos) nextSpace = text.size();
+
+        std::string word = text.substr(start, nextSpace - start);
+        int currentLen = 0;
+
+        for (const auto& chunk : currentLine) {
+            if (!chunk.isTag) currentLen += chunk.value.size();
+        }
+
+        if (currentLen + word.size() > maxCharsPerLine) {
+            if (!currentLine.empty()) {
+                wrappedLines.push_back(currentLine);
+                currentLine.clear();
+            }
+        }
+
+        currentLine.push_back({false, word});
+
+        if (nextSpace != text.size()) {
+            currentLine.push_back({false, " "});
+        }
+
+        start = (nextSpace == text.size()) ? nextSpace : nextSpace + 1;
+    }
+}
+void drawVisibleLinesOptimized() {
+    if (!IsWindowShown) return;
+
+    const int charHeight = DefaultCharHeight * win_internal_textsize;
+    const int startLine = scrollOffsetY / charHeight;
+    const int visibleLines = (cfg.height - 4) / charHeight;
+    const int endLine = std::min(startLine + visibleLines, (int)wrappedLines.size());
+
+    tft.fillRect(win_internal_x, win_internal_y, cfg.width, cfg.height, 0x0000 /*win_internal_color_background*/);
+
+    TextState state;
+    state.color = win_internal_color_text;
+    state.size = win_internal_textsize;
+    state.cursorX = win_internal_x + 2;
+    state.cursorY = win_internal_y + 2 - (scrollOffsetY % charHeight);
+    state.underline = false;
+    state.strikethrough = false;
+
+    for (int i = startLine; i < endLine; i++) {
+        for (const auto& chunk : wrappedLines[i]) {
+            if (chunk.isTag) {
+                handleTextTag(chunk.value, state);
+            } else {
+                renderTextChunk(chunk.value, state);
+            }
+        }
+        state.cursorY += charHeight;
+        state.cursorX = win_internal_x + 2;
+
+        // Reset for next line
+        state.color = win_internal_color_text;
+        state.size = win_internal_textsize;
+        state.underline = false;
+        state.strikethrough = false;
+        applyTextState(state);
+    }
+}
+
+void renderTextChunk(const std::string& text, TextState& state) {
+    tft.setCursor(state.cursorX, state.cursorY);
+    //tft.setcolor
+    //set text size
+    tft.print(text.c_str());
+int16_t x = tft.getCursorX();
+int16_t y = tft.getCursorY();
+x += text.length() * DefaultCharWidth * state.size;
+tft.setCursor(x, y);
+}
+
+
+
 
 
 
