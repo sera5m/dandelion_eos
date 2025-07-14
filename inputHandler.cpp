@@ -108,6 +108,7 @@ pcnt_unit_config_t unit_config = {
     ESP_ERROR_CHECK(pcnt_unit_clear_count(encoders[ENC_UNIT_Y].unit));
     ESP_ERROR_CHECK(pcnt_unit_start(encoders[ENC_UNIT_Y].unit));
 }
+
 void SetupHardwareInput() {
   // 1. First setup encoder hardware (PCNT)
   SetupEncoders();  // Modern pulse_cnt implementation
@@ -190,9 +191,8 @@ SW_PIN
 // 3. Unified edge detection: only send press/release on actual transitions
 // 4. Simplified encoder "no movement" logic
 // 5. Ensured auto-clear of transient flags outside input dispatch
-
 //--6. fixed two pins and modified .h file
-
+//7. 
 
 // Constants for debounce intervals (ms)
 
@@ -280,15 +280,18 @@ PollEncoder(&enc0_state, ENCODER0_CLK_PIN, ENCODER0_DT_PIN,
     PollEncoder(&enc1_state, ENCODER1_CLK_PIN, ENCODER1_DT_PIN,
                key_down, key_up, currentinputTarget);
 }*/
+volatile bool encHTRGstate = 0; 
+volatile bool encVTRGstate = 0;
+
 void PollEncoders() {
     static uint32_t last_check = 0;
     uint32_t now = millis();
     
-    if (now - last_check < 10) return; // Check every 10ms
+    if (now - last_check < 10) return;
     last_check = now;
 
     for (int i = 0; i < 2; i++) {
-        int count;
+        int count; 
         ESP_ERROR_CHECK(pcnt_unit_get_count(encoders[i].unit, &count));
         
         int delta = count - encoders[i].last_count;
@@ -298,12 +301,19 @@ void PollEncoders() {
             
             if (i == ENC_UNIT_X) {
                 key = direction ? key_right : key_left;
+                encHTRGstate = !encHTRGstate; // Toggle state for horizontal
+                if(encHTRGstate) { // Only send on every other change
+                    RouteInput({key, true}, currentinputTarget);
+                    RouteInput({key, false}, currentinputTarget);
+                }
             } else {
                 key = direction ? key_down : key_up;
+                encVTRGstate = !encVTRGstate; // Toggle state for vertical
+                if(encVTRGstate) { // Only send on every other change
+                    RouteInput({key, true}, currentinputTarget);
+                    RouteInput({key, false}, currentinputTarget);
+                }
             }
-            
-            RouteInput({key, true}, currentinputTarget);
-            RouteInput({key, false}, currentinputTarget);
             
             encoders[i].last_count = count;
         }
@@ -320,4 +330,3 @@ bitmask
 
 
 }*/
-

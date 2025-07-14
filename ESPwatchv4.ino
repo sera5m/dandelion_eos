@@ -7,6 +7,8 @@
 #include <esp32-hal-spi.h>
 #include "apps.ino"//GOSHIES I WONDER WHAT COULD BE IN HERE
 #include "NFC.h"
+#include "driver/timer.h"
+
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
     if (!_did_##name)       \
@@ -24,7 +26,7 @@
 int _dbg_ypos = 0;  // screen Y cursor
 
 //stupid fucking debugs to make this work right
-typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU}WatchMode;
+typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU,WM_COUNT}WatchMode;
 typedef enum{HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopital
 HMM_DAYHISTORY,    //a bar graph over the past x days.
    HMM_HISTORY, //this month/historical trends. on long scales of time we'll just store average hr as waking/sleeping 
@@ -152,6 +154,12 @@ SPIClass spiBus(HSPI);
 #include "esp_bt.h"   //
 #include "esp_sleep.h"
 #include "esp_system.h" 
+#include <stdio.h>
+#include "esp_log.h"
+#include "driver/gpio.h"
+
+#include "esp_timer.h"
+#include "esp_system.h"
 
 //std 
 #include <stdbool.h>
@@ -227,7 +235,7 @@ GyroData gyroData;
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
-
+#include <Adafruit_NeoPixel.h>
 int16_t temp_c=69;
 extern int AVG_HR;
 
@@ -238,6 +246,8 @@ extern int AVG_HR;
 bool deviceIsAwake=true;
 
 Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC, OLED_RST); //note: &spiBus is required to pass main spi 
+#define NUM_LEDS 1
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); //flashlight 
 
 //init windows
 WindowManager* windowManagerInstance = nullptr;
@@ -253,11 +263,11 @@ bool IsScreenOn=true;
 #include <atomic>
 
 
-uint16_t tcol_primary=0x07ff;
-uint16_t tcol_secondary=0x77f9;
+uint16_t tcol_primary=0x0EFF;
+uint16_t tcol_secondary=0x88fB;
 uint16_t tcol_tertiary=0xe4ff;
 uint16_t tcol_highlight=0xdbbf;
-uint16_t tcol_background=0x29e6;
+uint16_t tcol_background=0x2000;
 //var references to set for the theme
  //   0x07ff, //teal
    // 0x77f9, //i can't find a good green
@@ -331,7 +341,8 @@ void scanI2C() {
 TaskHandle_t watchScreenHandle; //handle be4 use
 
 void setup() {
-
+  strip.begin();
+  strip.show(); 
 WiFi.mode(WIFI_OFF);
 btStop();
 //set up structs and configs
@@ -536,6 +547,7 @@ char buf_applist[25*MAX_VISIBLE]; //ext for better access
 bool is_watch_screen_in_menu=false;
 
 uint8_t AppMenuSelectedIndex=0; //app menu.yeah its global so we can share btwn 
+uint8_t CurrentOpenApplicationIndex=0; //for self referential current code
 
 void updateAppList(char *buf, size_t bufSize, const char **apps, int APP_COUNT, int AppMenuSelectedIndex) {
     buf[0] = '\0'; // clear
@@ -578,75 +590,154 @@ WatchMode currentWatchMode = WM_MAIN;
 int stopwatchElapsed=0;
 
 void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
+  lockscreen_clock->updateContent("");//remove content, avoid visual only bug
 switch (desiredMode){
-tft.fillScreen(tcol_background);//clean everything
+  
+//tft.fillScreen(tcol_background);//clean everything
 
                 case WM_MAIN:
                 WatchScreenUpdateInterval=500;
                 //update bg? 
-                lockscreen_clock->updateContent("");//fixes bug with text overflow
+                //lockscreen_clock->updateContent("");//fixes bug with text overflow
                 lockscreen_clock->setWinTextSize(2);
                 lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
                 lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
-
+                
                 break;
                 
                 case WM_STOPWATCH:
                     WatchScreenUpdateInterval=120;//update more frequently. unfortunately, there's still an issue with latency so we'll keep 
-                    lockscreen_clock->updateContent("");//fixes bug with text overflow
+                    //lockscreen_clock->updateContent("");//fixes bug with text overflow
                     lockscreen_clock->setWinTextSize(2);
                     lockscreen_clock->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
                     lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
                                                         //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
                          //resize window and force update as of 6/25/25 have the ability to not force the screen to update, preventing graphical glitches
+                 
                  break;
                 
 
                 case WM_ALARMS:
                     // TODO: Display upcoming alarms or alarm setup screen
+                    WatchScreenUpdateInterval=350;
+                    lockscreen_clock->setWinTextSize(1);
+                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(16,16,false);
 
                  break;
 
                 case WM_TIMER:
-                    // TODO: Display remaining timer or timer setup
-
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
                   break;
 
                 case WM_NTP_SYNCH:
+                WatchScreenUpdateInterval=500;
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,false);
+                 lockscreen_clock->updateContent("time synch, wifi");
 
                   break;
 
                 case WM_SET_TIME:
+                WatchScreenUpdateInterval=500;
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true);
 
                     break;
 
                 case WM_SET_TIMEZONE:
+                WatchScreenUpdateInterval=350;
+                    lockscreen_clock->setWinTextSize(1);
+                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(16,16,false);
 
                     break;
 
                 case WM_APPMENU:
                 WatchScreenUpdateInterval=500;
-                lockscreen_clock->updateContent("");//tex overflow bug avoidance
-                lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
+                    lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
                     lockscreen_clock->ResizeWindow(128, 128,false);
                     lockscreen_clock->MoveWindow(0,0,true);
+                   
                 break;    
 
                 default:
                     Serial.println("Unknown WatchMode!");
                     WatchScreenUpdateInterval=600;
                     lockscreen_clock->updateContent("ERROR: Bad Mode");
+                   
                 break;
             }
-
+tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
 }       
 
+void transitionApp(uint8_t index) {
+    AppName app = (AppName)index;
+
+    switch (app) {
+        case APP_LOCK_SCREEN:
+            // Do something for lock screen
+            CurrentOpenApplicationIndex=APP_LOCK_SCREEN; //note! need to set this on sucess, move this later to outside just this mode. this is the current open app n should only be set on success!
+            break;
+        case APP_HEALTH:
+            // Do something for health app
+            break;
+        case APP_NFC_TOOLS:
+            // ...
+            break;
+        case APP_SETTINGS:
+            // ...
+            break;
+        case APP_GYRO_INFO:
+            // ...
+            break;
+        case APP_FILES:
+            // ...
+            break;
+        case APP_RADIO:
+            // ...
+            break;
+        case APP_IR_REMOTE:
+            // ...
+            break;
+        case APP_UTILITIES:
+            // ...
+            break;
+        case APP_ETOOLS:
+            // ...
+            break;
+        case APP_RUBBERDUCKY:
+            // ...
+            break;
+        case APP_CONNECTIONS:
+            // ...
+            break;
+        case APP_SMART_DEVICES:
+            // ...
+            break;
+        case APP_DIAGNOSTICS:
+            // ...
+            break;
+
+        case APP_COUNT:  // Usually no action here, just for bounds
+        default:
+            // Handle invalid selection gracefully
+            break;
+    }
+}
+
+extern usr_alarm_st usrmade_alarms[10]; 
+extern usr_alarm_st usrmade_timers[5];
 
 void watchscreen(void *pvParameters) { 
     (void)pvParameters;
 
     // Shared buffers for display
-    char buf[80];
+    char watchscreen_buf[120];
     char thermoStr[8];
     char hrStr[8];
     //update rate changes per device yammering
@@ -660,13 +751,13 @@ void watchscreen(void *pvParameters) {
 
                 case WM_MAIN:
                 WatchScreenUpdateInterval=500;
-                    snprintf(buf, sizeof(buf), "%02d:%02d<textsize(1)>:%02d<n><textsize(2)>%s %d",
+                    snprintf(watchscreen_buf, sizeof(watchscreen_buf), "%02d:%02d<textsize(2)>:%02d<n><textsize(1)>%s %d",
                              CurrentNormieTime.hour,
                              CurrentNormieTime.minute,
                              CurrentNormieTime.second,
                              TRIchar_month_names[CurrentNormieTime.month],
                              CurrentNormieTime.day);
-                    lockscreen_clock->updateContent(buf);
+                    lockscreen_clock->updateContent(watchscreen_buf);
 
                     snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
                     lockscreen_thermometer->updateContent(thermoStr);
@@ -689,23 +780,43 @@ void watchscreen(void *pvParameters) {
                     unsigned int h  = elapsed / 3600000;
                     unsigned int ms = elapsed % 1000;
 
-                   snprintf(buf, sizeof(buf), "%02u:%02u:%02u<n><textsize(1)>.%03u%s", h, m, s, ms, stopwatchRunning ? "<n><textsize(1)>RUN" : "<n><textsize(1)>STOP");
+                   snprintf(watchscreen_buf, sizeof(watchscreen_buf), "%02u:%02u:%02u<n><textsize(1)>.%03u%s", h, m, s, ms, stopwatchRunning ? "<n><textsize(1)>RUN" : "<n><textsize(1)>STOP");
 
 
 
-                    lockscreen_clock->updateContent(buf);//windowManagerInstance->UpdateAllWindows(true,false);
+                    lockscreen_clock->updateContent(watchscreen_buf);//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
                 }
 
                 case WM_ALARMS:
+                
                     // TODO: Display upcoming alarms or alarm setup screen
                     lockscreen_clock->updateContent("ALARM MODE");//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
-                case WM_TIMER:
-                    // TODO: Display remaining timer or timer setup
-                    lockscreen_clock->updateContent("TIMER MODE");//windowManagerInstance->UpdateAllWindows(true,false);
-                    break;
+                case WM_TIMER: {
+                   bool is_timer_in_setmode = true;
+
+                     if (is_timer_in_setmode) {
+                       char alarmBuf[64]; // local output buffer
+                       usr_alarm_st_to_str(&usrmade_timers[0], alarmBuf, sizeof(alarmBuf));
+                       lockscreen_clock->updateContent(alarmBuf);
+                     } else {
+    // TODO: combine top 5 into one buffer, or update multiple windows
+                       char multiBuf[256] = "";
+                       for (int i = 0; i < 5; ++i) {
+  usr_alarm_st_to_str(&usrmade_timers[i], watchscreen_buf, sizeof(watchscreen_buf));
+  strncat(multiBuf, watchscreen_buf, sizeof(multiBuf) - strlen(multiBuf) - 1);
+  strncat(multiBuf, "\n", sizeof(multiBuf) - strlen(multiBuf) - 1);
+}
+
+                       lockscreen_clock->updateContent(multiBuf);
+                     }
+
+  windowManagerInstance->UpdateAllWindows(true, false);
+  break;
+}
+
 
                 case WM_NTP_SYNCH:
                     lockscreen_clock->updateContent("Syncing Time...");//windowManagerInstance->UpdateAllWindows(true,false);
@@ -753,6 +864,86 @@ void watchscreen(void *pvParameters) {
 }//void watch screen
 
 //input tick============================================================================================================================
+uint8_t watchModeIndex = 0;
+
+void Input_handler_fn_main_screen(uint16_t key){
+   switch (key) {
+
+    case key_left:
+                watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
+                currentWatchMode = (WatchMode)watchModeIndex;
+                WATCH_SCREEN_TRANSITION(currentWatchMode);
+
+     break;
+
+     case key_right:
+                watchModeIndex = (watchModeIndex + 1) % WM_COUNT;
+          if (watchModeIndex >= WM_COUNT){ watchModeIndex = 0;} 
+          currentWatchMode = (WatchMode)watchModeIndex;
+           WATCH_SCREEN_TRANSITION(currentWatchMode);
+
+     break;
+
+case key_down:
+    if (currentWatchMode == WM_APPMENU) {
+        AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
+        updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
+        lockscreen_clock->updateContent(buf_applist); // Just update the text/list
+    }
+    break;
+
+case key_up:
+    if (currentWatchMode == WM_APPMENU) {
+        AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
+        updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
+        lockscreen_clock->updateContent(buf_applist);
+    }
+    break;
+
+
+    case key_back:
+             currentWatchMode = WM_MAIN;
+          is_watch_screen_in_menu = false; 
+             //setWinTextSize(2);
+           WATCH_SCREEN_TRANSITION(WM_MAIN);
+                    
+            // Resume watchscreen if you suspended it
+        // vTaskResume(watchScreenHandle);
+       break;
+            
+    case key_enter:
+              //enter does different things per app open on screen
+                    switch (currentWatchMode){
+
+                    case WM_MAIN:
+
+                    break;
+
+                    case WM_STOPWATCH:
+                  if (stopwatchRunning) {
+                            stopwatchElapsed += millis() - stopwatchStart;
+                            stopwatchRunning = false;
+                        } else {
+                            stopwatchStart = millis();
+                            stopwatchRunning = true;
+                        }
+
+                     break;
+
+                      case WM_APPMENU:
+              //select the app lamfo 
+              //need to do a thing
+              transitionApp(AppMenuSelectedIndex);
+              //take var AppMenuSelectedIndex and open that app with the transition thing
+              default:
+              break;
+             }//end switch watch mode        
+    break;
+    default:
+    break;
+    }//end switch key
+
+}//end fn main screen input handler
 
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
@@ -766,74 +957,35 @@ void INPUT_tick(void *pvParameters) {
             if (!uinput.isDown) continue;
 
             Serial.println(uinput.key);
+            //handle input here
 
-            switch (uinput.key) {
-                case key_left:
-                    currentWatchMode = WM_STOPWATCH;
-                    WATCH_SCREEN_TRANSITION(WM_STOPWATCH);
-                    break;
+            switch (CurrentOpenApplicationIndex) { //use different functions for input use based on app itself. todo: add a generic later on for user made apps with a object or soemthing idk
+        case APP_LOCK_SCREEN:
+            // Do something for lock screen
+            Input_handler_fn_main_screen(uinput.key);
+            break;
+        case APP_HEALTH:
+            // Do something for health app
+            break;
+        
+        default:
+            // ...
+            break; }//end switch app
 
-                case key_right:
-                case key_back:
-                    currentWatchMode = WM_MAIN;
-                    is_watch_screen_in_menu = false; 
-                    //setWinTextSize(2);
-                    WATCH_SCREEN_TRANSITION(WM_MAIN);
-                    
-                    // Resume watchscreen if you suspended it
-                   // vTaskResume(watchScreenHandle);
-                    break;
-
-               case key_down:
-              case key_up:
-    if (currentWatchMode == WM_MAIN) {
-        currentWatchMode = WM_APPMENU;
-        is_watch_screen_in_menu = true;
-    }
-    if (currentWatchMode == WM_APPMENU) {
-        if (uinput.key == key_down) {
-            AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
-        } else {
-            AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
-        }
-        updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
-        WATCH_SCREEN_TRANSITION(WM_APPMENU);
-        lockscreen_clock->updateContent(buf_applist);
-    }
-    break;
-
-
-
-                case key_enter:
-                    if (currentWatchMode == WM_STOPWATCH) {
-                        if (stopwatchRunning) {
-                            stopwatchElapsed += millis() - stopwatchStart;
-                            stopwatchRunning = false;
-                        } else {
-                            stopwatchStart = millis();
-                            stopwatchRunning = true;
-                        }
-                    }
-                    break;
-
-                default:
-                    break;
-            }
-        }
+}//end while inque recieve
 
         // If inputCount exceeds 10, purge excess junk
         if (inputCount > 10) {
             S_UserInput junk;
             while (xQueueReceive(processInputQueue, &junk, 0) == pdPASS) {}
-            inputCount = 0;
-        }
+            inputCount = 0; }//
 
         updateHRsensor();
         PollEncoders();
         PollButtons();
         vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
+    }//for;;
+}//task itself
 
 
 

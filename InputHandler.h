@@ -24,7 +24,8 @@ typedef struct encoder_state {
 // Input Device Types
 //typedef struct encoder_state encoder_state_t;
 
-
+#define FixDoubleInputGlitch 1
+//encoder makes two pulses for notch
 
 typedef enum{
 keyenter,

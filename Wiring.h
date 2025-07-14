@@ -23,7 +23,7 @@
 //#define SPI_CS_RADIO //cc1101 chipset 
 #define SPI_CS_SD 6 //generic sdcard on g6
 
-
+#define LED_PIN GPIO_NUM_48
 //i2c pins
 //hardware known connected: max30012 hr sensor, mpu6050 gyro, 
 #define SDA_PIN 8

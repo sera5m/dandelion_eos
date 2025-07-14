@@ -15,17 +15,25 @@
 // Global variables for time access
 #include "timezones.h" //source: don't even ask
 #include <Wire.h>
-
+#include "driver/timer.h"
 // -IN main not here
 //int currentHour = 0;
 //int currentMinute = 0;
 //int currentSecond = 0;
-
-extern const char* TRIchar_month_names[] = {
+#include <stdio.h>
+#include "esp_sleep.h"
+#include "esp_log.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+#include "esp_system.h"
+#include "Wiring.h"
+const char* TRIchar_month_names[] = {
     "INVALID", // index 0
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
+
+#include <Adafruit_NeoPixel.h>
 
 /*
 void syncTimeFromNTP(const char* ntpServer) {
@@ -152,8 +160,74 @@ void initialTimezoneSetup() {
                       */
     }
 }
+extern Adafruit_NeoPixel strip;
 
 
+void blink_led(uint32_t color, uint8_t times, uint16_t delay_ms) {
+  for (int i = 0; i < times; i++) {
+    strip.setPixelColor(0, color); // Turn ON with color
+    strip.show();
+    delay(delay_ms);
+
+    strip.setPixelColor(0, 0); // Turn OFF
+    strip.show();
+    delay(delay_ms);
+  }
+}
+
+uint64_t get_time_until_timer_us(usr_alarm_st* alarm) {
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    // Convert current time to minutes since midnight
+    int now_minutes = (now.tv_sec / 60) % (24 * 60);
+    int alarm_minutes = alarm->hours * 60 + alarm->minutes;
+
+    int diff = alarm_minutes - now_minutes;
+    if (diff <= 0) {
+        diff += 24 * 60; // next day
+    }
+
+    return (uint64_t)diff * 60 * 1000000ULL; // microseconds
+}
+
+void make_timer(usr_alarm_st* alarm) {
+    uint64_t sleep_time_us = get_time_until_alarm_us(alarm);
+
+    ESP_LOGI(TAG, "Sleeping for %" PRIu64 " us (~%lld minutes)", sleep_time_us, sleep_time_us / 60000000ULL);
+
+    esp_sleep_enable_timer_wakeup(sleep_time_us);
+    esp_deep_sleep_start();
+
+    // ESP32 restarts here on wakeup, so code below won't run after deep sleep
+}
+
+const char* alarmActionToString(alarmAction act) {
+  switch (act) {
+    case light: return "Light";
+    case buzzer: return "Buzzer";
+    case phonebuzzer: return "PhoneBuzz";
+    case both: return "Both";
+    default: return "Unknown";
+  }
+}
+
+void usr_alarm_st_to_str(const usr_alarm_st *alarm, char *outBuf, size_t bufSize) {
+  uint8_t r = (alarm->LightColor >> 16) & 0xFF;
+  uint8_t g = (alarm->LightColor >> 8) & 0xFF;
+  uint8_t b = alarm->LightColor & 0xFF;
+
+  uint16_t rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+
+  snprintf(outBuf, bufSize,  // <-- the *destination*
+    "<textsize(2)>%02u:%02u<n><textsize(1)>%s<n><textcolor(0x%04X)>",
+    alarm->hours,
+    alarm->minutes,
+    alarmActionToString(alarm->E_AlarmAction),
+    rgb565);
+}
+
+usr_alarm_st usrmade_alarms[10]; 
+usr_alarm_st usrmade_timers[5];
 
 
 /*
