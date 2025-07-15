@@ -24,7 +24,7 @@
 } while(0)
 
 int _dbg_ypos = 0;  // screen Y cursor
-
+uint32_t clocki32cache=0; 
 //stupid fucking debugs to make this work right
 typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU,WM_COUNT}WatchMode;
 typedef enum{HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopital
@@ -810,6 +810,7 @@ void watchscreen(void *pvParameters) {
   strncat(multiBuf, "\n", sizeof(multiBuf) - strlen(multiBuf) - 1);
 }
 
+
                        lockscreen_clock->updateContent(multiBuf);
                      }
 
@@ -864,10 +865,201 @@ void watchscreen(void *pvParameters) {
 }//void watch screen
 
 //input tick============================================================================================================================
-uint8_t watchModeIndex = 0;
+uint8_t watchModeIndex = 0; //likely best to rename to mouse pos lol
+//need these to persist
+uint8_t HHMM_SETTER_varpos=0; //0-4 tracking the pos of the "mouse"
 
-void Input_handler_fn_main_screen(uint16_t key){
-   switch (key) {
+  
+  
+  //need struct for theother thing here for alarm mode
+  usr_alarm_st usralmstbuf;//cache one for setters
+
+void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
+    // Extract 24-bit color (lower 24 bits)
+    color[0] = (input >> 16) & 0xFF; // Most significant byte of 24-bit color
+    color[1] = (input >> 8) & 0xFF;
+    color[2] = input & 0xFF;
+
+    // Extract last 8 bits (most significant byte)
+    *last8 = (input >> 24) & 0xFF;
+}//split the color
+
+void HHMM_setter_pos_setwithbounds(bool dir) {
+    if (dir) {
+        HHMM_SETTER_varpos++;
+    } else {
+        if (HHMM_SETTER_varpos > 0) {
+            HHMM_SETTER_varpos--;
+        } else {
+            HHMM_SETTER_varpos = 0; // clamp at 0
+        }
+    }
+
+    if (HHMM_SETTER_varpos >= 17) { // 
+        HHMM_SETTER_varpos = 0;
+    }
+}
+#define CLAMP(val, min, max) (((val) < (min)) ? (min) : ((val) > (max)) ? (max) : (val))
+
+void onVertical_input_timer_buff_setter(bool direction) {
+    int8_t dir = direction ? 1 : -1;
+
+    uint8_t color[3];
+    uint8_t days_bitmask;
+
+    // Split combined LightColor
+    split_u32(usralmstbuf.LightColor, &days_bitmask, color);
+
+    switch (HHMM_SETTER_varpos) {
+    case 0: // min 1s digit
+        usralmstbuf.minutes += dir;
+        if (usralmstbuf.minutes >= 60) {
+            usralmstbuf.minutes -= 60;
+            usralmstbuf.hours++;
+            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        } else if (usralmstbuf.minutes < 0) {
+            usralmstbuf.minutes += 60;
+            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
+        }
+        break;
+
+    case 1: // min 10s digit
+        usralmstbuf.minutes += dir * 10;
+        if (usralmstbuf.minutes >= 60) {
+            usralmstbuf.minutes -= 60;
+            usralmstbuf.hours++;
+            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        } else if (usralmstbuf.minutes < 0) {
+            usralmstbuf.minutes += 60;
+            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
+        }
+        break;
+
+    case 2: // hour 1s digit
+        usralmstbuf.hours += dir;
+        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
+        break;
+
+    case 3: // hour 10s digit
+        usralmstbuf.hours += dir * 10;
+        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
+        break;
+
+    case 4: // alarm action
+        usralmstbuf.E_AlarmAction += dir;
+        if (usralmstbuf.E_AlarmAction > ALARM_ACTION_MAX) usralmstbuf.E_AlarmAction = 0;
+        if (usralmstbuf.E_AlarmAction < 0) usralmstbuf.E_AlarmAction = ALARM_ACTION_MAX;
+        break;
+
+    case 5: // snooze duration
+        usralmstbuf.SnoozeDur += dir;
+        if (usralmstbuf.SnoozeDur > 30) usralmstbuf.SnoozeDur = 1;
+        if (usralmstbuf.SnoozeDur < 1) usralmstbuf.SnoozeDur = 30;
+        break;
+
+    case 6: case 7: case 8: case 9: case 10: case 11: case 12: {
+        // Days bitmask toggle: Mon–Sun
+        uint8_t bit = HHMM_SETTER_varpos - 6;
+        if (bit < 7) {
+            if (direction) {
+                days_bitmask |= (1 << bit);  // toggle ON
+            } else {
+                days_bitmask &= ~(1 << bit); // toggle OFF
+            }
+        }
+        break;
+    }
+
+    case 13: // Color R
+        color[0] = (uint8_t)CLAMP(color[0] + dir, 0, 255);
+        break;
+    case 14: // Color G
+        color[1] = (uint8_t)CLAMP(color[1] + dir, 0, 255);
+        break;
+    case 15: // Color B
+        color[2] = (uint8_t)CLAMP(color[2] + dir, 0, 255);
+        break;
+
+    default:
+        HHMM_SETTER_varpos = 0; // fallback
+        break;
+    }
+
+    // Recombine LightColor
+    usralmstbuf.LightColor =
+        ((uint32_t)days_bitmask << 24) |
+        ((uint32_t)color[0] << 16) |
+        ((uint32_t)color[1] << 8) |
+        color[2];
+}
+
+
+void on_key_enter_pressed_watchmode(WatchMode mode) {
+                    switch (mode){
+
+                    case WM_MAIN:
+
+                    break;
+
+                    case WM_STOPWATCH:
+                  if (stopwatchRunning) {
+                            stopwatchElapsed += millis() - stopwatchStart;
+                            stopwatchRunning = false;
+                        } else {
+                            stopwatchStart = millis();
+                            stopwatchRunning = true;
+                        }
+
+                     break;//break case wm stopwatch
+
+               case WM_APPMENU:   
+              //select the app lamfo 
+              //need to do a thing
+              transitionApp(AppMenuSelectedIndex);
+              //take var AppMenuSelectedIndex and open that app with the transition thing
+              break;
+
+              case WM_TIMER:
+              //if less r =3 its fine add if greater rst
+              HHMM_setter_pos_setwithbounds(1,1);//go up pos, enable ringer setter 
+              
+              break;
+
+              default:
+              break;
+             }//end switch watch mode 
+}   //end fn    watchmode enter key
+
+void on_key_back_pressed_watchmode(WatchMode Mode) {
+switch (Mode){ //back may mean different thing per mode!
+
+  case WM_TIMER:
+HHMM_setter_pos_setwithbounds(0,1);//go down pos, enable ringer setter        
+  break;//break wm timer
+  case WM_APPMENU:
+
+  currentWatchMode = WM_MAIN;
+          is_watch_screen_in_menu = false; 
+             //setWinTextSize(2);
+           WATCH_SCREEN_TRANSITION(WM_MAIN);
+           //considered putting a goto default here but ive never used goto and dont intend to start now
+
+  break;//break wm timer
+default:
+          currentWatchMode = WM_MAIN;
+          is_watch_screen_in_menu = false; 
+             //setWinTextSize(2);
+           WATCH_SCREEN_TRANSITION(WM_MAIN);
+break;                    
+            // Resume watchscreen if you suspended it
+        // vTaskResume(watchScreenHandle);
+}//end switch mode
+}//end fn on_key_enter_pressed_watchmode
+
+void Input_handler_fn_main_screen(uint16_t key) {
+   switch (key){
 
     case key_left:
                 watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
@@ -884,61 +1076,61 @@ void Input_handler_fn_main_screen(uint16_t key){
 
      break;
 
-case key_down:
-    if (currentWatchMode == WM_APPMENU) {
+    case key_down:
+
+    switch (currentWatchMode){
+    case WM_APPMENU:
+    
         AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
         updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
         lockscreen_clock->updateContent(buf_applist); // Just update the text/list
-    }
+
+    case WM_TIMER:
+
+    //decrease timer digit if in set mode 
+onVertical_input_timer_buff_setter(0);//down
+
+    break;
+    
+    default:
+    break;
+
+    }//yes i have nested these please help
+    //end switch watchode
     break;
 
 case key_up:
-    if (currentWatchMode == WM_APPMENU) {
-        AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
+    switch (currentWatchMode){
+    case WM_APPMENU:        
+    AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
         updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
         lockscreen_clock->updateContent(buf_applist);
-    }
-    break;
+       break; 
+
+    case WM_TIMER:
+    //increase timer digit if in set mode
+    onVertical_input_timer_buff_setter(0);//down
+    
+    break;//break wm timer
+
+    default:
+    break;//break watch mode
+    }//nested mode statement
+
+    break; //break key
 
 
     case key_back:
-             currentWatchMode = WM_MAIN;
-          is_watch_screen_in_menu = false; 
-             //setWinTextSize(2);
-           WATCH_SCREEN_TRANSITION(WM_MAIN);
-                    
-            // Resume watchscreen if you suspended it
-        // vTaskResume(watchScreenHandle);
+    on_key_back_pressed_watchmode(currentWatchMode);
+    
        break;
             
     case key_enter:
               //enter does different things per app open on screen
-                    switch (currentWatchMode){
+       on_key_enter_pressed_watchmode(currentWatchMode);//real shit
+               
+    break;//sw key_enter
 
-                    case WM_MAIN:
-
-                    break;
-
-                    case WM_STOPWATCH:
-                  if (stopwatchRunning) {
-                            stopwatchElapsed += millis() - stopwatchStart;
-                            stopwatchRunning = false;
-                        } else {
-                            stopwatchStart = millis();
-                            stopwatchRunning = true;
-                        }
-
-                     break;
-
-                      case WM_APPMENU:
-              //select the app lamfo 
-              //need to do a thing
-              transitionApp(AppMenuSelectedIndex);
-              //take var AppMenuSelectedIndex and open that app with the transition thing
-              default:
-              break;
-             }//end switch watch mode        
-    break;
     default:
     break;
     }//end switch key

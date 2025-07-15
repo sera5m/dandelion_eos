@@ -42,14 +42,16 @@ light,buzzer,phonebuzzer,both}alarmAction;
 
 
 // ========== STRUCTS ========== //
-typedef struct{
+typedef struct __attribute__((packed)){
 uint8_t hours;
 uint8_t minutes;
 alarmAction E_AlarmAction;
-uint32_t LightColor; //heads up it's 24 bits
-uint8_t SnoozeDur=2;
-}usr_alarm_st;
-//works for both alarm and timer
+uint32_t LightColor; //heads up it's 24 bits for color
+uint8_t SnoozeDur;
+}usr_alarm_st;//todo pack or this may be unreliable
+//works for both alarm and timer-but for alarms you may have to add in the days map for weekdays vs weekend.
+// note that the color bitmask is 32x but stores 24 bits of color..... we will utilize the last 8 bits to store THE DAYS ACTIVE BITMASK in the future-8 bits
+//done by fn splitu32
 
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
