@@ -34,6 +34,10 @@ const char* TRIchar_month_names[] = {
 };
 
 #include <Adafruit_NeoPixel.h>
+#include "mdl_clock.h"
+
+const char* DayNames[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+const char* AlarmActionNames[] = {"NONE", "LIGHT", "buzz", "both", "phone"};
 
 /*
 void syncTimeFromNTP(const char* ntpServer) {

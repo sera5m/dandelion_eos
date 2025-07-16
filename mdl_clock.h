@@ -28,18 +28,16 @@ static const char* TAG = "alarm";
 
 // ========== ENUMS ========== //
 
-enum days  { sun, mon, tue, wed, thu, fri, sat };
-enum months{ jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec };
+enum days { sun, mon, tue, wed, thu, fri, sat };
+extern const char* DayNames[];
+extern const char* AlarmActionNames[];
+
+enum months { jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec };
 extern const char* TRIchar_month_names[13];
 
-
-enum AppScreenState{ //mode the watch is in(well, what screen you're on, stuff will run in the background)
-disabled,background,settings,alarms,stopwatch,timers,cycle};
-
-typedef enum{
-light,buzzer,phonebuzzer,both}alarmAction;
+typedef enum{none,light,buzzer,both,phonebuzzer,ALARM_ACTION_MAX}alarmAction;
 //light blink,buzzer, a text, or blink and buzz
-
+extern const char* AlarmActionNames[5];
 
 // ========== STRUCTS ========== //
 typedef struct __attribute__((packed)){
@@ -49,9 +47,10 @@ alarmAction E_AlarmAction;
 uint32_t LightColor; //heads up it's 24 bits for color
 uint8_t SnoozeDur;
 }usr_alarm_st;//todo pack or this may be unreliable
+
 //works for both alarm and timer-but for alarms you may have to add in the days map for weekdays vs weekend.
 // note that the color bitmask is 32x but stores 24 bits of color..... we will utilize the last 8 bits to store THE DAYS ACTIVE BITMASK in the future-8 bits
-//done by fn splitu32
+//done by fn splitu32_to24
 
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];

@@ -1748,16 +1748,16 @@ void updateWrappedLinesOptimized() {
 
             std::string tag = content.substr(pos, tagEnd - pos + 1);
 
-            if (tag == Delim_LinBreak) {
-                // Force line break
-                if (!currentLine.empty()) {
-                    wrappedLines.push_back(currentLine);
-                    currentLine.clear();
-                }
-            } else {
-                // Keep tag in line
-                currentLine.push_back({true, tag});
-            }
+if (tag == Delim_LinBreak) {
+    if (!currentLine.empty()) {
+        wrappedLines.push_back(currentLine);
+        currentLine.clear();
+    } else {
+        // <-- THIS FIX
+        wrappedLines.push_back(WrappedLine{});
+    }
+}
+
 
             pos = tagEnd + 1;
         } else {

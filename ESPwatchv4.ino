@@ -8,6 +8,8 @@
 #include "apps.ino"//GOSHIES I WONDER WHAT COULD BE IN HERE
 #include "NFC.h"
 #include "driver/timer.h"
+#include <sstream>
+#define CLAMP(val, min, max) (((val) < (min)) ? (min) : ((val) > (max)) ? (max) : (val))
 
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
@@ -259,6 +261,13 @@ static std::shared_ptr<Window> lockscreen_thermometer;
 
 bool IsScreenOn=true;
 
+typedef enum {
+  EDIT_OFF,        // just display list or clock
+  EDIT_RUNNING,    // dialing fields (HHMM_SETTER_varpos 0–15)
+  EDIT_CONFIRM     // “Save / Cancel” screen
+} EditState;
+uint8_t HHMM_SETTER_varpos=0;
+static EditState timerEditState = EDIT_OFF;
 
 #include <atomic>
 
@@ -280,6 +289,15 @@ uint16_t tcol_background=0x2000;
 
 
 extern QueueHandle_t processInputQueue;
+#define MAX_VISIBLE 15
+char buf_applist[25*MAX_VISIBLE]; //ext for better access
+
+bool is_watch_screen_in_menu=false;
+bool isConfirming = false;
+
+
+uint8_t AppMenuSelectedIndex=0; //app menu.yeah its global so we can share btwn 
+uint8_t CurrentOpenApplicationIndex=0; //for self referential current code
 
 
 bool stopwatchRunning = false;
@@ -309,7 +327,6 @@ NormieTime CurrentNormieTime; //real current time
 
 QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
 
-
 void scanI2C() {
   byte error, address;
   int nDevices = 0;
@@ -336,7 +353,7 @@ void scanI2C() {
 
 }
 
-
+#include "main_app_logic.ino"
 
 TaskHandle_t watchScreenHandle; //handle be4 use
 
@@ -483,6 +500,175 @@ void clearScreenEveryXCalls(uint16_t x) {
 
 
 
+uint8_t watchModeIndex = 0; //likely best to rename to mouse pos lol
+//need these to persist
+
+  
+  //need struct for theother thing here for alarm mode
+  usr_alarm_st usralmstbuf;//cache one for setters
+
+void onVertical_input_timer_buff_setter(bool direction) {
+    int8_t dir = direction ? 1 : -1;
+
+    uint8_t color[3];
+    uint8_t days_bitmask;
+
+    // Split combined LightColor
+    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
+
+    switch (HHMM_SETTER_varpos) {
+    case 0: // min 1s digit
+        usralmstbuf.minutes += dir;
+        if (usralmstbuf.minutes >= 60) {
+            usralmstbuf.minutes -= 60;
+            usralmstbuf.hours++;
+            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        } else if (usralmstbuf.minutes < 0) {
+            usralmstbuf.minutes += 60;
+            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
+        }
+        break;
+
+    case 1: // min 10s digit
+        usralmstbuf.minutes += dir * 10;
+        if (usralmstbuf.minutes >= 60) {
+            usralmstbuf.minutes -= 60;
+            usralmstbuf.hours++;
+            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        } else if (usralmstbuf.minutes < 0) {
+            usralmstbuf.minutes += 60;
+            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
+        }
+        break;
+
+    case 2: // hour 1s digit
+        usralmstbuf.hours += dir;
+        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
+        break;
+
+    case 3: // hour 10s digit
+        usralmstbuf.hours += dir * 10;
+        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
+        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
+        break;
+
+case 4: // alarm action
+{
+    int temp_action = (int)usralmstbuf.E_AlarmAction + dir;
+
+    if (temp_action > ALARM_ACTION_MAX) temp_action = 0;
+    if (temp_action < 0) temp_action = ALARM_ACTION_MAX;
+
+    usralmstbuf.E_AlarmAction = (alarmAction)temp_action;
+}
+break;
+
+    case 5: // snooze duration
+        usralmstbuf.SnoozeDur += dir;
+        if (usralmstbuf.SnoozeDur > 30) usralmstbuf.SnoozeDur = 1;
+        if (usralmstbuf.SnoozeDur < 1) usralmstbuf.SnoozeDur = 30;
+        break;
+
+    case 6: case 7: case 8: case 9: case 10: case 11: case 12: {
+        // Days bitmask toggle: Mon–Sun
+        uint8_t bit = HHMM_SETTER_varpos - 6;
+        if (bit < 7) {
+            if (direction) {
+                days_bitmask |= (1 << bit);  // toggle ON
+            } else {
+                days_bitmask &= ~(1 << bit); // toggle OFF
+            }
+        }
+        break;
+    }
+
+    case 13: // Color R
+        color[0] = (uint8_t)CLAMP(color[0] + dir, 0, 255);
+        break;
+    case 14: // Color G
+        color[1] = (uint8_t)CLAMP(color[1] + dir, 0, 255);
+        break;
+    case 15: // Color B
+        color[2] = (uint8_t)CLAMP(color[2] + dir, 0, 255);
+        break;
+
+    default:
+        HHMM_SETTER_varpos = 0; // fallback
+        break;
+    }
+
+    // Recombine LightColor
+    usralmstbuf.LightColor =
+        ((uint32_t)days_bitmask << 24) |
+        ((uint32_t)color[0] << 16) |
+        ((uint32_t)color[1] << 8) |
+        color[2];
+}
+
+
+std::string formatAlarm(uint8_t mousepos, bool confirmMode) {
+    uint8_t days_bitmask, color24[3];
+    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color24);
+
+    // build hh:mm with one digit bracketed
+    char tmp[6];
+    snprintf(tmp, sizeof(tmp), "%02u:%02u", usralmstbuf.hours, usralmstbuf.minutes);
+
+    std::string timeStr;
+    for (uint8_t i = 0; i < 5; i++) {
+        if (i == 2) {
+            timeStr += tmp[i];
+            continue;
+        }
+        int8_t posMap = -1;
+        switch (mousepos) {
+            case 3: posMap = 0; break;
+            case 2: posMap = 1; break;
+            case 1: posMap = 3; break;
+            case 0: posMap = 4; break;
+            default: break;
+        }
+        if (i == posMap) {
+            timeStr += "[";
+            timeStr += tmp[i];
+            timeStr += "]";
+        } else {
+            timeStr += tmp[i];
+        }
+    }
+
+    std::string actionStr = AlarmActionNames[usralmstbuf.E_AlarmAction];
+    if (mousepos == 4) actionStr = "[" + actionStr + "]";
+
+    std::string daysStr;
+    for (uint8_t d = 0; d < 7; d++) {
+        bool active = days_bitmask & (1 << d);
+        std::string day = DayNames[d];
+        if (mousepos == 6 + d) {
+            day = "[" + day + "]";
+        }
+        if (!active) {
+            day = "(" + day + ")";
+        }
+        daysStr += day;
+        if (d < 6) daysStr += " ";
+    }
+
+    std::ostringstream out;
+    out << timeStr
+        << " alert: " << actionStr
+        << " <n>days: " << daysStr
+        << " <n>snooze: " << usralmstbuf.SnoozeDur << "m";
+
+    if (mousepos == 5) {
+        out << " [" << usralmstbuf.SnoozeDur << "m]";
+    }
+
+    out << (confirmMode ? "<n>[SAVE] CANCEL" : "<n>SAVE [CANCEL]");
+
+    return out.str();
+}
 
 
 
@@ -538,144 +724,7 @@ void CREATE_LOCKSCREEN_WINDOWS(){
 }
 //i put this above everything to avoid bugs because .ino is evil. typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE}WatchMode;
 //app-appmenu==============================================================================
-  
-//scrolling up enters it?
-
-#define MAX_VISIBLE 15
-char buf_applist[25*MAX_VISIBLE]; //ext for better access
-
-bool is_watch_screen_in_menu=false;
-
-uint8_t AppMenuSelectedIndex=0; //app menu.yeah its global so we can share btwn 
-uint8_t CurrentOpenApplicationIndex=0; //for self referential current code
-
-void updateAppList(char *buf, size_t bufSize, const char **apps, int APP_COUNT, int AppMenuSelectedIndex) {
-    buf[0] = '\0'; // clear
-
-    int start = 0;
-    if (APP_COUNT > MAX_VISIBLE) {
-        start = AppMenuSelectedIndex - MAX_VISIBLE / 2;
-        if (start < 0) start = 0;
-        if (start + MAX_VISIBLE > APP_COUNT) start = APP_COUNT - MAX_VISIBLE;
-    }
-
-    for (int i = 0; i < MAX_VISIBLE && (start + i) < APP_COUNT; ++i) {
-  int idx = start + i;
-
-  if (idx == AppMenuSelectedIndex) {
-    strncat(buf, "<setcolor(0xdbbf)>[", bufSize - strlen(buf) - 1); //i really hope the macro bullshit replaces this so this highlights right. please leave it tcol
-    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
-    strncat(buf, "]<setcolor(0x07ff)>", bufSize - strlen(buf) - 1);
-  } else {
-    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
-  }
-
-  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}
-
-// Pad with blank lines if needed
-int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
-for (int i = visibleLines; i < MAX_VISIBLE; ++i) {
-  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}
-
-
-    // Optionally ensure trailing newline if needed
-    //strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}
-
-
-
-WatchMode currentWatchMode = WM_MAIN;
-int stopwatchElapsed=0;
-
-void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
-  lockscreen_clock->updateContent("");//remove content, avoid visual only bug
-switch (desiredMode){
-  
-//tft.fillScreen(tcol_background);//clean everything
-
-                case WM_MAIN:
-                WatchScreenUpdateInterval=500;
-                //update bg? 
-                //lockscreen_clock->updateContent("");//fixes bug with text overflow
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
-                
-                break;
-                
-                case WM_STOPWATCH:
-                    WatchScreenUpdateInterval=120;//update more frequently. unfortunately, there's still an issue with latency so we'll keep 
-                    //lockscreen_clock->updateContent("");//fixes bug with text overflow
-                    lockscreen_clock->setWinTextSize(2);
-                    lockscreen_clock->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
-                                                        //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
-                         //resize window and force update as of 6/25/25 have the ability to not force the screen to update, preventing graphical glitches
-                 
-                 break;
-                
-
-                case WM_ALARMS:
-                    // TODO: Display upcoming alarms or alarm setup screen
-                    WatchScreenUpdateInterval=350;
-                    lockscreen_clock->setWinTextSize(1);
-                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(16,16,false);
-
-                 break;
-
-                case WM_TIMER:
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
-                  break;
-
-                case WM_NTP_SYNCH:
-                WatchScreenUpdateInterval=500;
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,false);
-                 lockscreen_clock->updateContent("time synch, wifi");
-
-                  break;
-
-                case WM_SET_TIME:
-                WatchScreenUpdateInterval=500;
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true);
-
-                    break;
-
-                case WM_SET_TIMEZONE:
-                WatchScreenUpdateInterval=350;
-                    lockscreen_clock->setWinTextSize(1);
-                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(16,16,false);
-
-                    break;
-
-                case WM_APPMENU:
-                WatchScreenUpdateInterval=500;
-                    lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
-                    lockscreen_clock->ResizeWindow(128, 128,false);
-                    lockscreen_clock->MoveWindow(0,0,true);
-                   
-                break;    
-
-                default:
-                    Serial.println("Unknown WatchMode!");
-                    WatchScreenUpdateInterval=600;
-                    lockscreen_clock->updateContent("ERROR: Bad Mode");
-                   
-                break;
-            }
-tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
-}       
-
-void transitionApp(uint8_t index) {
+  void transitionApp(uint8_t index) {
     AppName app = (AppName)index;
 
     switch (app) {
@@ -729,9 +778,146 @@ void transitionApp(uint8_t index) {
             break;
     }
 }
+//scrolling up enters it?
+
+
+void updateAppList(char *buf, size_t bufSize, const char **apps, int APP_COUNT, int AppMenuSelectedIndex) {
+    buf[0] = '\0'; // clear
+
+    int start = 0;
+    if (APP_COUNT > MAX_VISIBLE) {
+        start = AppMenuSelectedIndex - MAX_VISIBLE / 2;
+        if (start < 0) start = 0;
+        if (start + MAX_VISIBLE > APP_COUNT) start = APP_COUNT - MAX_VISIBLE;
+    }
+
+    for (int i = 0; i < MAX_VISIBLE && (start + i) < APP_COUNT; ++i) {
+  int idx = start + i;
+
+  if (idx == AppMenuSelectedIndex) {
+    strncat(buf, "<setcolor(0xdbbf)>[", bufSize - strlen(buf) - 1); //i really hope the macro bullshit replaces this so this highlights right. please leave it tcol
+    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
+    strncat(buf, "]<setcolor(0x07ff)>", bufSize - strlen(buf) - 1);
+  } else {
+    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
+  }
+
+  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
+}
+
+// Pad with blank lines if needed
+int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
+for (int i = visibleLines; i < MAX_VISIBLE; ++i) {
+  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
+}
+
+
+    // Optionally ensure trailing newline if needed
+    //strncat(buf, "<n>", bufSize - strlen(buf) - 1);
+}//ene fn update applist
+
+
+
+WatchMode currentWatchMode = WM_MAIN;
+int stopwatchElapsed=0;
+
+void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
+  lockscreen_clock->updateContent("");//remove content, avoid visual only bug
+switch (desiredMode){
+  
+//tft.fillScreen(tcol_background);//clean everything
+
+                case WM_MAIN:
+                WatchScreenUpdateInterval=500;
+                //update bg? 
+                //lockscreen_clock->updateContent("");//fixes bug with text overflow
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
+                
+                break;
+                
+                case WM_STOPWATCH:
+                    WatchScreenUpdateInterval=120;//update more frequently. unfortunately, there's still an issue with latency so we'll keep 
+                    //lockscreen_clock->updateContent("");//fixes bug with text overflow
+                    lockscreen_clock->setWinTextSize(2);
+                    lockscreen_clock->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
+                                                        //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
+                         //resize window and force update as of 6/25/25 have the ability to not force the screen to update, preventing graphical glitches
+                 
+                 break;
+                
+
+                case WM_ALARMS:
+                    // TODO: Display upcoming alarms or alarm setup screen
+                    WatchScreenUpdateInterval=350;
+                    lockscreen_clock->setWinTextSize(1);
+                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(16,16,false);
+
+                 break;
+
+                case WM_TIMER:
+                WatchScreenUpdateInterval=350;
+                lockscreen_clock->setWinTextSize(1);
+               lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(16,16,false);
+                  break;
+
+                case WM_NTP_SYNCH:
+                WatchScreenUpdateInterval=500;
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,false);
+                 lockscreen_clock->updateContent("time synch, wifi");
+
+                  break;
+
+                case WM_SET_TIME:
+                WatchScreenUpdateInterval=500;
+                lockscreen_clock->setWinTextSize(2);
+                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true);
+
+                    break;
+
+                case WM_SET_TIMEZONE:
+                WatchScreenUpdateInterval=350;
+                    lockscreen_clock->setWinTextSize(1);
+                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(16,16,false);
+
+                    break;
+
+                case WM_APPMENU:
+                WatchScreenUpdateInterval=500;
+                    lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
+                    lockscreen_clock->ResizeWindow(128, 128,false);
+                    lockscreen_clock->MoveWindow(0,0,true);
+                   
+                break;    
+
+                default:
+                    Serial.println("Unknown WatchMode!");
+                    WatchScreenUpdateInterval=600;
+                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                   
+                break;
+            }
+tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
+}       
+
+
+void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
+    // copy the working buffer into your target array slot
+    array[index] = usralmstbuf;
+}
 
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
+bool CacheMenuConfirmState = false; 
+bool is_in_data_edit_mode=false;
 
 void watchscreen(void *pvParameters) { 
     (void)pvParameters;
@@ -794,29 +980,13 @@ void watchscreen(void *pvParameters) {
                     lockscreen_clock->updateContent("ALARM MODE");//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
-                case WM_TIMER: {
-                   bool is_timer_in_setmode = true;
-
-                     if (is_timer_in_setmode) {
-                       char alarmBuf[64]; // local output buffer
-                       usr_alarm_st_to_str(&usrmade_timers[0], alarmBuf, sizeof(alarmBuf));
-                       lockscreen_clock->updateContent(alarmBuf);
-                     } else {
-    // TODO: combine top 5 into one buffer, or update multiple windows
-                       char multiBuf[256] = "";
-                       for (int i = 0; i < 5; ++i) {
-  usr_alarm_st_to_str(&usrmade_timers[i], watchscreen_buf, sizeof(watchscreen_buf));
-  strncat(multiBuf, watchscreen_buf, sizeof(multiBuf) - strlen(multiBuf) - 1);
-  strncat(multiBuf, "\n", sizeof(multiBuf) - strlen(multiBuf) - 1);
-}
-
-
-                       lockscreen_clock->updateContent(multiBuf);
-                     }
-
-  windowManagerInstance->UpdateAllWindows(true, false);
+case WM_TIMER:
+  if (timerEditState == EDIT_RUNNING || timerEditState == EDIT_OFF) {
+    lockscreen_clock->updateContent(formatAlarm(HHMM_SETTER_varpos, timerEditState == EDIT_CONFIRM)
+    );
+  } else { /* you only have three states—this covers confirm too */ }
   break;
-}
+
 
 
                 case WM_NTP_SYNCH:
@@ -865,14 +1035,7 @@ void watchscreen(void *pvParameters) {
 }//void watch screen
 
 //input tick============================================================================================================================
-uint8_t watchModeIndex = 0; //likely best to rename to mouse pos lol
-//need these to persist
-uint8_t HHMM_SETTER_varpos=0; //0-4 tracking the pos of the "mouse"
 
-  
-  
-  //need struct for theother thing here for alarm mode
-  usr_alarm_st usralmstbuf;//cache one for setters
 
 void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
     // Extract 24-bit color (lower 24 bits)
@@ -895,105 +1058,12 @@ void HHMM_setter_pos_setwithbounds(bool dir) {
         }
     }
 
-    if (HHMM_SETTER_varpos >= 17) { // 
+    if (HHMM_SETTER_varpos >= 18) { // 
         HHMM_SETTER_varpos = 0;
     }
 }
-#define CLAMP(val, min, max) (((val) < (min)) ? (min) : ((val) > (max)) ? (max) : (val))
 
-void onVertical_input_timer_buff_setter(bool direction) {
-    int8_t dir = direction ? 1 : -1;
 
-    uint8_t color[3];
-    uint8_t days_bitmask;
-
-    // Split combined LightColor
-    split_u32(usralmstbuf.LightColor, &days_bitmask, color);
-
-    switch (HHMM_SETTER_varpos) {
-    case 0: // min 1s digit
-        usralmstbuf.minutes += dir;
-        if (usralmstbuf.minutes >= 60) {
-            usralmstbuf.minutes -= 60;
-            usralmstbuf.hours++;
-            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        } else if (usralmstbuf.minutes < 0) {
-            usralmstbuf.minutes += 60;
-            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
-        }
-        break;
-
-    case 1: // min 10s digit
-        usralmstbuf.minutes += dir * 10;
-        if (usralmstbuf.minutes >= 60) {
-            usralmstbuf.minutes -= 60;
-            usralmstbuf.hours++;
-            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        } else if (usralmstbuf.minutes < 0) {
-            usralmstbuf.minutes += 60;
-            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
-        }
-        break;
-
-    case 2: // hour 1s digit
-        usralmstbuf.hours += dir;
-        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
-        break;
-
-    case 3: // hour 10s digit
-        usralmstbuf.hours += dir * 10;
-        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
-        break;
-
-    case 4: // alarm action
-        usralmstbuf.E_AlarmAction += dir;
-        if (usralmstbuf.E_AlarmAction > ALARM_ACTION_MAX) usralmstbuf.E_AlarmAction = 0;
-        if (usralmstbuf.E_AlarmAction < 0) usralmstbuf.E_AlarmAction = ALARM_ACTION_MAX;
-        break;
-
-    case 5: // snooze duration
-        usralmstbuf.SnoozeDur += dir;
-        if (usralmstbuf.SnoozeDur > 30) usralmstbuf.SnoozeDur = 1;
-        if (usralmstbuf.SnoozeDur < 1) usralmstbuf.SnoozeDur = 30;
-        break;
-
-    case 6: case 7: case 8: case 9: case 10: case 11: case 12: {
-        // Days bitmask toggle: Mon–Sun
-        uint8_t bit = HHMM_SETTER_varpos - 6;
-        if (bit < 7) {
-            if (direction) {
-                days_bitmask |= (1 << bit);  // toggle ON
-            } else {
-                days_bitmask &= ~(1 << bit); // toggle OFF
-            }
-        }
-        break;
-    }
-
-    case 13: // Color R
-        color[0] = (uint8_t)CLAMP(color[0] + dir, 0, 255);
-        break;
-    case 14: // Color G
-        color[1] = (uint8_t)CLAMP(color[1] + dir, 0, 255);
-        break;
-    case 15: // Color B
-        color[2] = (uint8_t)CLAMP(color[2] + dir, 0, 255);
-        break;
-
-    default:
-        HHMM_SETTER_varpos = 0; // fallback
-        break;
-    }
-
-    // Recombine LightColor
-    usralmstbuf.LightColor =
-        ((uint32_t)days_bitmask << 24) |
-        ((uint32_t)color[0] << 16) |
-        ((uint32_t)color[1] << 8) |
-        color[2];
-}
 
 
 void on_key_enter_pressed_watchmode(WatchMode mode) {
@@ -1022,9 +1092,21 @@ void on_key_enter_pressed_watchmode(WatchMode mode) {
               break;
 
               case WM_TIMER:
-              //if less r =3 its fine add if greater rst
-              HHMM_setter_pos_setwithbounds(1,1);//go up pos, enable ringer setter 
-              
+  switch (timerEditState) {
+    case EDIT_OFF:
+      timerEditState = EDIT_RUNNING;
+      HHMM_SETTER_varpos = 0;            // start at first field
+      break;
+    case EDIT_RUNNING:
+      timerEditState = EDIT_CONFIRM;     // move to save/cancel
+      break;
+    case EDIT_CONFIRM:
+      saveAlarmGeneric(usrmade_timers, watchModeIndex);
+      timerEditState = EDIT_OFF;         // back to normal display
+      break;
+  }
+  break;
+
               break;
 
               default:
@@ -1035,9 +1117,16 @@ void on_key_enter_pressed_watchmode(WatchMode mode) {
 void on_key_back_pressed_watchmode(WatchMode Mode) {
 switch (Mode){ //back may mean different thing per mode!
 
-  case WM_TIMER:
-HHMM_setter_pos_setwithbounds(0,1);//go down pos, enable ringer setter        
-  break;//break wm timer
+ case WM_TIMER:
+  if (timerEditState == EDIT_CONFIRM) {
+    timerEditState = EDIT_RUNNING;      // back from confirm to editing
+  } else if (timerEditState == EDIT_RUNNING) {
+    timerEditState = EDIT_OFF;          // cancel editing entirely
+  } else {
+    // normal “back” behavior (go out of timer app)
+  }
+  break;
+
   case WM_APPMENU:
 
   currentWatchMode = WM_MAIN;
@@ -1058,85 +1147,77 @@ break;
 }//end switch mode
 }//end fn on_key_enter_pressed_watchmode
 
+//0. take input key, switch per key, 
+//1. route to current mode per key via functions for each key
 void Input_handler_fn_main_screen(uint16_t key) {
-   switch (key){
+    switch (key) {
 
-    case key_left:
-                watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
-                currentWatchMode = (WatchMode)watchModeIndex;
-                WATCH_SCREEN_TRANSITION(currentWatchMode);
+        case key_left:
+            watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
+            currentWatchMode = (WatchMode)watchModeIndex;
+            WATCH_SCREEN_TRANSITION(currentWatchMode);
+            break;
 
-     break;
+        case key_right:
+            watchModeIndex = (watchModeIndex + 1) % WM_COUNT;
+            currentWatchMode = (WatchMode)watchModeIndex;
+            WATCH_SCREEN_TRANSITION(currentWatchMode);
+            break;
 
-     case key_right:
-                watchModeIndex = (watchModeIndex + 1) % WM_COUNT;
-          if (watchModeIndex >= WM_COUNT){ watchModeIndex = 0;} 
-          currentWatchMode = (WatchMode)watchModeIndex;
-           WATCH_SCREEN_TRANSITION(currentWatchMode);
+        case key_down:
+            switch (currentWatchMode) {
+                case WM_APPMENU:
+                    AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
+                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
+                    lockscreen_clock->updateContent(buf_applist);
+                    break;
 
-     break;
+                case WM_TIMER:
+                    // Decrease timer digit if in set mode
+                    onVertical_input_timer_buff_setter(0); // 0 = down
+                    break;
 
-    case key_down:
+                default:
+                    break;
+            }
+            break;
 
-    switch (currentWatchMode){
-    case WM_APPMENU:
-    
-        AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
-        updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
-        lockscreen_clock->updateContent(buf_applist); // Just update the text/list
+        case key_up:
+            switch (currentWatchMode) {
+                case WM_APPMENU:
+                    AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
+                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
+                    lockscreen_clock->updateContent(buf_applist);
+                    break;
 
-    case WM_TIMER:
+                case WM_TIMER:
+                    // Increase timer digit if in set mode
+                    onVertical_input_timer_buff_setter(1); // 1 = up
+                    break;
 
-    //decrease timer digit if in set mode 
-onVertical_input_timer_buff_setter(0);//down
+                default:
+                    break;
+            }
+            break;
 
-    break;
-    
-    default:
-    break;
+        case key_back:
+            on_key_back_pressed_watchmode(currentWatchMode);
+            break;
 
-    }//yes i have nested these please help
-    //end switch watchode
-    break;
+        case key_enter:
+            on_key_enter_pressed_watchmode(currentWatchMode);
+            break;
 
-case key_up:
-    switch (currentWatchMode){
-    case WM_APPMENU:        
-    AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
-        updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
-        lockscreen_clock->updateContent(buf_applist);
-       break; 
+        default:
+            break;
+    }
+}//end fn
 
-    case WM_TIMER:
-    //increase timer digit if in set mode
-    onVertical_input_timer_buff_setter(0);//down
-    
-    break;//break wm timer
-
-    default:
-    break;//break watch mode
-    }//nested mode statement
-
-    break; //break key
-
-
-    case key_back:
-    on_key_back_pressed_watchmode(currentWatchMode);
-    
-       break;
-            
-    case key_enter:
-              //enter does different things per app open on screen
-       on_key_enter_pressed_watchmode(currentWatchMode);//real shit
-               
-    break;//sw key_enter
-
-    default:
-    break;
-    }//end switch key
-
-}//end fn main screen input handler
-
+//warn: heavy layers for this
+//1. takes input from user with hardware
+//2. switch per open app type
+//3. send to app
+//further steps inside the app differ per app!!!!! they all take different input handler functions
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
 
