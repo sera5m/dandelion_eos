@@ -917,7 +917,7 @@ void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
 bool CacheMenuConfirmState = false; 
-bool is_in_data_edit_mode=false;
+bool in_data_edit_mode=false;
 
 void watchscreen(void *pvParameters) { 
     (void)pvParameters;
@@ -1062,162 +1062,157 @@ void HHMM_setter_pos_setwithbounds(bool dir) {
         HHMM_SETTER_varpos = 0;
     }
 }
+// Mode-specific input handlers
+static void on_wm_main_input(uint16_t key) {
+    // Currently no special handling for MAIN mode
+}
 
+static void on_wm_stopwatch_input(uint16_t key) {
+    switch(key) {
+        case key_enter:
+            if (stopwatchRunning) {
+                stopwatchElapsed += millis() - stopwatchStart;
+                stopwatchRunning = false;
+            } else {
+                stopwatchStart = millis();
+                stopwatchRunning = true;
+            }
+            break;
+        default:
+            break;
+    }
+}
 
+static void on_wm_appmenu_input(uint16_t key) {
+    switch(key) {
+        case key_enter:
+            transitionApp(AppMenuSelectedIndex);
+            break;
+            
+        case key_up:
+            AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) 
+                ? APP_COUNT - 1 
+                : AppMenuSelectedIndex - 1;
+            updateAppList(buf_applist, sizeof(buf_applist), 
+                         appNames, APP_COUNT, AppMenuSelectedIndex);
+            lockscreen_clock->updateContent(buf_applist);
+            break;
+            
+        case key_down:
+            AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
+            updateAppList(buf_applist, sizeof(buf_applist), 
+                         appNames, APP_COUNT, AppMenuSelectedIndex);
+            lockscreen_clock->updateContent(buf_applist);
+            break;
+            
+        case key_back:
+            currentWatchMode = WM_MAIN;
+            is_watch_screen_in_menu = false;
+            WATCH_SCREEN_TRANSITION(WM_MAIN);
+            break;
+            
+        default:
+            break;
+    }
+}
+static void on_wm_timer_input(uint16_t key) {
+    if(is_in_data_edit_mode) {
+        // Edit Mode Key Handling
+        switch(key) {
+            case key_enter:
+                if(timerEditState == EDIT_CONFIRM) {
+                    saveAlarmGeneric(usrmade_timers, watchModeIndex);
+                }
+                break;
+                
+            case key_back:
+                is_in_data_edit_mode = false;
+                break;
+                
+            case key_up:
+                onVertical_input_timer_buff_setter(1); // Up
+                break;
+                
+            case key_down:
+                onVertical_input_timer_buff_setter(0); // Down
+                break;
+                
+            case key_left:
+                HHMM_SETTER_varpos = (HHMM_SETTER_varpos - 1) % NUM_TIMER_FIELDS;
+                break;
+                
+            case key_right:
+                HHMM_SETTER_varpos = (HHMM_SETTER_varpos + 1) % NUM_TIMER_FIELDS;
+                break;
+                
+            default: break;
+        }
+    }
+    else {
+        // List Navigation Mode
+        switch(key) {
+            case key_enter:
+                is_in_data_edit_mode = true;
+                timerEditState = EDIT_RUNNING;
+                break;
+                
+            case key_back:
+                currentWatchMode = WM_MAIN;
+                WATCH_SCREEN_TRANSITION(WM_MAIN);
+                break;
+                
+            case key_up:
+                watchModeIndex = (watchModeIndex - 1 + NUM_TIMERS) % NUM_TIMERS;
+                break;
+                
+            case key_down:
+                watchModeIndex = (watchModeIndex + 1) % NUM_TIMERS;
+                break;
+                //ignore the app itself, keep scrolling
+            case key_left:  // Optional: Page up/down
+            case key_right: // Could be used for quick navigation
+                break;
+                
+            default: break;
+        }
+    }
+}
 
-
-void on_key_enter_pressed_watchmode(WatchMode mode) {
-                    switch (mode){
-
-                    case WM_MAIN:
-
-                    break;
-
-                    case WM_STOPWATCH:
-                  if (stopwatchRunning) {
-                            stopwatchElapsed += millis() - stopwatchStart;
-                            stopwatchRunning = false;
-                        } else {
-                            stopwatchStart = millis();
-                            stopwatchRunning = true;
-                        }
-
-                     break;//break case wm stopwatch
-
-               case WM_APPMENU:   
-              //select the app lamfo 
-              //need to do a thing
-              transitionApp(AppMenuSelectedIndex);
-              //take var AppMenuSelectedIndex and open that app with the transition thing
-              break;
-
-              case WM_TIMER:
-  switch (timerEditState) {
-    case EDIT_OFF:
-      timerEditState = EDIT_RUNNING;
-      HHMM_SETTER_varpos = 0;            // start at first field
-      break;
-    case EDIT_RUNNING:
-      timerEditState = EDIT_CONFIRM;     // move to save/cancel
-      break;
-    case EDIT_CONFIRM:
-      saveAlarmGeneric(usrmade_timers, watchModeIndex);
-      timerEditState = EDIT_OFF;         // back to normal display
-      break;
-  }
-  break;
-
-              break;
-
-              default:
-              break;
-             }//end switch watch mode 
-}   //end fn    watchmode enter key
-
-void on_key_back_pressed_watchmode(WatchMode Mode) {
-switch (Mode){ //back may mean different thing per mode!
-
- case WM_TIMER:
-  if (timerEditState == EDIT_CONFIRM) {
-    timerEditState = EDIT_RUNNING;      // back from confirm to editing
-  } else if (timerEditState == EDIT_RUNNING) {
-    timerEditState = EDIT_OFF;          // cancel editing entirely
-  } else {
-    // normal “back” behavior (go out of timer app)
-  }
-  break;
-
-  case WM_APPMENU:
-
-  currentWatchMode = WM_MAIN;
-          is_watch_screen_in_menu = false; 
-             //setWinTextSize(2);
-           WATCH_SCREEN_TRANSITION(WM_MAIN);
-           //considered putting a goto default here but ive never used goto and dont intend to start now
-
-  break;//break wm timer
-default:
-          currentWatchMode = WM_MAIN;
-          is_watch_screen_in_menu = false; 
-             //setWinTextSize(2);
-           WATCH_SCREEN_TRANSITION(WM_MAIN);
-break;                    
-            // Resume watchscreen if you suspended it
-        // vTaskResume(watchScreenHandle);
-}//end switch mode
-}//end fn on_key_enter_pressed_watchmode
-
-//0. take input key, switch per key, 
-//1. route to current mode per key via functions for each key
+// Unified input handler
 void Input_handler_fn_main_screen(uint16_t key) {
-    switch (key) {
-
+    // Handle global navigation keys
+    switch(key) {
         case key_left:
             watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
             currentWatchMode = (WatchMode)watchModeIndex;
             WATCH_SCREEN_TRANSITION(currentWatchMode);
-            break;
-
+            return;
+            
         case key_right:
             watchModeIndex = (watchModeIndex + 1) % WM_COUNT;
             currentWatchMode = (WatchMode)watchModeIndex;
             WATCH_SCREEN_TRANSITION(currentWatchMode);
-            break;
-
-        case key_down:
-            switch (currentWatchMode) {
-                case WM_APPMENU:
-                    AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
-                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
-                    lockscreen_clock->updateContent(buf_applist);
-                    break;
-
-                case WM_TIMER:
-                    // Decrease timer digit if in set mode
-                    onVertical_input_timer_buff_setter(0); // 0 = down
-                    break;
-
-                default:
-                    break;
-            }
-            break;
-
-        case key_up:
-            switch (currentWatchMode) {
-                case WM_APPMENU:
-                    AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) ? APP_COUNT - 1 : AppMenuSelectedIndex - 1;
-                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
-                    lockscreen_clock->updateContent(buf_applist);
-                    break;
-
-                case WM_TIMER:
-                    // Increase timer digit if in set mode
-                    onVertical_input_timer_buff_setter(1); // 1 = up
-                    break;
-
-                default:
-                    break;
-            }
-            break;
-
-        case key_back:
-            on_key_back_pressed_watchmode(currentWatchMode);
-            break;
-
-        case key_enter:
-            on_key_enter_pressed_watchmode(currentWatchMode);
-            break;
-
+            return;
+            
         default:
-            break;
+            break;  // Other keys handled per-mode
     }
-}//end fn
+    
+    // Route to mode-specific handler
+    switch(currentWatchMode) {
+        case WM_MAIN:        on_wm_main_input(key); break;
+        case WM_STOPWATCH:   on_wm_stopwatch_input(key); break;
+        case WM_APPMENU:     on_wm_appmenu_input(key); break;
+        case WM_TIMER:       on_wm_timer_input(key); break;
+        // Add stubs for other modes
+        case WM_ALARMS:      /* Implement later */ break;
+        case WM_NTP_SYNCH:   /* Implement later */ break;
+        case WM_SET_TIME:    /* Implement later */ break;
+        case WM_SET_TIMEZONE:/* Implement later */ break;
+        default: break;
+    }
+}
 
-//warn: heavy layers for this
-//1. takes input from user with hardware
-//2. switch per open app type
-//3. send to app
-//further steps inside the app differ per app!!!!! they all take different input handler functions
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
 
