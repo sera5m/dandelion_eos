@@ -47,7 +47,7 @@ alarmAction E_AlarmAction;
 uint32_t LightColor; //heads up it's 24 bits for color
 uint8_t SnoozeDur;
 }usr_alarm_st;//todo pack or this may be unreliable
-
+const uint8_t NUM_TIMER_FIELDS = 16;
 //works for both alarm and timer-but for alarms you may have to add in the days map for weekdays vs weekend.
 // note that the color bitmask is 32x but stores 24 bits of color..... we will utilize the last 8 bits to store THE DAYS ACTIVE BITMASK in the future-8 bits
 //done by fn splitu32_to24

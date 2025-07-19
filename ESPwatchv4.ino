@@ -261,13 +261,21 @@ static std::shared_ptr<Window> lockscreen_thermometer;
 
 bool IsScreenOn=true;
 
+// timer_editor.h
 typedef enum {
-  EDIT_OFF,        // just display list or clock
-  EDIT_RUNNING,    // dialing fields (HHMM_SETTER_varpos 0–15)
-  EDIT_CONFIRM     // “Save / Cancel” screen
+    EDIT_OFF,        // Normal display mode
+    EDIT_RUNNING,    // Actively editing values
+    EDIT_CONFIRM     // Save/cancel prompt
 } EditState;
-uint8_t HHMM_SETTER_varpos=0;
-static EditState timerEditState = EDIT_OFF;
+
+#define NUM_TIMERS 5  // Replace magic number
+#define NUM_TIMER_FIELDS 2  // For HH:MM editing
+
+ EditState timerEditState;
+ uint8_t currentTimerField;  // Replaces currentTimerField
+ uint8_t selectedTimerIndex;
+
+
 
 #include <atomic>
 
@@ -326,6 +334,17 @@ NormieTime CurrentNormieTime; //real current time
 
 
 QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
+
+
+void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
+    // Extract 24-bit color (lower 24 bits)
+    color[0] = (input >> 16) & 0xFF; // Most significant byte of 24-bit color
+    color[1] = (input >> 8) & 0xFF;
+    color[2] = input & 0xFF;
+
+    // Extract last 8 bits (most significant byte)
+    *last8 = (input >> 24) & 0xFF;
+}//split the color
 
 void scanI2C() {
   byte error, address;
@@ -499,7 +518,11 @@ void clearScreenEveryXCalls(uint16_t x) {
 }
 
 
-
+    // Shared buffers for display
+    char watchscreen_buf[120];
+    char thermoStr[8];
+    char hrStr[8];
+    
 uint8_t watchModeIndex = 0; //likely best to rename to mouse pos lol
 //need these to persist
 
@@ -516,42 +539,61 @@ void onVertical_input_timer_buff_setter(bool direction) {
     // Split combined LightColor
     split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
 
-    switch (HHMM_SETTER_varpos) {
+    switch (currentTimerField) {
     case 0: // min 1s digit
-        usralmstbuf.minutes += dir;
-        if (usralmstbuf.minutes >= 60) {
-            usralmstbuf.minutes -= 60;
-            usralmstbuf.hours++;
-            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        } else if (usralmstbuf.minutes < 0) {
-            usralmstbuf.minutes += 60;
-            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
-        }
-        break;
+{
+    int mins = usralmstbuf.minutes;
+    int ones = mins % 10;
+    ones += dir;
+    if (ones > 9) ones = 0;
+    if (ones < 0) ones = 9;
+    usralmstbuf.minutes = (mins / 10) * 10 + ones;
+}
+break;
 
-    case 1: // min 10s digit
-        usralmstbuf.minutes += dir * 10;
-        if (usralmstbuf.minutes >= 60) {
-            usralmstbuf.minutes -= 60;
-            usralmstbuf.hours++;
-            if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        } else if (usralmstbuf.minutes < 0) {
-            usralmstbuf.minutes += 60;
-            usralmstbuf.hours = (usralmstbuf.hours > 0) ? usralmstbuf.hours - 1 : 23;
-        }
-        break;
+case 1: // min 10s digit
+{
+    int mins = usralmstbuf.minutes;
+    int tens = mins / 10;
+    tens += dir;
+    if (tens > 5) tens = 0; // max tens digit for mins
+    if (tens < 0) tens = 5;
+    usralmstbuf.minutes = tens * 10 + (mins % 10);
+}
+break;
 
-    case 2: // hour 1s digit
-        usralmstbuf.hours += dir;
-        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
-        break;
+case 2: // hour 1s digit
+{
+    int hrs = usralmstbuf.hours;
+    int tens = hrs / 10;
+    int ones = hrs % 10;
+    ones += dir;
 
-    case 3: // hour 10s digit
-        usralmstbuf.hours += dir * 10;
-        if (usralmstbuf.hours >= 24) usralmstbuf.hours = 0;
-        else if (usralmstbuf.hours < 0) usralmstbuf.hours = 23;
-        break;
+    int max_ones = (tens == 2) ? 3 : 9;
+
+    if (ones > max_ones) ones = 0;
+    if (ones < 0) ones = max_ones;
+
+    usralmstbuf.hours = tens * 10 + ones;
+}
+break;
+
+case 3: // hour 10s digit
+{
+    int hrs = usralmstbuf.hours;
+    int tens = hrs / 10;
+    int ones = hrs % 10;
+
+    tens += dir;
+    if (tens > 2) tens = 0;
+    if (tens < 0) tens = 2;
+
+    int max_ones = (tens == 2) ? 3 : 9;
+    if (ones > max_ones) ones = max_ones;
+
+    usralmstbuf.hours = tens * 10 + ones;
+}
+break;
 
 case 4: // alarm action
 {
@@ -572,7 +614,7 @@ break;
 
     case 6: case 7: case 8: case 9: case 10: case 11: case 12: {
         // Days bitmask toggle: Mon–Sun
-        uint8_t bit = HHMM_SETTER_varpos - 6;
+        uint8_t bit = currentTimerField - 6;
         if (bit < 7) {
             if (direction) {
                 days_bitmask |= (1 << bit);  // toggle ON
@@ -594,7 +636,7 @@ break;
         break;
 
     default:
-        HHMM_SETTER_varpos = 0; // fallback
+        currentTimerField = 0; // fallback
         break;
     }
 
@@ -605,72 +647,80 @@ break;
         ((uint32_t)color[1] << 8) |
         color[2];
 }
-
-
 std::string formatAlarm(uint8_t mousepos, bool confirmMode) {
     uint8_t days_bitmask, color24[3];
     split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color24);
 
-    // build hh:mm with one digit bracketed
+    // Time display with label and bracket highlighting
     char tmp[6];
     snprintf(tmp, sizeof(tmp), "%02u:%02u", usralmstbuf.hours, usralmstbuf.minutes);
-
-    std::string timeStr;
+    std::string timeStr = "Time: ";
     for (uint8_t i = 0; i < 5; i++) {
-        if (i == 2) {
+        if (i == 2) { // Colon
             timeStr += tmp[i];
             continue;
         }
         int8_t posMap = -1;
         switch (mousepos) {
-            case 3: posMap = 0; break;
-            case 2: posMap = 1; break;
-            case 1: posMap = 3; break;
-            case 0: posMap = 4; break;
+            case 3: posMap = 0; break; // Hour tens
+            case 2: posMap = 1; break; // Hour ones
+            case 1: posMap = 3; break; // Minute tens
+            case 0: posMap = 4; break; // Minute ones
             default: break;
         }
         if (i == posMap) {
-            timeStr += "[";
-            timeStr += tmp[i];
-            timeStr += "]";
+            timeStr += "<setcolor(0xF005)>[" + std::string(1, tmp[i]) + "]<setcolor(0x07ff)>";
         } else {
             timeStr += tmp[i];
         }
     }
 
+    // Action string with highlight
     std::string actionStr = AlarmActionNames[usralmstbuf.E_AlarmAction];
-    if (mousepos == 4) actionStr = "[" + actionStr + "]";
+    if (mousepos == 4) {
+        actionStr = "<setcolor(0xF005)>[" + actionStr + "]<setcolor(0x07ff)>";
+    }
 
-    std::string daysStr;
+    // Days of week with proper formatting
+    std::string daysStr = "days active:<n>";
     for (uint8_t d = 0; d < 7; d++) {
         bool active = days_bitmask & (1 << d);
         std::string day = DayNames[d];
+        
         if (mousepos == 6 + d) {
-            day = "[" + day + "]";
+            // Highlighted (red)
+            day = "<setcolor(0xF005)>" +day+ "<setcolor(0x07ff)>";
+        } else if (active) {
+            // Active (green)
+            day = "<setcolor(0x07E0)>" +day+ "<setcolor(0x07ff)>";
+        } else {
+            // Inactive (blue)
+            day = "<setcolor(0x001F)>" +day+ "<setcolor(0x07ff)>";
         }
-        if (!active) {
-            day = "(" + day + ")";
-        }
+        
         daysStr += day;
-        if (d < 6) daysStr += " ";
+        if (d < 6) daysStr += " "; // Space between days except last
     }
 
+    // Snooze duration with highlight
+    std::string snoozeStr = std::to_string(usralmstbuf.SnoozeDur) + "min";
+    if (mousepos == 5) {
+        snoozeStr = "<setcolor(0xF005)>[" + snoozeStr + "]<setcolor(0x07ff)>";
+    }
+
+    // Final composition with proper newlines and formatting
     std::ostringstream out;
     out << timeStr
-        << " alert: " << actionStr
-        << " <n>days: " << daysStr
-        << " <n>snooze: " << usralmstbuf.SnoozeDur << "m";
-
-    if (mousepos == 5) {
-        out << " [" << usralmstbuf.SnoozeDur << "m]";
-    }
-
-    out << (confirmMode ? "<n>[SAVE] CANCEL" : "<n>SAVE [CANCEL]");
+        << "<n><n>Alert: " << actionStr
+        << "<n>" << daysStr
+        << "<n><n>Snooze: " << snoozeStr
+        << "<n><n>" // Extra spacing before actions
+       << (confirmMode ? 
+    "<setcolor(0xF005)>[SAVE]<setcolor(0x07ff)> CANCEL" : 
+    "SAVE <setcolor(0xF005)>[CANCEL]<setcolor(0x07ff)>");
 
     return out.str();
 }
-
-
 
 
 //to keep the apps out of main for orginization we'll just slap those motherfuckers in here for definitions
@@ -807,7 +857,7 @@ void updateAppList(char *buf, size_t bufSize, const char **apps, int APP_COUNT, 
 
 // Pad with blank lines if needed
 int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
-for (int i = visibleLines; i < MAX_VISIBLE; ++i) {
+ for (int i = visibleLines; i < MAX_VISIBLE; ++i) {
   strncat(buf, "<n>", bufSize - strlen(buf) - 1);
 }
 
@@ -853,16 +903,16 @@ switch (desiredMode){
                     // TODO: Display upcoming alarms or alarm setup screen
                     WatchScreenUpdateInterval=350;
                     lockscreen_clock->setWinTextSize(1);
-                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(16,16,false);
+                    lockscreen_clock->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(0,16,false); //xy
 
                  break;
 
                 case WM_TIMER:
                 WatchScreenUpdateInterval=350;
                 lockscreen_clock->setWinTextSize(1);
-               lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(16,16,false);
+               lockscreen_clock->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
+                    lockscreen_clock->MoveWindow(0,16,false);
                   break;
 
                 case WM_NTP_SYNCH:
@@ -908,7 +958,11 @@ switch (desiredMode){
 tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
 }       
 
-
+void loadAlarmToBuffer(uint8_t index) {
+    if (index < NUM_TIMERS) {
+        usralmstbuf = usrmade_timers[index];
+    }
+}
 void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
     // copy the working buffer into your target array slot
     array[index] = usralmstbuf;
@@ -917,15 +971,12 @@ void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
 bool CacheMenuConfirmState = false; 
-bool in_data_edit_mode=false;
+
 
 void watchscreen(void *pvParameters) { 
     (void)pvParameters;
 
-    // Shared buffers for display
-    char watchscreen_buf[120];
-    char thermoStr[8];
-    char hrStr[8];
+
     //update rate changes per device yammering
 
 
@@ -981,11 +1032,8 @@ void watchscreen(void *pvParameters) {
                     break;
 
 case WM_TIMER:
-  if (timerEditState == EDIT_RUNNING || timerEditState == EDIT_OFF) {
-    lockscreen_clock->updateContent(formatAlarm(HHMM_SETTER_varpos, timerEditState == EDIT_CONFIRM)
-    );
-  } else { /* you only have three states—this covers confirm too */ }
-  break;
+    render_timer_screen();
+    break;
 
 
 
@@ -1037,29 +1085,19 @@ case WM_TIMER:
 //input tick============================================================================================================================
 
 
-void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
-    // Extract 24-bit color (lower 24 bits)
-    color[0] = (input >> 16) & 0xFF; // Most significant byte of 24-bit color
-    color[1] = (input >> 8) & 0xFF;
-    color[2] = input & 0xFF;
-
-    // Extract last 8 bits (most significant byte)
-    *last8 = (input >> 24) & 0xFF;
-}//split the color
-
 void HHMM_setter_pos_setwithbounds(bool dir) {
     if (dir) {
-        HHMM_SETTER_varpos++;
+        currentTimerField++;
     } else {
-        if (HHMM_SETTER_varpos > 0) {
-            HHMM_SETTER_varpos--;
+        if (currentTimerField > 0) {
+            currentTimerField--;
         } else {
-            HHMM_SETTER_varpos = 0; // clamp at 0
+            currentTimerField = 0; // clamp at 0
         }
     }
 
-    if (HHMM_SETTER_varpos >= 18) { // 
-        HHMM_SETTER_varpos = 0;
+    if (currentTimerField >= 18) { // 
+        currentTimerField = 0;
     }
 }
 // Mode-specific input handlers
@@ -1115,45 +1153,88 @@ static void on_wm_appmenu_input(uint16_t key) {
             break;
     }
 }
-static void on_wm_timer_input(uint16_t key) {
-    if(is_in_data_edit_mode) {
-        // Edit Mode Key Handling
+// timer_input.c
+// watch_screen.c
+
+void render_timer_screen() {
+    if (timerEditState == EDIT_OFF) {
+        // List view mode - show all timers with current selection
+        snprintf(watchscreen_buf, sizeof(watchscreen_buf),
+               "<setcolor(0xF005)>Timers (%d/%d)<setcolor(0x07ff)><n>", 
+               selectedTimerIndex + 1, NUM_TIMERS);
+               
+        for (int i = 0; i < NUM_TIMERS; i++) {
+            char alarmBuf[20];
+            snprintf(alarmBuf, sizeof(alarmBuf), "%s%02d:%02d %s<n>",
+                   (i == selectedTimerIndex) ? "> " : "  ",
+                   usrmade_timers[i].hours,
+                   usrmade_timers[i].minutes,
+                   AlarmActionNames[usrmade_timers[i].E_AlarmAction]);
+            strncat(watchscreen_buf, alarmBuf, sizeof(watchscreen_buf)-strlen(watchscreen_buf)-1);
+        }
+        strncat(watchscreen_buf, "<n>^/v Select  <- Edit", sizeof(watchscreen_buf)-strlen(watchscreen_buf)-1);
+    }
+    else {
+        // Edit mode - use the detailed formatAlarm view
+        std::string alarmStr = formatAlarm(currentTimerField, timerEditState == EDIT_CONFIRM);
+        strncpy(watchscreen_buf, alarmStr.c_str(), sizeof(watchscreen_buf)-1);
+    }
+    watchscreen_buf[sizeof(watchscreen_buf)-1] = '\0';
+    lockscreen_clock->updateContent(watchscreen_buf);
+}
+
+void on_wm_timer_input(uint16_t key) {
+    Serial.printf("wmtimer_input");
+    Serial.println( key);
+
+    if (timerEditState != EDIT_OFF) {
+        // Edit Mode Handling
         switch(key) {
             case key_enter:
-                if(timerEditState == EDIT_CONFIRM) {
-                    saveAlarmGeneric(usrmade_timers, watchModeIndex);
+                if (timerEditState == EDIT_CONFIRM) {
+                    saveAlarmGeneric(usrmade_timers, selectedTimerIndex);
+                    timerEditState = EDIT_OFF;
+                } else {
+                    timerEditState = EDIT_CONFIRM;
                 }
                 break;
                 
             case key_back:
-                is_in_data_edit_mode = false;
+                if (timerEditState == EDIT_CONFIRM) {
+                    timerEditState = EDIT_RUNNING;
+                } else {
+                    timerEditState = EDIT_OFF;
+                }
                 break;
                 
-            case key_up:
-                onVertical_input_timer_buff_setter(1); // Up
-                break;
-                
-            case key_down:
-                onVertical_input_timer_buff_setter(0); // Down
-                break;
+case key_up:
+    selectedTimerIndex = (selectedTimerIndex - 1 + NUM_TIMERS) % NUM_TIMERS;
+    loadAlarmToBuffer(selectedTimerIndex); // Load without immediate save
+    break;
+    
+case key_down:
+    selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
+    loadAlarmToBuffer(selectedTimerIndex);
+    break;
                 
             case key_left:
-                HHMM_SETTER_varpos = (HHMM_SETTER_varpos - 1) % NUM_TIMER_FIELDS;
+                currentTimerField = (currentTimerField > 0) ? currentTimerField - 1 : 15;
                 break;
                 
             case key_right:
-                HHMM_SETTER_varpos = (HHMM_SETTER_varpos + 1) % NUM_TIMER_FIELDS;
+                currentTimerField = (currentTimerField + 1) % 16;
                 break;
                 
-            default: break;
+            default: 
+                break;
         }
-    }
-    else {
+    } else {
         // List Navigation Mode
         switch(key) {
             case key_enter:
-                is_in_data_edit_mode = true;
                 timerEditState = EDIT_RUNNING;
+                currentTimerField = 0;
+                loadAlarmToBuffer(selectedTimerIndex); // Load selected alarm into edit buffer
                 break;
                 
             case key_back:
@@ -1162,26 +1243,48 @@ static void on_wm_timer_input(uint16_t key) {
                 break;
                 
             case key_up:
-                watchModeIndex = (watchModeIndex - 1 + NUM_TIMERS) % NUM_TIMERS;
+                if (selectedTimerIndex > 0) {
+                    selectedTimerIndex--;
+                } else {
+                    selectedTimerIndex = NUM_TIMERS - 1;
+                }
+                saveAlarmGeneric(usrmade_timers, selectedTimerIndex); // Save current
+                loadAlarmToBuffer(selectedTimerIndex); // Load new
                 break;
                 
             case key_down:
-                watchModeIndex = (watchModeIndex + 1) % NUM_TIMERS;
-                break;
-                //ignore the app itself, keep scrolling
-            case key_left:  // Optional: Page up/down
-            case key_right: // Could be used for quick navigation
+                selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
+                saveAlarmGeneric(usrmade_timers, selectedTimerIndex); // Save current
+                loadAlarmToBuffer(selectedTimerIndex); // Load new
                 break;
                 
-            default: break;
+            default: 
+                break;
         }
     }
+        render_timer_screen(); // Update display after any input
 }
+/* erememmemmrebbr
+  EDIT_OFF,        // just display list or clock
+  EDIT_RUNNING,    // dialing fields (currentTimerField 0–15)
+  EDIT_CONFIRM     // “Save / Cancel” screen
+} EditState;*/
 
 // Unified input handler
 void Input_handler_fn_main_screen(uint16_t key) {
     // Handle global navigation keys
-    switch(key) {
+        Serial.printf("main_screen_input");
+    Serial.println(key);
+    
+    // Special case: Block global nav keys when timer is editing
+    if (currentWatchMode == WM_TIMER && timerEditState != EDIT_OFF) {
+        if (key == key_left || key == key_right) {
+            on_wm_timer_input(key); // Let timer handle these
+            return;
+        }
+    }
+
+   switch(key) {
         case key_left:
             watchModeIndex = (watchModeIndex == 0) ? WM_COUNT - 1 : watchModeIndex - 1;
             currentWatchMode = (WatchMode)watchModeIndex;
@@ -1193,11 +1296,24 @@ void Input_handler_fn_main_screen(uint16_t key) {
             currentWatchMode = (WatchMode)watchModeIndex;
             WATCH_SCREEN_TRANSITION(currentWatchMode);
             return;
-            
-        default:
-            break;  // Other keys handled per-mode
-    }
+
+        //todo have popup menu or whatever here, with actual window show 
+
+  case key_up:
+    strip.setPixelColor(0, strip.Color(255, 255, 255)); // White
+    strip.show();
+    Serial.println("Flashlight ON");
+    break;
     
+case key_down:
+    strip.setPixelColor(0, strip.Color(0, 0, 0)); // Off
+    strip.show();
+    Serial.println("Flashlight OFF");
+    break;
+
+         default:
+         break;   
+   }
     // Route to mode-specific handler
     switch(currentWatchMode) {
         case WM_MAIN:        on_wm_main_input(key); break;
@@ -1213,48 +1329,42 @@ void Input_handler_fn_main_screen(uint16_t key) {
     }
 }
 
+// input_task.c
 void INPUT_tick(void *pvParameters) {
     S_UserInput uinput;
+    uint32_t lastInputTime = 0;
+    const TickType_t xDelay = pdMS_TO_TICKS(10);
 
     for (;;) {
-        int inputCount = 0;
-
-        // Consume inputs once and update state
         while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
-            inputCount++;
-            if (!uinput.isDown) continue;
+            if (!uinput.isDown || (millis() - lastInputTime < 150)) {
+                continue;  // Skip releases and debounce
+            }
+            lastInputTime = millis();
 
-            Serial.println(uinput.key);
-            //handle input here
+            switch (CurrentOpenApplicationIndex) {
+                case APP_LOCK_SCREEN:
+                    Input_handler_fn_main_screen(uinput.key);
+                    break;
+                case APP_HEALTH:
+                    // Health app input handling
+                    break;
+                default:
+                    break;
+            }
+        }
 
-            switch (CurrentOpenApplicationIndex) { //use different functions for input use based on app itself. todo: add a generic later on for user made apps with a object or soemthing idk
-        case APP_LOCK_SCREEN:
-            // Do something for lock screen
-            Input_handler_fn_main_screen(uinput.key);
-            break;
-        case APP_HEALTH:
-            // Do something for health app
-            break;
-        
-        default:
-            // ...
-            break; }//end switch app
-
-}//end while inque recieve
-
-        // If inputCount exceeds 10, purge excess junk
-        if (inputCount > 10) {
-            S_UserInput junk;
-            while (xQueueReceive(processInputQueue, &junk, 0) == pdPASS) {}
-            inputCount = 0; }//
+        // Purge if queue overflow
+        if (uxQueueMessagesWaiting(processInputQueue) > 10) {
+            xQueueReset(processInputQueue);
+        }
 
         updateHRsensor();
         PollEncoders();
         PollButtons();
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }//for;;
-}//task itself
-
+        vTaskDelay(xDelay);
+    }
+}
 
 
 

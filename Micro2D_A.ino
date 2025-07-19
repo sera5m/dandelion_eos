@@ -481,7 +481,7 @@ void listFiles(File dir, uint8_t indent = 0) {
 void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
   File bmp = SD.open(path, FILE_READ);
   if (!bmp) {
-    Serial.printf("file read error %s\n", path);
+    //Serial.printf("file read error %s\n", path);
     return;
   }
 
@@ -519,7 +519,7 @@ void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
   }
 
   if (depth != 16 && depth != 24) {
-    Serial.printf("Only 16 or 24-bit BMP supported, got %d\n", depth);
+    //Serial.printf("Only 16 or 24-bit BMP supported, got %d\n", depth);
     bmp.close();
     return;
   }
@@ -573,7 +573,7 @@ void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
     spiBus.endTransaction();
 
     if (row == 0) {
-      Serial.printf("First row drawn at Y=%d from file offset %lu\n", drawY, pos);
+      //Serial.printf("First row drawn at Y=%d from file offset %lu\n", drawY, pos);
     }
   }
 
@@ -1475,8 +1475,7 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
 
  void setUpdateMode(bool manualOnly) {
         manualUpdateOnly = manualOnly;
-        Serial.printf("[Config] Update mode set to %s\n", 
-                     manualOnly ? "MANUAL" : "AUTO");
+        Serial.printf("[Config] Update mode set to %s\n",  manualOnly ? "MANUAL" : "AUTO");
     }
 
 
@@ -1517,7 +1516,7 @@ void WinDraw() {
         if (chunk.isTag) {
             // apply tag
             if (chunk.value.starts_with("<setcolor(")) {
-                Serial.printf("color tag");
+                //Serial.printf("color tag");
 
                 auto hex = chunk.value.substr(10, chunk.value.find(')')-10);
                 state.color = strtol(hex.c_str(), nullptr, 16);
@@ -1528,10 +1527,10 @@ void WinDraw() {
                 auto s = chunk.value.substr(10, chunk.value.find(')')-10);
                 state.size = atoi(s.c_str());
                 tft.setTextSize(state.size);
-                Serial.printf("text size");
+                //Serial.printf("text size");
             }
             else if (chunk.value == "<n>") {
-                Serial.printf("newline tag");
+                //Serial.printf("newline tag");
                 // newline: move cursor to next line
                 state.y += DefaultCharHeight * state.size;
                 state.x = win_internal_x + 2;
@@ -1542,7 +1541,7 @@ void WinDraw() {
         else {
             // plain text
             tft.print(chunk.value.c_str());
-            Serial.printf("no tags applied");
+            //Serial.printf("no tags applied");
             // advance X cursor manually if you need exact control:
             // state.x += chunk.value.length() * DefaultCharWidth * state.size;
             // tft.setCursor(state.x, state.y);
@@ -1584,11 +1583,11 @@ static std::vector<TextChunk> tokenize(const std::string &input) {
             if (next == std::string::npos) next = len;
             chunks.push_back({false, input.substr(pos, next-pos)});
             pos = next;
-            Serial.printf("next parse pos");
+            //Serial.printf("next parse pos");
         }
     }
     return chunks;
-    Serial.printf("chunks ret");
+    //Serial.printf("chunks ret");
 }
     bool manualUpdateOnly = true; // Default to manual-only mode
     uint32_t lastContentUpdate = 0;
