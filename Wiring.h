@@ -5,13 +5,13 @@
 //device chip, esp32-s3
 //http://wiki.fluidnc.com/en/hardware/ESP32-S3_Pin_Reference
 
-
+//orange wire cs yellow wire clk
 
 #define SPI_SCK   12 //may aslo be called clk
 #define SPI_CLK 12 //UGH
 
 #define SPI_MOSI  11//aster out slave in
-#define SPI_MISO  13//master in slave out
+#define SPI_MISO  13//master in slave out 
 
 
 #define BUZZER_PIN 2

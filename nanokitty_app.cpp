@@ -1,8 +1,8 @@
 //i have an addiction for doing ths stupidest shit possible
 
 //so fuck it let's port basic on here
-
-
+#include <cstring>
+#include <cstddef>
 
 // === Program Control ===
 enum BASIC_INTERPRETER_CMD_CONTROL {

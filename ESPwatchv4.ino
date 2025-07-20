@@ -9,8 +9,10 @@
 #include "NFC.h"
 #include "driver/timer.h"
 #include <sstream>
+#include <cstring>
+#include <cstddef>
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : ((val) > (max)) ? (max) : (val))
-
+#define WATCHSCREEN_BUF_SIZE 512
 #define DO_ONCE(name)       \
     static bool _did_##name = false; \
     if (!_did_##name)       \
@@ -480,7 +482,7 @@ xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch scre
 xTaskCreatePinnedToCore(
     INPUT_tick,         // Task function
     "INPUT_tick",       // Name
-    2048,               // Stack size
+    4096,               // Stack size-potentially larger to handle things?
     NULL,               // Params
     2,                  // Priority
     &watchScreenHandle, // Handle
@@ -517,9 +519,9 @@ void clearScreenEveryXCalls(uint16_t x) {
     }
 }
 
-
+#define WATCHSCREEN_BUF_SIZE 512  
     // Shared buffers for display
-    char watchscreen_buf[120];
+    char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
     char thermoStr[8];
     char hrStr[8];
     
@@ -959,9 +961,20 @@ tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
 }       
 
 void loadAlarmToBuffer(uint8_t index) {
-    if (index < NUM_TIMERS) {
-        usralmstbuf = usrmade_timers[index];
+    if (index >= NUM_TIMERS) {
+        Serial.printf("Invalid index %d (max %d)\n", index, NUM_TIMERS-1);
+        memset(&usralmstbuf, 0, sizeof(usr_alarm_st)); // Safe blank state
+        return;
     }
+    
+    // MEMORY-SAFE copy:
+    memcpy(&usralmstbuf, &usrmade_timers[index], sizeof(usr_alarm_st));
+    
+    // DEBUG:
+    Serial.printf("Loaded timer %d: %02d:%02d\n", 
+                 index, 
+                 usralmstbuf.hours, 
+                 usralmstbuf.minutes);
 }
 void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
     // copy the working buffer into your target array slot
@@ -971,6 +984,7 @@ void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
 bool CacheMenuConfirmState = false; 
+
 
 
 void watchscreen(void *pvParameters) { 
@@ -1156,114 +1170,136 @@ static void on_wm_appmenu_input(uint16_t key) {
 // timer_input.c
 // watch_screen.c
 
+
+// 1. Ensure proper buffer size (at top of file)
+
+
 void render_timer_screen() {
+    watchscreen_buf[0] = '\0'; // Always start with empty buffer
+    
     if (timerEditState == EDIT_OFF) {
-        // List view mode - show all timers with current selection
-        snprintf(watchscreen_buf, sizeof(watchscreen_buf),
-               "<setcolor(0xF005)>Timers (%d/%d)<setcolor(0x07ff)><n>", 
+        // List view mode
+        snprintf(watchscreen_buf, WATCHSCREEN_BUF_SIZE,
+               "<setcolor(0xF005)>Timer %d/%d<setcolor(0x07ff)><n><n>",
                selectedTimerIndex + 1, NUM_TIMERS);
-               
-        for (int i = 0; i < NUM_TIMERS; i++) {
-            char alarmBuf[20];
+        
+        for (int i = 0; i < min(NUM_TIMERS, 5); i++) { // Limit display to 5
+            char alarmBuf[30];
             snprintf(alarmBuf, sizeof(alarmBuf), "%s%02d:%02d %s<n>",
                    (i == selectedTimerIndex) ? "> " : "  ",
                    usrmade_timers[i].hours,
                    usrmade_timers[i].minutes,
                    AlarmActionNames[usrmade_timers[i].E_AlarmAction]);
-            strncat(watchscreen_buf, alarmBuf, sizeof(watchscreen_buf)-strlen(watchscreen_buf)-1);
+            
+            strncat(watchscreen_buf, alarmBuf, 
+                   WATCHSCREEN_BUF_SIZE - strlen(watchscreen_buf) - 1);
         }
-        strncat(watchscreen_buf, "<n>^/v Select  <- Edit", sizeof(watchscreen_buf)-strlen(watchscreen_buf)-1);
+        
+        // Only show instruction if there are timers
+        if (NUM_TIMERS > 0) {
+            strncat(watchscreen_buf, "<n>^/v Select  <- Edit",
+                   WATCHSCREEN_BUF_SIZE - strlen(watchscreen_buf) - 1);
+        }
     }
     else {
-        // Edit mode - use the detailed formatAlarm view
-        std::string alarmStr = formatAlarm(currentTimerField, timerEditState == EDIT_CONFIRM);
-        strncpy(watchscreen_buf, alarmStr.c_str(), sizeof(watchscreen_buf)-1);
+        // Edit mode
+        std::string alarmStr = formatAlarm(currentTimerField, 
+                                         timerEditState == EDIT_CONFIRM);
+        strncpy(watchscreen_buf, alarmStr.c_str(), WATCHSCREEN_BUF_SIZE-1);
     }
-    watchscreen_buf[sizeof(watchscreen_buf)-1] = '\0';
+    
+    watchscreen_buf[WATCHSCREEN_BUF_SIZE-1] = '\0';
     lockscreen_clock->updateContent(watchscreen_buf);
 }
 
 void on_wm_timer_input(uint16_t key) {
-    Serial.printf("wmtimer_input");
-    Serial.println( key);
+    Serial.printf("Timer input: 0x%04X State: %d\n", key, timerEditState);
+    
+    // Validate indices first!
+    if (selectedTimerIndex >= NUM_TIMERS) {
+        Serial.println("Invalid timer index!");
+        return;
+    }
 
-    if (timerEditState != EDIT_OFF) {
-        // Edit Mode Handling
-        switch(key) {
-            case key_enter:
-                if (timerEditState == EDIT_CONFIRM) {
+    switch(timerEditState) {
+        case EDIT_OFF:
+            // List Navigation Mode
+            switch(key) {
+                case key_enter:
+                    timerEditState = EDIT_RUNNING;
+                    Serial.println("changed timereditstate to edit_running");
+                    currentTimerField = 0; //mouse index
+                    Serial.println("changed mouse pos");
+                    loadAlarmToBuffer(selectedTimerIndex);
+                    Serial.println("loaded timer index");
+                    break;
+                    
+                case key_back:
+                    currentWatchMode = WM_MAIN;
+                    WATCH_SCREEN_TRANSITION(WM_MAIN);
+                    return; // Skip render
+                    
+                case key_up:
+                    selectedTimerIndex = (selectedTimerIndex == 0) 
+                        ? NUM_TIMERS - 1 : selectedTimerIndex - 1;
+                    break;
+                    
+                case key_down:
+                    selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
+                    break;
+                    
+                default: break;
+            }
+            break;
+
+        case EDIT_RUNNING: //state 1
+            // Field Editing Mode
+            switch(key) {
+                case key_enter:
+                    timerEditState = EDIT_CONFIRM;
+                    break;
+                    
+                case key_back:
+                    timerEditState = EDIT_OFF;
+                    break;
+                    
+                case key_up:
+                case key_down:
+                    onVertical_input_timer_buff_setter(key == key_up);
+                    break;
+                    
+                case key_left:
+                    currentTimerField = (currentTimerField > 0) ? currentTimerField - 1 : 15;
+                    break;
+                    
+                case key_right:
+                    currentTimerField = (currentTimerField + 1) % 16;
+                    break;
+                    
+                default: break;
+            }
+            break;
+
+        case EDIT_CONFIRM: //2
+            // Save/Cancel Mode
+            switch(key) {
+                case key_enter:
                     saveAlarmGeneric(usrmade_timers, selectedTimerIndex);
                     timerEditState = EDIT_OFF;
-                } else {
-                    timerEditState = EDIT_CONFIRM;
-                }
-                break;
-                
-            case key_back:
-                if (timerEditState == EDIT_CONFIRM) {
+                    break;
+                    
+                case key_back:
                     timerEditState = EDIT_RUNNING;
-                } else {
-                    timerEditState = EDIT_OFF;
-                }
-                break;
-                
-case key_up:
-    selectedTimerIndex = (selectedTimerIndex - 1 + NUM_TIMERS) % NUM_TIMERS;
-    loadAlarmToBuffer(selectedTimerIndex); // Load without immediate save
-    break;
-    
-case key_down:
-    selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
-    loadAlarmToBuffer(selectedTimerIndex);
-    break;
-                
-            case key_left:
-                currentTimerField = (currentTimerField > 0) ? currentTimerField - 1 : 15;
-                break;
-                
-            case key_right:
-                currentTimerField = (currentTimerField + 1) % 16;
-                break;
-                
-            default: 
-                break;
-        }
-    } else {
-        // List Navigation Mode
-        switch(key) {
-            case key_enter:
-                timerEditState = EDIT_RUNNING;
-                currentTimerField = 0;
-                loadAlarmToBuffer(selectedTimerIndex); // Load selected alarm into edit buffer
-                break;
-                
-            case key_back:
-                currentWatchMode = WM_MAIN;
-                WATCH_SCREEN_TRANSITION(WM_MAIN);
-                break;
-                
-            case key_up:
-                if (selectedTimerIndex > 0) {
-                    selectedTimerIndex--;
-                } else {
-                    selectedTimerIndex = NUM_TIMERS - 1;
-                }
-                saveAlarmGeneric(usrmade_timers, selectedTimerIndex); // Save current
-                loadAlarmToBuffer(selectedTimerIndex); // Load new
-                break;
-                
-            case key_down:
-                selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
-                saveAlarmGeneric(usrmade_timers, selectedTimerIndex); // Save current
-                loadAlarmToBuffer(selectedTimerIndex); // Load new
-                break;
-                
-            default: 
-                break;
-        }
+                    break;
+                    
+                default: break;
+            }
+            break;
     }
-        render_timer_screen(); // Update display after any input
+    
+    render_timer_screen();
 }
+
 /* erememmemmrebbr
   EDIT_OFF,        // just display list or clock
   EDIT_RUNNING,    // dialing fields (currentTimerField 0–15)
@@ -1300,20 +1336,16 @@ void Input_handler_fn_main_screen(uint16_t key) {
         //todo have popup menu or whatever here, with actual window show 
 
   case key_up:
-    strip.setPixelColor(0, strip.Color(255, 255, 255)); // White
-    strip.show();
-    Serial.println("Flashlight ON");
+   // strip.setPixelColor(0, strip.Color(255, 255, 255)); strip.show();    Serial.println("Flashlight ON");
     break;
     
 case key_down:
-    strip.setPixelColor(0, strip.Color(0, 0, 0)); // Off
-    strip.show();
-    Serial.println("Flashlight OFF");
+    //strip.setPixelColor(0, strip.Color(0, 0, 0));     strip.show();    Serial.println("Flashlight OFF");
     break;
 
          default:
          break;   
-   }
+   }//hald the thing
     // Route to mode-specific handler
     switch(currentWatchMode) {
         case WM_MAIN:        on_wm_main_input(key); break;
@@ -1331,6 +1363,8 @@ case key_down:
 
 // input_task.c
 void INPUT_tick(void *pvParameters) {
+        UBaseType_t stackRemaining = uxTaskGetStackHighWaterMark(NULL);
+    Serial.printf("INPUT_tick stack: %d\n", stackRemaining);
     S_UserInput uinput;
     uint32_t lastInputTime = 0;
     const TickType_t xDelay = pdMS_TO_TICKS(10);
