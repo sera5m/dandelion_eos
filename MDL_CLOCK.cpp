@@ -38,7 +38,7 @@ const char* TRIchar_month_names[] = {
 
 const char* DayNames[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 const char* AlarmActionNames[] = {"NONE", "LIGHT", "buzz", "both", "phone"};
-
+//const uint8_t ALARM_ACTION_MAX = sizeof(AlarmActionNames)/sizeof(AlarmActionNames[0]);
 /*
 void syncTimeFromNTP(const char* ntpServer) {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);

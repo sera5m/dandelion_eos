@@ -1,23 +1,111 @@
-//do not touch
-#include "Wiring.h" //my hardware definitions
-//esp32-s3 hardware
-#include "USB.h"
-#include "USBCDC.h"
+//include define order
+    //Arduino core headers
+
+   // System headers
+
+    //Third-party libraries
+
+    // local headers
+
+//arduino compats
 #include <Wire.h>
-#include <esp32-hal-spi.h>
-#include "apps.ino"//GOSHIES I WONDER WHAT COULD BE IN HERE
-#include "NFC.h"
-#include "driver/timer.h"
+#include <time.h>
+#include <stdio.h>
+//do not touch
+#include "Wiring.h" //my hardware definitions-comes first
+
+// Arduino core headers
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>             // esp specific lib
+#include <WiFi.h>
+#include <time.h>
+#include <HardwareSerial.h>
+
+// System headers
 #include <sstream>
 #include <cstring>
 #include <cstddef>
-#define CLAMP(val, min, max) (((val) < (min)) ? (min) : ((val) > (max)) ? (max) : (val))
+#include <stdbool.h>
+#include <cstdlib>  // For rand()
+#include <ctime>
+#include <vector>
+#include <cstdint>
+#include <iomanip>
+#include <chrono>
+#include <mutex>
+#include <atomic>
+#include <stdio.h>
+
+// Third-party libraries
+#include "USB.h"
+#include "USBCDC.h"
+#include <esp32-hal-spi.h>
+#include <nvs_flash.h>
+#include <nvs.h>
+#include <pgmspace.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
+#include <Adafruit_NeoPixel.h>
+#include "esp_pm.h"
+#include "esp_wifi.h"
+#include "esp_bt.h"
+#include "esp_sleep.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "driver/timer.h"
+#include "driver/gpio.h"
+#include "driver/pulse_cnt.h"
+#include "esp_check.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+//req for most things
+#include "types.h"
+// Local headers
+#include "NFC.h"
+#include "inputHandler.h"
+#include "mdl_clock.h"
+#include "SDFS.ino"
+#include "IR_Remote.ino"
+#include "Micro2D_A.ino"
+
+// Hardware SPI bus instance
+SPIClass spiBus(HSPI);
+
+// PCNT unit assignments
+#define PCNT_UNIT_X PCNT_UNIT_0
+#define PCNT_UNIT_Y PCNT_UNIT_1
+
+// Encoder channel assignments
+#define PCNT_CHANNEL_X PCNT_CHANNEL_0
+#define PCNT_CHANNEL_Y PCNT_CHANNEL_0  // Separate unit gets its own channel 0
+
+
+
+
+
+// Clamp macro
+
+// Global nav position
+int16vect globalNavPos = {0, 0, 0};
+bool ShouldNavWrap = true;           // wrap or clamp
+int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 64 of each
+
+// Wrap helper
+static inline int16_t wrap_value(int16_t value, int16_t min, int16_t max) {
+    int16_t range = max - min + 1;
+    if (range <= 0) return min;  // Defensive
+    while (value < min) value += range;
+    while (value > max) value -= range;
+    return value;
+}
+
+
+
 #define WATCHSCREEN_BUF_SIZE 512
-#define DO_ONCE(name)       \
-    static bool _did_##name = false; \
-    if (!_did_##name)       \
-        for (_did_##name = true; _did_##name; _did_##name = false)
-#define RESET_DO_ONCE(name) (_did_##name = false)
+
+#define CLAMP(val, min, max) ((val) < (min) ? (min) : ((val) > (max) ? (max) : (val))
 
 #define DBG_PRINTLN(x)  do { \
     tft.setCursor(0, _dbg_ypos); \
@@ -30,182 +118,16 @@
 int _dbg_ypos = 0;  // screen Y cursor
 uint32_t clocki32cache=0; 
 //stupid fucking debugs to make this work right
-typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU,WM_COUNT}WatchMode;
-typedef enum{HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopital
-HMM_DAYHISTORY,    //a bar graph over the past x days.
-   HMM_HISTORY, //this month/historical trends. on long scales of time we'll just store average hr as waking/sleeping 
-   HMM_SETTINGS   //idk man what do you even config here?
-}HealthmonitorMode;
 
-//typedef enum{NFC_OFF,NFC_PLAYBACK,NFC_RECORD,}NFC_MODE;
-//remember
-typedef enum {
-    GSLC_POWER,         // sleep modes
-    GSLC_ALERTS,        // notifications, alarms
-    GSLC_DISPLAY,       // screen settings
-    GSLC_DATA,          // storage, sd card
-    GSLC_WIRELESS,      // wifi, bt
-    GSLC_EXT_HARDWARE,  // modules, sensors
-    GSLC_CATEGORY_COUNT
-} GlobalSettingsListCategory;
-typedef enum {
-    PWR_ULTRA,
-    PWR_AGGRESSIVE,
-    PWR_HEAVY,
-    PWR_MODERATE,
-    PWR_LIGHT,
-    PWR_NONE
-} PowerMode;
 
-typedef enum {
-    ALERT_SRC_PHONE,
-    ALERT_SRC_MISC_INTERNAL,
-    ALERT_SRC_CLOCK
-} AlertSource;
 //#include "watch_Settings.h" //configuration file for settings
-const char* GlobalSettingsListCategoryNames[] = {
-    "power",        // sleep modes
-    "alerts",       // notifications, alarms
-    "display",      // screen settings
-    "data",         // storage, sd card
-    "wireless",     // wifi, bt
-    "ext_hardware"  // modules, sensors
-};
-
-
-typedef struct {
-PowerMode mode;
-} PowerSettings;
-
-typedef struct {
-    uint8_t intensity;  // 0-255 maybe
-    int flash_light;    // bool
-    AlertSource source;
-} AlertsSettings;
-
-typedef struct {
-    uint8_t brightness; // 0-255
-    int greyscale;      // bool
-    int fast_refresh;   // bool
-} DisplaySettings;
-
-typedef struct {
-    int nfc_enabled;  // bool
-    int wifi_enabled; // bool
-    int bt_enabled;   // bool
-} WirelessSettings;
-
-typedef struct {
-    uint32_t storage_used_mb;
-    uint32_t storage_total_mb;
-} DataSettings;
-typedef struct {
-    PowerSettings power;
-    AlertsSettings alerts;
-    DisplaySettings display;
-    DataSettings data;
-    WirelessSettings wireless;
-    // ext_hardware can be fleshed out later
-} GlobalSettings;
-
-
-const char* appNames[] = {
-  "lock screen",
-  "health",
-  "NFC Tools",
-  "Settings",
-  "Gyro Info",
-  "Files",
-  "Radio",
-  "IR Remote",
-  "utilities",
-  "eTools", // combination of oscilloscope and signal gen
-  "rubberducky",
-  "connections",
-  "smart devices",
-  "Diagnostics"
-};
-
-typedef enum {
-  APP_LOCK_SCREEN,
-  APP_HEALTH,
-  APP_NFC_TOOLS,
-  APP_SETTINGS,
-  APP_GYRO_INFO,
-  APP_FILES,
-  APP_RADIO,
-  APP_IR_REMOTE,
-  APP_UTILITIES,
-  APP_ETOOLS,
-  APP_RUBBERDUCKY,
-  APP_CONNECTIONS,
-  APP_SMART_DEVICES,
-  APP_DIAGNOSTICS,
-  APP_COUNT // always handy for bounds checking
-}AppName;
-
-
-
-
-#include <SPI.h>
-SPIClass spiBus(HSPI);
-
-
-//esp32 specifiic
-#include "esp_pm.h"
-#include "esp_wifi.h" 
-#include <WiFi.h>
-#include "esp_bt.h"   //
-#include "esp_sleep.h"
-#include "esp_system.h" 
-#include <stdio.h>
-#include "esp_log.h"
-#include "driver/gpio.h"
-
-#include "esp_timer.h"
-#include "esp_system.h"
-
-//std 
-#include <stdbool.h>
-#include <cstdlib>  // For rand()
-#include <ctime>  
-#include <vector>
-#include <stdint.h> 
-#include <iomanip> 
-#include <chrono>
-
-//rots
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include <mutex> 
-#include "HardwareSerial.h"
-
-//arduino compats
-#include <Wire.h>
-#include <time.h>
-#include <stdio.h>
-
-
-
-//hardware==============================================
-
-#include "driver/pulse_cnt.h"
-#include "esp_check.h"
-
-// PCNT unit assignments
-#define PCNT_UNIT_X PCNT_UNIT_0
-#define PCNT_UNIT_Y PCNT_UNIT_1
-
-// Encoder channel assignments
-#define PCNT_CHANNEL_X PCNT_CHANNEL_0
-#define PCNT_CHANNEL_Y PCNT_CHANNEL_0  // Separate unit gets its own channel 0
 
 
 //heartrate
 #include "MAX30105.h" //sparkfun lib
 #include "heartRate.h"
 #include "spo2_algorithm.h"//aw lawd
-#include "mdl_heartmonitor.ino" //my bad code
+#include "mdl_heartmonitor.h" //my bad code
 MAX30105 particleSensor;//If this sensor were accurate, it would report your heart rate spiking every time i try to debug this code.
    
 //imu
@@ -220,26 +142,7 @@ GyroData gyroData;
 
 
 //time
-#include "mdl_clock.h"
 
-//storate
-#include "SDFS.ino"
-#include <SD.h> //esp specific lib
-#include <nvs_flash.h>
-#include <nvs.h>
-
-#include <pgmspace.h>
-#include "IR_Remote.ino"
-
-#include "inputHandler.h"
-
-//include my own stuff
- //#include "AT_SSD1351.ino"
-#include "Micro2D_A.ino"  // The library
-
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1351.h>
-#include <Adafruit_NeoPixel.h>
 int16_t temp_c=69;
 extern int AVG_HR;
 
@@ -264,22 +167,16 @@ static std::shared_ptr<Window> lockscreen_thermometer;
 bool IsScreenOn=true;
 
 // timer_editor.h
-typedef enum {
-    EDIT_OFF,        // Normal display mode
-    EDIT_RUNNING,    // Actively editing values
-    EDIT_CONFIRM     // Save/cancel prompt
-} EditState;
+
 
 #define NUM_TIMERS 5  // Replace magic number
 #define NUM_TIMER_FIELDS 2  // For HH:MM editing
 
  EditState timerEditState;
- uint8_t currentTimerField;  // Replaces currentTimerField
- uint8_t selectedTimerIndex;
+ uint8_t currentTimerField;  
 
 
 
-#include <atomic>
 
 
 uint16_t tcol_primary=0x0EFF;
@@ -306,7 +203,7 @@ bool is_watch_screen_in_menu=false;
 bool isConfirming = false;
 
 
-uint8_t AppMenuSelectedIndex=0; //app menu.yeah its global so we can share btwn 
+
 uint8_t CurrentOpenApplicationIndex=0; //for self referential current code
 
 
@@ -374,7 +271,7 @@ void scanI2C() {
 
 }
 
-#include "main_app_logic.ino"
+
 
 TaskHandle_t watchScreenHandle; //handle be4 use
 
@@ -525,205 +422,173 @@ void clearScreenEveryXCalls(uint16_t x) {
     char thermoStr[8];
     char hrStr[8];
     
-uint8_t watchModeIndex = 0; //likely best to rename to mouse pos lol
-//need these to persist
+uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
 
   
   //need struct for theother thing here for alarm mode
   usr_alarm_st usralmstbuf;//cache one for setters
+// Field ordering matching formatAlarm() display
+typedef enum {
+    TIMER_FIELD_HOUR_TENS = 0,   // First digit of hour [0-2]
+    TIMER_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
+    TIMER_FIELD_MIN_TENS,        // First digit of minute [0-5]
+    TIMER_FIELD_MIN_ONES,        // Second digit of minute [0-9]
+    TIMER_FIELD_ALARM_ACTION,    // Alarm type selection
+    TIMER_FIELD_SNOOZE,          // Snooze duration [1-30]
+    TIMER_FIELD_DAY_MON,         // Day selection starts here
+    TIMER_FIELD_DAY_TUE,
+    TIMER_FIELD_DAY_WED,
+    TIMER_FIELD_DAY_THU,
+    TIMER_FIELD_DAY_FRI,
+    TIMER_FIELD_DAY_SAT,
+    TIMER_FIELD_DAY_SUN,
+    TIMER_FIELD_COUNT            // Total fields
+} TimerField;
 
-void onVertical_input_timer_buff_setter(bool direction) {
-    int8_t dir = direction ? 1 : -1;
-
-    uint8_t color[3];
+  void handleTimerFieldAdjustment(bool increase) {
+    const int8_t direction = increase ? 1 : -1;
     uint8_t days_bitmask;
-
-    // Split combined LightColor
-    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
+    uint8_t color[3];
+    
+    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, &color);
 
     switch (currentTimerField) {
-    case 0: // min 1s digit
-{
-    int mins = usralmstbuf.minutes;
-    int ones = mins % 10;
-    ones += dir;
-    if (ones > 9) ones = 0;
-    if (ones < 0) ones = 9;
-    usralmstbuf.minutes = (mins / 10) * 10 + ones;
-}
-break;
-
-case 1: // min 10s digit
-{
-    int mins = usralmstbuf.minutes;
-    int tens = mins / 10;
-    tens += dir;
-    if (tens > 5) tens = 0; // max tens digit for mins
-    if (tens < 0) tens = 5;
-    usralmstbuf.minutes = tens * 10 + (mins % 10);
-}
-break;
-
-case 2: // hour 1s digit
-{
-    int hrs = usralmstbuf.hours;
-    int tens = hrs / 10;
-    int ones = hrs % 10;
-    ones += dir;
-
-    int max_ones = (tens == 2) ? 3 : 9;
-
-    if (ones > max_ones) ones = 0;
-    if (ones < 0) ones = max_ones;
-
-    usralmstbuf.hours = tens * 10 + ones;
-}
-break;
-
-case 3: // hour 10s digit
-{
-    int hrs = usralmstbuf.hours;
-    int tens = hrs / 10;
-    int ones = hrs % 10;
-
-    tens += dir;
-    if (tens > 2) tens = 0;
-    if (tens < 0) tens = 2;
-
-    int max_ones = (tens == 2) ? 3 : 9;
-    if (ones > max_ones) ones = max_ones;
-
-    usralmstbuf.hours = tens * 10 + ones;
-}
-break;
-
-case 4: // alarm action
-{
-    int temp_action = (int)usralmstbuf.E_AlarmAction + dir;
-
-    if (temp_action > ALARM_ACTION_MAX) temp_action = 0;
-    if (temp_action < 0) temp_action = ALARM_ACTION_MAX;
-
-    usralmstbuf.E_AlarmAction = (alarmAction)temp_action;
-}
-break;
-
-    case 5: // snooze duration
-        usralmstbuf.SnoozeDur += dir;
-        if (usralmstbuf.SnoozeDur > 30) usralmstbuf.SnoozeDur = 1;
-        if (usralmstbuf.SnoozeDur < 1) usralmstbuf.SnoozeDur = 30;
-        break;
-
-    case 6: case 7: case 8: case 9: case 10: case 11: case 12: {
-        // Days bitmask toggle: Mon–Sun
-        uint8_t bit = currentTimerField - 6;
-        if (bit < 7) {
-            if (direction) {
-                days_bitmask |= (1 << bit);  // toggle ON
-            } else {
-                days_bitmask &= ~(1 << bit); // toggle OFF
-            }
+        case TIMER_FIELD_HOUR_TENS: {
+            int tens = usralmstbuf.hours / 10;
+            tens = (tens + direction + 3) % 3; // Wrap 0-2
+            int ones = min(usralmstbuf.hours % 10, tens == 2 ? 3 : 9);
+            usralmstbuf.hours = tens * 10 + ones;
+            break;
         }
-        break;
-    }
-
-    case 13: // Color R
-        color[0] = (uint8_t)CLAMP(color[0] + dir, 0, 255);
-        break;
-    case 14: // Color G
-        color[1] = (uint8_t)CLAMP(color[1] + dir, 0, 255);
-        break;
-    case 15: // Color B
-        color[2] = (uint8_t)CLAMP(color[2] + dir, 0, 255);
-        break;
-
-    default:
-        currentTimerField = 0; // fallback
-        break;
+        
+        case TIMER_FIELD_HOUR_ONES: {
+            int tens = usralmstbuf.hours / 10;
+            int max_ones = (tens == 2) ? 3 : 9;
+            int ones = (usralmstbuf.hours % 10 + direction + max_ones + 1) % (max_ones + 1);
+            usralmstbuf.hours = tens * 10 + ones;
+            break;
+        }
+        
+        case TIMER_FIELD_MIN_TENS: {
+            int tens = (usralmstbuf.minutes / 10 + direction + 6) % 6;
+            usralmstbuf.minutes = tens * 10 + (usralmstbuf.minutes % 10);
+            break;
+        }
+        
+        case TIMER_FIELD_MIN_ONES: {
+            int ones = (usralmstbuf.minutes % 10 + direction + 10) % 10;
+            usralmstbuf.minutes = (usralmstbuf.minutes / 10) * 10 + ones;
+            break;
+        }
+        
+        case TIMER_FIELD_ALARM_ACTION: {
+            int action = (static_cast<int>(usralmstbuf.E_AlarmAction) + direction;
+            action = (action + ALARM_ACTION_MAX) % ALARM_ACTION_MAX;
+            usralmstbuf.E_AlarmAction = static_cast<alarmAction>(action);
+            break;
+        }
+        
+        case TIMER_FIELD_SNOOZE: {
+            usralmstbuf.SnoozeDur = (usralmstbuf.SnoozeDur - 1 + direction + 30) % 30 + 1;
+            break;
+        }
+        
+        case TIMER_FIELD_DAY_MON ... TIMER_FIELD_DAY_SUN: {
+            uint8_t day_bit = currentTimerField - TIMER_FIELD_DAY_MON;
+            days_bitmask ^= (1 << day_bit);
+            break;
+        }
+        
+        default:
+            currentTimerField = TIMER_FIELD_HOUR_TENS;
+            break;
     }
 
     // Recombine LightColor
-    usralmstbuf.LightColor =
-        ((uint32_t)days_bitmask << 24) |
-        ((uint32_t)color[0] << 16) |
-        ((uint32_t)color[1] << 8) |
-        color[2];
+    usralmstbuf.LightColor = ((uint32_t)days_bitmask << 24) | 
+                            (color[0] << 16) | 
+                            (color[1] << 8) | 
+                            color[2];
 }
-std::string formatAlarm(uint8_t mousepos, bool confirmMode) {
-    uint8_t days_bitmask, color24[3];
-    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color24);
 
-    // Time display with label and bracket highlighting
-    char tmp[6];
-    snprintf(tmp, sizeof(tmp), "%02u:%02u", usralmstbuf.hours, usralmstbuf.minutes);
-    std::string timeStr = "Time: ";
+
+std::string formatAlarm(uint8_t highlightedField, bool confirmMode) {
+    uint8_t days_bitmask;
+    uint8_t color[3];
+    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
+
+    std::ostringstream oss;
+    
+    // 1. Format Time Section
+    oss << "Time: ";
+    char timeStr[6];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", usralmstbuf.hours, usralmstbuf.minutes);
+    
+    // Highlight individual time components
     for (uint8_t i = 0; i < 5; i++) {
-        if (i == 2) { // Colon
-            timeStr += tmp[i];
+        if (i == 2) { // Colon separator
+            oss << timeStr[i];
             continue;
         }
-        int8_t posMap = -1;
-        switch (mousepos) {
-            case 3: posMap = 0; break; // Hour tens
-            case 2: posMap = 1; break; // Hour ones
-            case 1: posMap = 3; break; // Minute tens
-            case 0: posMap = 4; break; // Minute ones
-            default: break;
+        
+        bool shouldHighlight = false;
+        switch (i) {
+            case 0: shouldHighlight = (highlightedField == TIMER_FIELD_HOUR_TENS); break;
+            case 1: shouldHighlight = (highlightedField == TIMER_FIELD_HOUR_ONES); break;
+            case 3: shouldHighlight = (highlightedField == TIMER_FIELD_MIN_TENS); break;
+            case 4: shouldHighlight = (highlightedField == TIMER_FIELD_MIN_ONES); break;
         }
-        if (i == posMap) {
-            timeStr += "<setcolor(0xF005)>[" + std::string(1, tmp[i]) + "]<setcolor(0x07ff)>";
+        
+        if (shouldHighlight) {
+            oss << "<setcolor(0xF005)>[" << timeStr[i] << "]<setcolor(0x07ff)>";
         } else {
-            timeStr += tmp[i];
+            oss << timeStr[i];
         }
     }
 
-    // Action string with highlight
-    std::string actionStr = AlarmActionNames[usralmstbuf.E_AlarmAction];
-    if (mousepos == 4) {
-        actionStr = "<setcolor(0xF005)>[" + actionStr + "]<setcolor(0x07ff)>";
+    // 2. Format Alarm Action
+    oss << "<n><n>Alert: ";
+    if (highlightedField == TIMER_FIELD_ALARM_ACTION) {
+        oss << "<setcolor(0xF005)>[" << AlarmActionNames[usralmstbuf.E_AlarmAction] << "]<setcolor(0x07ff)>";
+    } else {
+        oss << AlarmActionNames[usralmstbuf.E_AlarmAction];
     }
 
-    // Days of week with proper formatting
-    std::string daysStr = "days active:<n>";
+    // 3. Format Days of Week
+    oss << "<n>Days active:<n>";
     for (uint8_t d = 0; d < 7; d++) {
-        bool active = days_bitmask & (1 << d);
-        std::string day = DayNames[d];
-        
-        if (mousepos == 6 + d) {
-            // Highlighted (red)
-            day = "<setcolor(0xF005)>" +day+ "<setcolor(0x07ff)>";
-        } else if (active) {
-            // Active (green)
-            day = "<setcolor(0x07E0)>" +day+ "<setcolor(0x07ff)>";
+        bool isActive = days_bitmask & (1 << d);
+        bool isHighlighted = (highlightedField == (TIMER_FIELD_DAY_MON + d));
+
+        if (isHighlighted) {
+            oss << "<setcolor(0xF005)>" << DayNames[d] << "<setcolor(0x07ff)>";
+        } else if (isActive) {
+            oss << "<setcolor(0x07E0)>" << DayNames[d] << "<setcolor(0x07ff)>";
         } else {
-            // Inactive (blue)
-            day = "<setcolor(0x001F)>" +day+ "<setcolor(0x07ff)>";
+            oss << "<setcolor(0x001F)>" << DayNames[d] << "<setcolor(0x07ff)>";
         }
-        
-        daysStr += day;
-        if (d < 6) daysStr += " "; // Space between days except last
+
+        if (d < 6) oss << " "; // Space between days except last
     }
 
-    // Snooze duration with highlight
-    std::string snoozeStr = std::to_string(usralmstbuf.SnoozeDur) + "min";
-    if (mousepos == 5) {
-        snoozeStr = "<setcolor(0xF005)>[" + snoozeStr + "]<setcolor(0x07ff)>";
+    // 4. Format Snooze Duration
+    oss << "<n><n>Snooze: ";
+    if (highlightedField == TIMER_FIELD_SNOOZE) {
+        oss << "<setcolor(0xF005)>[" << usralmstbuf.SnoozeDur << "min]<setcolor(0x07ff)>";
+    } else {
+        oss << usralmstbuf.SnoozeDur << "min";
     }
 
-    // Final composition with proper newlines and formatting
-    std::ostringstream out;
-    out << timeStr
-        << "<n><n>Alert: " << actionStr
-        << "<n>" << daysStr
-        << "<n><n>Snooze: " << snoozeStr
-        << "<n><n>" // Extra spacing before actions
-       << (confirmMode ? 
-    "<setcolor(0xF005)>[SAVE]<setcolor(0x07ff)> CANCEL" : 
-    "SAVE <setcolor(0xF005)>[CANCEL]<setcolor(0x07ff)>");
+    // 5. Format Action Buttons (Save/Cancel)
+    oss << "<n><n>";
+    if (confirmMode) {
+        oss << "<setcolor(0xF005)>[SAVE]<setcolor(0x07ff)> CANCEL";
+    } else {
+        oss << "SAVE <setcolor(0xF005)>[CANCEL]<setcolor(0x07ff)>";
+    }
 
-    return out.str();
+    return oss.str();
 }
-
 
 //to keep the apps out of main for orginization we'll just slap those motherfuckers in here for definitions
 
@@ -774,11 +639,11 @@ void CREATE_LOCKSCREEN_WINDOWS(){
     windowManagerInstance->registerWindow(lockscreen_thermometer);
 
 }
-//i put this above everything to avoid bugs because .ino is evil. typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE}WatchMode;
+//i put this above everything to avoid bugs because .ino is evil. typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE}Wat ch mo de enum
 //app-appmenu==============================================================================
   void transitionApp(uint8_t index) {
     AppName app = (AppName)index;
-
+rst_nav_pos(); //reset mouse pos between apps
     switch (app) {
         case APP_LOCK_SCREEN:
             // Do something for lock screen
@@ -833,29 +698,19 @@ void CREATE_LOCKSCREEN_WINDOWS(){
 //scrolling up enters it?
 
 
-void updateAppList(char *buf, size_t bufSize, const char **apps, int APP_COUNT, int AppMenuSelectedIndex) {
-    buf[0] = '\0'; // clear
+void updateAppList(char *buf, size_t bufSize, const char **apps, int count) {
+    buf[0] = '\0';
+    for (int i = 0; i < min(count, MAX_VISIBLE); ++i) {
+        if (i == globalNavPos.y) {  // Now checking y position
+            strncat(buf, "<setcolor(highlight)>[", bufSize);
+            strncat(buf, apps[i], bufSize);
+            strncat(buf, "]<setcolor(normal)>", bufSize);
+        } else {
+            strncat(buf, apps[i], bufSize);
+        }
+        strncat(buf, "<n>", bufSize);
+    }//end for, also i should not use for lol
 
-    int start = 0;
-    if (APP_COUNT > MAX_VISIBLE) {
-        start = AppMenuSelectedIndex - MAX_VISIBLE / 2;
-        if (start < 0) start = 0;
-        if (start + MAX_VISIBLE > APP_COUNT) start = APP_COUNT - MAX_VISIBLE;
-    }
-
-    for (int i = 0; i < MAX_VISIBLE && (start + i) < APP_COUNT; ++i) {
-  int idx = start + i;
-
-  if (idx == AppMenuSelectedIndex) {
-    strncat(buf, "<setcolor(0xdbbf)>[", bufSize - strlen(buf) - 1); //i really hope the macro bullshit replaces this so this highlights right. please leave it tcol
-    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
-    strncat(buf, "]<setcolor(0x07ff)>", bufSize - strlen(buf) - 1);
-  } else {
-    strncat(buf, apps[idx], bufSize - strlen(buf) - 1);
-  }
-
-  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}
 
 // Pad with blank lines if needed
 int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
@@ -863,10 +718,11 @@ int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
   strncat(buf, "<n>", bufSize - strlen(buf) - 1);
 }
 
-
     // Optionally ensure trailing newline if needed
     //strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}//ene fn update applist
+//end fn update applist
+
+}//end fn
 
 
 
@@ -874,12 +730,16 @@ WatchMode currentWatchMode = WM_MAIN;
 int stopwatchElapsed=0;
 
 void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
+   rst_nav_pos();//reset mouse
   lockscreen_clock->updateContent("");//remove content, avoid visual only bug
+
 switch (desiredMode){
   
 //tft.fillScreen(tcol_background);//clean everything
 
                 case WM_MAIN:
+            
+            Navlimits_ = {0, 0, 0};
                 WatchScreenUpdateInterval=500;
                 //update bg? 
                 //lockscreen_clock->updateContent("");//fixes bug with text overflow
@@ -890,6 +750,7 @@ switch (desiredMode){
                 break;
                 
                 case WM_STOPWATCH:
+                    Navlimits_ = {0, 1, 0}; //there's nothing to nav here, just enter and such
                     WatchScreenUpdateInterval=120;//update more frequently. unfortunately, there's still an issue with latency so we'll keep 
                     //lockscreen_clock->updateContent("");//fixes bug with text overflow
                     lockscreen_clock->setWinTextSize(2);
@@ -902,6 +763,7 @@ switch (desiredMode){
                 
 
                 case WM_ALARMS:
+                Navlimits_ = {0, 1, 0};//expand nav limits later navlimits
                     // TODO: Display upcoming alarms or alarm setup screen
                     WatchScreenUpdateInterval=350;
                     lockscreen_clock->setWinTextSize(1);
@@ -911,6 +773,7 @@ switch (desiredMode){
                  break;
 
                 case WM_TIMER:
+                Navlimits_ = {0, NUM_TIMERS-1, 0};//this needs to change inside the timer itself
                 WatchScreenUpdateInterval=350;
                 lockscreen_clock->setWinTextSize(1);
                lockscreen_clock->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
@@ -943,7 +806,9 @@ switch (desiredMode){
                     break;
 
                 case WM_APPMENU:
+                Navlimits_ = {0, 1, 0};
                 WatchScreenUpdateInterval=500;
+                     Navlimits_ = {0, APP_COUNT-1, 0};
                     lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
                     lockscreen_clock->ResizeWindow(128, 128,false);
                     lockscreen_clock->MoveWindow(0,0,true);
@@ -956,9 +821,9 @@ switch (desiredMode){
                     lockscreen_clock->updateContent("ERROR: Bad Mode");
                    
                 break;
-            }
+            }//end switch
 tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
-}       
+}//end fn       
 
 void loadAlarmToBuffer(uint8_t index) {
     if (index >= NUM_TIMERS) {
@@ -976,6 +841,8 @@ void loadAlarmToBuffer(uint8_t index) {
                  usralmstbuf.hours, 
                  usralmstbuf.minutes);
 }
+
+
 void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
     // copy the working buffer into your target array slot
     array[index] = usralmstbuf;
@@ -1066,7 +933,7 @@ case WM_TIMER:
 
 
                 case WM_APPMENU:
-                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, AppMenuSelectedIndex);
+                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, globalNavPos.x);
                     lockscreen_clock->updateContent(buf_applist);
                  break;
 
@@ -1099,21 +966,32 @@ case WM_TIMER:
 //input tick============================================================================================================================
 
 
-void HHMM_setter_pos_setwithbounds(bool dir) {
-    if (dir) {
-        currentTimerField++;
-    } else {
-        if (currentTimerField > 0) {
-            currentTimerField--;
-        } else {
-            currentTimerField = 0; // clamp at 0
-        }
-    }
+// Navigation dimensions
 
-    if (currentTimerField >= 18) { // 
-        currentTimerField = 0;
+
+// Navigation dimensions
+// Basic vector type
+
+// The clean version of your function
+void changeNavPos(int16vect input, bool wrap, int16vect navLimits) {
+    if (wrap) {
+        globalNavPos.x = wrap_value(globalNavPos.x + input.x, 0, navLimits.x);
+        globalNavPos.y = wrap_value(globalNavPos.y + input.y, 0, navLimits.y);
+        globalNavPos.z = wrap_value(globalNavPos.z + input.z, 0, navLimits.z);
+    } else {
+        globalNavPos.x = CLAMP(globalNavPos.x + input.x, 0, navLimits.x);
+        globalNavPos.y = CLAMP(globalNavPos.y + input.y, 0, navLimits.y);
+        globalNavPos.z = CLAMP(globalNavPos.z + input.z, 0, navLimits.z);
     }
 }
+
+void rst_nav_pos(){ //easier than manually tpying this each time
+    globalNavPos.x=0;
+    globalNavPos.y=0;
+    globalNavPos.z=0;
+}
+
+
 // Mode-specific input handlers
 static void on_wm_main_input(uint16_t key) {
     // Currently no special handling for MAIN mode
@@ -1134,26 +1012,16 @@ static void on_wm_stopwatch_input(uint16_t key) {
             break;
     }
 }
-
 static void on_wm_appmenu_input(uint16_t key) {
     switch(key) {
         case key_enter:
-            transitionApp(AppMenuSelectedIndex);
+            transitionApp(globalNavPos.y);  // Now using y for selection
             break;
             
         case key_up:
-            AppMenuSelectedIndex = (AppMenuSelectedIndex == 0) 
-                ? APP_COUNT - 1 
-                : AppMenuSelectedIndex - 1;
-            updateAppList(buf_applist, sizeof(buf_applist), 
-                         appNames, APP_COUNT, AppMenuSelectedIndex);
-            lockscreen_clock->updateContent(buf_applist);
-            break;
-            
         case key_down:
-            AppMenuSelectedIndex = (AppMenuSelectedIndex + 1) % APP_COUNT;
-            updateAppList(buf_applist, sizeof(buf_applist), 
-                         appNames, APP_COUNT, AppMenuSelectedIndex);
+            changeNavPos({0, (key == key_up) ? -1 : 1}, true, Navlimits_);
+            updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
             lockscreen_clock->updateContent(buf_applist);
             break;
             
@@ -1161,6 +1029,8 @@ static void on_wm_appmenu_input(uint16_t key) {
             currentWatchMode = WM_MAIN;
             is_watch_screen_in_menu = false;
             WATCH_SCREEN_TRANSITION(WM_MAIN);
+            // Reset navigation position when exiting
+            globalNavPos = {0, 0, 0};
             break;
             
         default:
@@ -1215,48 +1085,36 @@ void render_timer_screen() {
 void on_wm_timer_input(uint16_t key) {
     Serial.printf("Timer input: 0x%04X State: %d\n", key, timerEditState);
     
-    // Validate indices first!
-    if (selectedTimerIndex >= NUM_TIMERS) {
-        Serial.println("Invalid timer index!");
-        return;
-    }
-
     switch(timerEditState) {
         case EDIT_OFF:
-            // List Navigation Mode
+            Navlimits_ = {0, NUM_TIMERS-1, 0}; // Y-axis navigation
             switch(key) {
                 case key_enter:
                     timerEditState = EDIT_RUNNING;
-                    Serial.println("changed timereditstate to edit_running");
-                    currentTimerField = 0; //mouse index
-                    Serial.println("changed mouse pos");
-                    loadAlarmToBuffer(selectedTimerIndex);
-                    Serial.println("loaded timer index");
+                    globalNavPos = {0, globalNavPos.y, 0}; // Reset X, keep Y
+                    loadAlarmToBuffer(globalNavPos.y); // Use y position
                     break;
                     
                 case key_back:
                     currentWatchMode = WM_MAIN;
                     WATCH_SCREEN_TRANSITION(WM_MAIN);
-                    return; // Skip render
+                    return;
                     
                 case key_up:
-                    selectedTimerIndex = (selectedTimerIndex == 0) 
-                        ? NUM_TIMERS - 1 : selectedTimerIndex - 1;
-                    break;
-                    
                 case key_down:
-                    selectedTimerIndex = (selectedTimerIndex + 1) % NUM_TIMERS;
+                    changeNavPos({0, (key == key_up) ? -1 : 1}, true, Navlimits_);
                     break;
                     
                 default: break;
             }
             break;
 
-        case EDIT_RUNNING: //state 1
-            // Field Editing Mode
+        case EDIT_RUNNING:
+            Navlimits_ = {NUM_FIELDS-1, 0, 0}; // X-axis navigation
             switch(key) {
                 case key_enter:
                     timerEditState = EDIT_CONFIRM;
+                    globalNavPos.x = 0; // Reset confirm position
                     break;
                     
                 case key_back:
@@ -1269,22 +1127,20 @@ void on_wm_timer_input(uint16_t key) {
                     break;
                     
                 case key_left:
-                    currentTimerField = (currentTimerField > 0) ? currentTimerField - 1 : 15;
-                    break;
-                    
                 case key_right:
-                    currentTimerField = (currentTimerField + 1) % 16;
+                    changeNavPos({(key == key_left) ? -1 : 1, 0, 0}, true, Navlimits_);
+                    currentTimerField = globalNavPos.x; // Sync field with X position
                     break;
                     
                 default: break;
             }
             break;
 
-        case EDIT_CONFIRM: //2
-            // Save/Cancel Mode
+        case EDIT_CONFIRM:
+            Navlimits_ = {1, 0, 0}; // Binary choice
             switch(key) {
                 case key_enter:
-                    saveAlarmGeneric(usrmade_timers, selectedTimerIndex);
+                    saveAlarmGeneric(usrmade_timers, globalNavPos.y); // Use Y position
                     timerEditState = EDIT_OFF;
                     break;
                     
