@@ -83,6 +83,23 @@ SPIClass spiBus(HSPI);
 
 
 
+typedef enum {
+    TIMER_FIELD_HOUR_TENS = 0,   // First digit of hour [0-2]
+    TIMER_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
+    TIMER_FIELD_MIN_TENS,        // First digit of minute [0-5]
+    TIMER_FIELD_MIN_ONES,        // Second digit of minute [0-9]
+    TIMER_FIELD_ALARM_ACTION,    // Alarm type selection
+    TIMER_FIELD_SNOOZE,          // Snooze duration [1-30]
+    TIMER_FIELD_DAY_MON,         // Day selection starts here
+    TIMER_FIELD_DAY_TUE,
+    TIMER_FIELD_DAY_WED,
+    TIMER_FIELD_DAY_THU,
+    TIMER_FIELD_DAY_FRI,
+    TIMER_FIELD_DAY_SAT,
+    TIMER_FIELD_DAY_SUN,
+    TIMER_FIELD_COUNT            // Total fields
+} TimerField;
+
 
 
 // Clamp macro
@@ -105,7 +122,10 @@ static inline int16_t wrap_value(int16_t value, int16_t min, int16_t max) {
 
 #define WATCHSCREEN_BUF_SIZE 512
 
-#define CLAMP(val, min, max) ((val) < (min) ? (min) : ((val) > (max) ? (max) : (val))
+template<typename T>
+inline T CLAMP(const T& val, const T& min, const T& max) {
+    return (val < min) ? min : (val > max) ? max : val;
+}
 
 #define DBG_PRINTLN(x)  do { \
     tft.setCursor(0, _dbg_ypos); \
@@ -237,13 +257,13 @@ QueueHandle_t processInputQueue; //absolutely needs to be here because freerots.
 
 void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
     // Extract 24-bit color (lower 24 bits)
-    color[0] = (input >> 16) & 0xFF; // Most significant byte of 24-bit color
-    color[1] = (input >> 8) & 0xFF;
-    color[2] = input & 0xFF;
+    color[0] = (input >> 16) & 0xFF; // Red component
+    color[1] = (input >> 8) & 0xFF;  // Green component
+    color[2] = input & 0xFF;         // Blue component
 
     // Extract last 8 bits (most significant byte)
-    *last8 = (input >> 24) & 0xFF;
-}//split the color
+    *last8 = (input >> 24) & 0xFF;   // Days bitmask
+}
 
 void scanI2C() {
   byte error, address;
@@ -428,29 +448,14 @@ uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, O
   //need struct for theother thing here for alarm mode
   usr_alarm_st usralmstbuf;//cache one for setters
 // Field ordering matching formatAlarm() display
-typedef enum {
-    TIMER_FIELD_HOUR_TENS = 0,   // First digit of hour [0-2]
-    TIMER_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
-    TIMER_FIELD_MIN_TENS,        // First digit of minute [0-5]
-    TIMER_FIELD_MIN_ONES,        // Second digit of minute [0-9]
-    TIMER_FIELD_ALARM_ACTION,    // Alarm type selection
-    TIMER_FIELD_SNOOZE,          // Snooze duration [1-30]
-    TIMER_FIELD_DAY_MON,         // Day selection starts here
-    TIMER_FIELD_DAY_TUE,
-    TIMER_FIELD_DAY_WED,
-    TIMER_FIELD_DAY_THU,
-    TIMER_FIELD_DAY_FRI,
-    TIMER_FIELD_DAY_SAT,
-    TIMER_FIELD_DAY_SUN,
-    TIMER_FIELD_COUNT            // Total fields
-} TimerField;
+
 
   void handleTimerFieldAdjustment(bool increase) {
     const int8_t direction = increase ? 1 : -1;
     uint8_t days_bitmask;
     uint8_t color[3];
     
-    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, &color);
+    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
 
     switch (currentTimerField) {
         case TIMER_FIELD_HOUR_TENS: {
@@ -482,7 +487,7 @@ typedef enum {
         }
         
         case TIMER_FIELD_ALARM_ACTION: {
-            int action = (static_cast<int>(usralmstbuf.E_AlarmAction) + direction;
+            int action = (static_cast<int>(usralmstbuf.E_AlarmAction) + direction);
             action = (action + ALARM_ACTION_MAX) % ALARM_ACTION_MAX;
             usralmstbuf.E_AlarmAction = static_cast<alarmAction>(action);
             break;
@@ -696,7 +701,7 @@ rst_nav_pos(); //reset mouse pos between apps
     }
 }
 //scrolling up enters it?
-
+//globalNavPos.x
 
 void updateAppList(char *buf, size_t bufSize, const char **apps, int count) {
     buf[0] = '\0';
@@ -933,7 +938,7 @@ case WM_TIMER:
 
 
                 case WM_APPMENU:
-                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT, globalNavPos.x);
+                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
                     lockscreen_clock->updateContent(buf_applist);
                  break;
 
@@ -973,15 +978,19 @@ case WM_TIMER:
 // Basic vector type
 
 // The clean version of your function
+// Template CLAMP function (put this at file/header scope)
+
+
+// Updated changeNavPos function
 void changeNavPos(int16vect input, bool wrap, int16vect navLimits) {
     if (wrap) {
         globalNavPos.x = wrap_value(globalNavPos.x + input.x, 0, navLimits.x);
         globalNavPos.y = wrap_value(globalNavPos.y + input.y, 0, navLimits.y);
         globalNavPos.z = wrap_value(globalNavPos.z + input.z, 0, navLimits.z);
     } else {
-        globalNavPos.x = CLAMP(globalNavPos.x + input.x, 0, navLimits.x);
-        globalNavPos.y = CLAMP(globalNavPos.y + input.y, 0, navLimits.y);
-        globalNavPos.z = CLAMP(globalNavPos.z + input.z, 0, navLimits.z);
+        globalNavPos.x = CLAMP<int16_t>(globalNavPos.x + input.x, 0, navLimits.x);
+        globalNavPos.y = CLAMP<int16_t>(globalNavPos.y + input.y, 0, navLimits.y);
+        globalNavPos.z = CLAMP<int16_t>(globalNavPos.z + input.z, 0, navLimits.z);
     }
 }
 
@@ -1015,12 +1024,14 @@ static void on_wm_stopwatch_input(uint16_t key) {
 static void on_wm_appmenu_input(uint16_t key) {
     switch(key) {
         case key_enter:
-            transitionApp(globalNavPos.y);  // Now using y for selection
+            transitionApp(globalNavPos.y);
             break;
             
         case key_up:
         case key_down:
-            changeNavPos({0, (key == key_up) ? -1 : 1}, true, Navlimits_);
+            changeNavPos(int16vect{0, (key == key_up) ? -1 : 1, 0}, 
+                       true, 
+                       Navlimits_);
             updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
             lockscreen_clock->updateContent(buf_applist);
             break;
@@ -1029,7 +1040,6 @@ static void on_wm_appmenu_input(uint16_t key) {
             currentWatchMode = WM_MAIN;
             is_watch_screen_in_menu = false;
             WATCH_SCREEN_TRANSITION(WM_MAIN);
-            // Reset navigation position when exiting
             globalNavPos = {0, 0, 0};
             break;
             
@@ -1042,7 +1052,7 @@ static void on_wm_appmenu_input(uint16_t key) {
 
 
 // 1. Ensure proper buffer size (at top of file)
-
+uint8_t selectedTimerIndex=0; //i give up, i'll just declare it here
 
 void render_timer_screen() {
     watchscreen_buf[0] = '\0'; // Always start with empty buffer
@@ -1050,8 +1060,7 @@ void render_timer_screen() {
     if (timerEditState == EDIT_OFF) {
         // List view mode
         snprintf(watchscreen_buf, WATCHSCREEN_BUF_SIZE,
-               "<setcolor(0xF005)>Timer %d/%d<setcolor(0x07ff)><n><n>",
-               selectedTimerIndex + 1, NUM_TIMERS);
+               "<setcolor(0xF005)>Timer %d/%d<setcolor(0x07ff)><n><n>", selectedTimerIndex + 1, NUM_TIMERS);
         
         for (int i = 0; i < min(NUM_TIMERS, 5); i++) { // Limit display to 5
             char alarmBuf[30];
@@ -1087,12 +1096,16 @@ void on_wm_timer_input(uint16_t key) {
     
     switch(timerEditState) {
         case EDIT_OFF:
-            Navlimits_ = {0, NUM_TIMERS-1, 0}; // Y-axis navigation
+            Navlimits_.x = 0;
+            Navlimits_.y = NUM_TIMERS-1;
+            Navlimits_.z = 0;
+            
             switch(key) {
                 case key_enter:
                     timerEditState = EDIT_RUNNING;
-                    globalNavPos = {0, globalNavPos.y, 0}; // Reset X, keep Y
-                    loadAlarmToBuffer(globalNavPos.y); // Use y position
+                    globalNavPos.x = 0;
+                    globalNavPos.z = 0;
+                    loadAlarmToBuffer(globalNavPos.y);
                     break;
                     
                 case key_back:
@@ -1102,7 +1115,8 @@ void on_wm_timer_input(uint16_t key) {
                     
                 case key_up:
                 case key_down:
-                    changeNavPos({0, (key == key_up) ? -1 : 1}, true, Navlimits_);
+                    changeNavPos(int16vect{0, static_cast<int16_t>((key == key_up) ? -1 : 1), 0}, 
+                               true, Navlimits_);
                     break;
                     
                 default: break;
@@ -1110,11 +1124,14 @@ void on_wm_timer_input(uint16_t key) {
             break;
 
         case EDIT_RUNNING:
-            Navlimits_ = {NUM_FIELDS-1, 0, 0}; // X-axis navigation
+            Navlimits_.x = TIMER_FIELD_COUNT-1;
+            Navlimits_.y = 0;
+            Navlimits_.z = 0;
+            
             switch(key) {
                 case key_enter:
                     timerEditState = EDIT_CONFIRM;
-                    globalNavPos.x = 0; // Reset confirm position
+                    globalNavPos.x = 0;
                     break;
                     
                 case key_back:
@@ -1122,14 +1139,17 @@ void on_wm_timer_input(uint16_t key) {
                     break;
                     
                 case key_up:
+               // onVertical_input_timer_buff_setter(key == key_up);
+                break;
                 case key_down:
-                    onVertical_input_timer_buff_setter(key == key_up);
+                    //onVertical_input_timer_buff_setter(key == key_down);
                     break;
                     
                 case key_left:
                 case key_right:
-                    changeNavPos({(key == key_left) ? -1 : 1, 0, 0}, true, Navlimits_);
-                    currentTimerField = globalNavPos.x; // Sync field with X position
+                    changeNavPos(int16vect{static_cast<int16_t>((key == key_left) ? -1 : 1), 0, 0}, 
+                               true, Navlimits_);
+                    currentTimerField = globalNavPos.x;
                     break;
                     
                 default: break;
@@ -1137,10 +1157,13 @@ void on_wm_timer_input(uint16_t key) {
             break;
 
         case EDIT_CONFIRM:
-            Navlimits_ = {1, 0, 0}; // Binary choice
+            Navlimits_.x = 1;
+            Navlimits_.y = 0;
+            Navlimits_.z = 0;
+            
             switch(key) {
                 case key_enter:
-                    saveAlarmGeneric(usrmade_timers, globalNavPos.y); // Use Y position
+                    saveAlarmGeneric(usrmade_timers, globalNavPos.y);
                     timerEditState = EDIT_OFF;
                     break;
                     

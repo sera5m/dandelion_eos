@@ -4,11 +4,15 @@
 //pragma twice would be funny lol
 
 //math
-typedef struct {
+struct int16vect {
     int16_t x;
     int16_t y;
     int16_t z;
-} int16vect;
+    
+    // Constructors (now properly inside the struct definition)
+    int16vect() : x(0), y(0), z(0) {}
+    int16vect(int16_t x, int16_t y, int16_t z) : x(x), y(y), z(z) {}
+};
 
 //application info
 

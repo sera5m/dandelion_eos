@@ -52,6 +52,9 @@ long denoiseIR(long irValue) {
 }
 
 // [Keep all other function implementations the same until updateHRsensor()]
+bool BeatCheck(long irValue) {
+  return (irValue > 50000);
+}
 
 void updateHRsensor() {
   long irValue = denoiseIR(particleSensor.getIR());
