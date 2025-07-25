@@ -94,6 +94,7 @@ typedef struct {
     uint32_t storage_used_mb;
     uint32_t storage_total_mb;
 } DataSettings;
+
 typedef struct {
     PowerSettings power;
     AlertsSettings alerts;
@@ -118,7 +119,8 @@ const char* appNames[] = {
   "rubberducky",
   "connections",
   "smart devices",
-  "Diagnostics"
+  "Diagnostics",
+  "Games"
 };
 
 typedef enum {
@@ -136,6 +138,7 @@ typedef enum {
   APP_CONNECTIONS,
   APP_SMART_DEVICES,
   APP_DIAGNOSTICS,
+  APP_GAMES, //things like snake, i think
   APP_COUNT // always handy for bounds checking
 }AppName;
 

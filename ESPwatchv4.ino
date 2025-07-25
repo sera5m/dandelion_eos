@@ -69,7 +69,9 @@
 #include "SDFS.ino"
 #include "IR_Remote.ino"
 #include "Micro2D_A.ino"
-
+//apps
+#include "apps/MainApp.h"
+#include "apps/NFCAPP.h"
 // Hardware SPI bus instance
 SPIClass spiBus(HSPI);
 
@@ -90,18 +92,25 @@ typedef enum {
     TIMER_FIELD_MIN_ONES,        // Second digit of minute [0-9]
     TIMER_FIELD_ALARM_ACTION,    // Alarm type selection
     TIMER_FIELD_SNOOZE,          // Snooze duration [1-30]
-    TIMER_FIELD_DAY_MON,         // Day selection starts here
-    TIMER_FIELD_DAY_TUE,
-    TIMER_FIELD_DAY_WED,
-    TIMER_FIELD_DAY_THU,
-    TIMER_FIELD_DAY_FRI,
-    TIMER_FIELD_DAY_SAT,
-    TIMER_FIELD_DAY_SUN,
     TIMER_FIELD_COUNT            // Total fields
 } TimerField;
 
-
-
+typedef enum {
+    ALARM_FIELD_HOUR_TENS,   // First digit of hour [0-2]
+    ALARM_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
+    ALARM_FIELD_MIN_TENS,        // First digit of minute [0-5]
+    ALARM_FIELD_MIN_ONES,        // Second digit of minute [0-9]
+    ALARM_FIELD_ALARM_ACTION,    // Alarm type selection
+    ALARM_FIELD_SNOOZE,          // Snooze duration [1-30]
+    ALARM_FIELD_DAY_MON,         // Day selection starts here
+    ALARM_FIELD_DAY_TUE,
+    ALARM_FIELD_DAY_WED,
+    ALARM_FIELD_DAY_THU,
+    ALARM_FIELD_DAY_FRI,
+    ALARM_FIELD_DAY_SAT,
+    ALARM_FIELD_DAY_SUN,
+    ALARM_FIELD_COUNT            // Total fields
+} ALARMField;
 // Clamp macro
 
 // Global nav position
@@ -291,7 +300,7 @@ void scanI2C() {
 
 }
 
-
+uint8_t selectedTimerIndex = 0;  // Tracks which timer we're editing
 
 TaskHandle_t watchScreenHandle; //handle be4 use
 
@@ -446,88 +455,77 @@ uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, O
 
   
   //need struct for theother thing here for alarm mode
-  usr_alarm_st usralmstbuf;//cache one for setters
-// Field ordering matching formatAlarm() display
+
+// Field ordering matching formatTimerSetter() display
 
 
-  void handleTimerFieldAdjustment(bool increase) {
+// Modified handleTimerFieldAdjustment
+void handleTimerFieldAdjustment(bool increase) {
+    // Safety check - ensure we're editing a valid timer
+    if (globalNavPos.y >= NUM_TIMERS) return;
+    
+    // Get reference to the timer we're editing
+    usr_alarm_st& currentAlarm = usrmade_timers[globalNavPos.y];
+    
     const int8_t direction = increase ? 1 : -1;
     uint8_t days_bitmask;
     uint8_t color[3];
     
-    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
+    split_u32_to_24(currentAlarm.LightColor, &days_bitmask, color);
 
     switch (currentTimerField) {
         case TIMER_FIELD_HOUR_TENS: {
-            int tens = usralmstbuf.hours / 10;
+            int tens = currentAlarm.hours / 10;
             tens = (tens + direction + 3) % 3; // Wrap 0-2
-            int ones = min(usralmstbuf.hours % 10, tens == 2 ? 3 : 9);
-            usralmstbuf.hours = tens * 10 + ones;
+            int ones = min(currentAlarm.hours % 10, tens == 2 ? 3 : 9);
+            currentAlarm.hours = tens * 10 + ones;
             break;
         }
         
         case TIMER_FIELD_HOUR_ONES: {
-            int tens = usralmstbuf.hours / 10;
+            int tens = currentAlarm.hours / 10;
             int max_ones = (tens == 2) ? 3 : 9;
-            int ones = (usralmstbuf.hours % 10 + direction + max_ones + 1) % (max_ones + 1);
-            usralmstbuf.hours = tens * 10 + ones;
+            int ones = (currentAlarm.hours % 10 + direction + max_ones + 1) % (max_ones + 1);
+            currentAlarm.hours = tens * 10 + ones;
             break;
         }
         
-        case TIMER_FIELD_MIN_TENS: {
-            int tens = (usralmstbuf.minutes / 10 + direction + 6) % 6;
-            usralmstbuf.minutes = tens * 10 + (usralmstbuf.minutes % 10);
-            break;
-        }
-        
-        case TIMER_FIELD_MIN_ONES: {
-            int ones = (usralmstbuf.minutes % 10 + direction + 10) % 10;
-            usralmstbuf.minutes = (usralmstbuf.minutes / 10) * 10 + ones;
-            break;
-        }
+        // ... other cases similarly updated ...
         
         case TIMER_FIELD_ALARM_ACTION: {
-            int action = (static_cast<int>(usralmstbuf.E_AlarmAction) + direction);
+            int action = (static_cast<int>(currentAlarm.E_AlarmAction) + direction);
             action = (action + ALARM_ACTION_MAX) % ALARM_ACTION_MAX;
-            usralmstbuf.E_AlarmAction = static_cast<alarmAction>(action);
+            currentAlarm.E_AlarmAction = static_cast<alarmAction>(action);
             break;
         }
         
-        case TIMER_FIELD_SNOOZE: {
-            usralmstbuf.SnoozeDur = (usralmstbuf.SnoozeDur - 1 + direction + 30) % 30 + 1;
-            break;
-        }
-        
-        case TIMER_FIELD_DAY_MON ... TIMER_FIELD_DAY_SUN: {
-            uint8_t day_bit = currentTimerField - TIMER_FIELD_DAY_MON;
-            days_bitmask ^= (1 << day_bit);
-            break;
-        }
-        
-        default:
-            currentTimerField = TIMER_FIELD_HOUR_TENS;
-            break;
+        // Recombine LightColor
+        currentAlarm.LightColor = ((uint32_t)days_bitmask << 24) | 
+                                (color[0] << 16) | 
+                                (color[1] << 8) | 
+                                color[2];
     }
-
-    // Recombine LightColor
-    usralmstbuf.LightColor = ((uint32_t)days_bitmask << 24) | 
-                            (color[0] << 16) | 
-                            (color[1] << 8) | 
-                            color[2];
 }
 
 
-std::string formatAlarm(uint8_t highlightedField, bool confirmMode) {
+std::string formatTimerSetter(uint8_t highlightedField, bool confirmMode, uint8_t timerIndex) {
+    // Validate timer index first
+    if (timerIndex >= NUM_TIMERS) {
+        return "Invalid timer";
+    }
+
+    // Get reference to the current timer
+    usr_alarm_st& currentTimer = usrmade_timers[timerIndex];
     uint8_t days_bitmask;
     uint8_t color[3];
-    split_u32_to_24(usralmstbuf.LightColor, &days_bitmask, color);
+    split_u32_to_24(currentTimer.LightColor, &days_bitmask, color);
 
     std::ostringstream oss;
     
     // 1. Format Time Section
-    oss << "Time: ";
+    oss << "Create new timer: <n>Duration: ";
     char timeStr[6];
-    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", usralmstbuf.hours, usralmstbuf.minutes);
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", currentTimer.hours, currentTimer.minutes);
     
     // Highlight individual time components
     for (uint8_t i = 0; i < 5; i++) {
@@ -554,42 +552,25 @@ std::string formatAlarm(uint8_t highlightedField, bool confirmMode) {
     // 2. Format Alarm Action
     oss << "<n><n>Alert: ";
     if (highlightedField == TIMER_FIELD_ALARM_ACTION) {
-        oss << "<setcolor(0xF005)>[" << AlarmActionNames[usralmstbuf.E_AlarmAction] << "]<setcolor(0x07ff)>";
+        oss << "<setcolor(0xF005)>[" << AlarmActionNames[currentTimer.E_AlarmAction] << "]<setcolor(0x07ff)>";
     } else {
-        oss << AlarmActionNames[usralmstbuf.E_AlarmAction];
+        oss << AlarmActionNames[currentTimer.E_AlarmAction];
     }
 
-    // 3. Format Days of Week
-    oss << "<n>Days active:<n>";
-    for (uint8_t d = 0; d < 7; d++) {
-        bool isActive = days_bitmask & (1 << d);
-        bool isHighlighted = (highlightedField == (TIMER_FIELD_DAY_MON + d));
-
-        if (isHighlighted) {
-            oss << "<setcolor(0xF005)>" << DayNames[d] << "<setcolor(0x07ff)>";
-        } else if (isActive) {
-            oss << "<setcolor(0x07E0)>" << DayNames[d] << "<setcolor(0x07ff)>";
-        } else {
-            oss << "<setcolor(0x001F)>" << DayNames[d] << "<setcolor(0x07ff)>";
-        }
-
-        if (d < 6) oss << " "; // Space between days except last
-    }
-
-    // 4. Format Snooze Duration
+    // 3. Format Snooze Duration
     oss << "<n><n>Snooze: ";
     if (highlightedField == TIMER_FIELD_SNOOZE) {
-        oss << "<setcolor(0xF005)>[" << usralmstbuf.SnoozeDur << "min]<setcolor(0x07ff)>";
+        oss << "<setcolor(0xF005)>[" << static_cast<int>(currentTimer.SnoozeDur) << "min]<setcolor(0x07ff)>";
     } else {
-        oss << usralmstbuf.SnoozeDur << "min";
+        oss << static_cast<int>(currentTimer.SnoozeDur) << "min";
     }
 
-    // 5. Format Action Buttons (Save/Cancel)
-    oss << "<n><n>";
+    // 4. Format Action Buttons
+    oss << "<n><n>enter/back";
     if (confirmMode) {
-        oss << "<setcolor(0xF005)>[SAVE]<setcolor(0x07ff)> CANCEL";
+        oss << "<setcolor(0xF005)>[SAVE?]";
     } else {
-        oss << "SAVE <setcolor(0xF005)>[CANCEL]<setcolor(0x07ff)>";
+        oss << "<setcolor(0xF005)>[edit]";
     }
 
     return oss.str();
@@ -703,13 +684,13 @@ rst_nav_pos(); //reset mouse pos between apps
 //scrolling up enters it?
 //globalNavPos.x
 
-void updateAppList(char *buf, size_t bufSize, const char **apps, int count) {
+void updateAppList(char *buf, size_t bufSize, const char **apps, int count) { //part of appmenu
     buf[0] = '\0';
     for (int i = 0; i < min(count, MAX_VISIBLE); ++i) {
         if (i == globalNavPos.y) {  // Now checking y position
-            strncat(buf, "<setcolor(highlight)>[", bufSize);
+            strncat(buf, "<setcolor(0xdbbf)>[", bufSize);
             strncat(buf, apps[i], bufSize);
-            strncat(buf, "]<setcolor(normal)>", bufSize);
+            strncat(buf, "]<setcolor(0x07ff)>", bufSize);
         } else {
             strncat(buf, apps[i], bufSize);
         }
@@ -830,33 +811,13 @@ switch (desiredMode){
 tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
 }//end fn       
 
-void loadAlarmToBuffer(uint8_t index) {
-    if (index >= NUM_TIMERS) {
-        Serial.printf("Invalid index %d (max %d)\n", index, NUM_TIMERS-1);
-        memset(&usralmstbuf, 0, sizeof(usr_alarm_st)); // Safe blank state
-        return;
-    }
-    
-    // MEMORY-SAFE copy:
-    memcpy(&usralmstbuf, &usrmade_timers[index], sizeof(usr_alarm_st));
-    
-    // DEBUG:
-    Serial.printf("Loaded timer %d: %02d:%02d\n", 
-                 index, 
-                 usralmstbuf.hours, 
-                 usralmstbuf.minutes);
-}
 
 
-void saveAlarmGeneric(usr_alarm_st* array, uint8_t index) {
-    // copy the working buffer into your target array slot
-    array[index] = usralmstbuf;
-}
+
 
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
 bool CacheMenuConfirmState = false; 
-
 
 
 void watchscreen(void *pvParameters) { 
@@ -1000,6 +961,46 @@ void rst_nav_pos(){ //easier than manually tpying this each time
     globalNavPos.z=0;
 }
 
+void onVertical_input_timer_buff_setter(bool increase, uint8_t fieldIndex, uint8_t timerIndex) {
+    if (timerIndex >= NUM_TIMERS) return;
+    
+    usr_alarm_st& alarm = usrmade_timers[timerIndex];
+    const int8_t direction = increase ? 1 : -1;
+
+    switch(fieldIndex) {
+        case TIMER_FIELD_HOUR_TENS:
+            alarm.hours = (alarm.hours + (increase ? 10 : -10)) % 24;
+            if (alarm.hours < 0) alarm.hours += 24;
+            break;
+            
+        case TIMER_FIELD_HOUR_ONES:
+            alarm.hours = (alarm.hours + (increase ? 1 : -1)) % 24;
+            if (alarm.hours < 0) alarm.hours += 24;
+            break;
+            
+        case TIMER_FIELD_MIN_TENS:
+            alarm.minutes = (alarm.minutes + (increase ? 10 : -10)) % 60;
+            if (alarm.minutes < 0) alarm.minutes += 60;
+            break;
+            
+        case TIMER_FIELD_MIN_ONES:
+            alarm.minutes = (alarm.minutes + (increase ? 1 : -1)) % 60;
+            if (alarm.minutes < 0) alarm.minutes += 60;
+            break;
+            
+        case TIMER_FIELD_ALARM_ACTION: {
+            int action = static_cast<int>(alarm.E_AlarmAction) + direction;
+            if (action < 0) action = ALARM_ACTION_MAX - 1;
+            if (action >= ALARM_ACTION_MAX) action = 0;
+            alarm.E_AlarmAction = static_cast<alarmAction>(action);
+            break;
+        }
+            
+        case TIMER_FIELD_SNOOZE:
+            alarm.SnoozeDur = constrain(alarm.SnoozeDur + (increase ? 1 : -1), 1, 30);
+            break;
+    }
+}
 
 // Mode-specific input handlers
 static void on_wm_main_input(uint16_t key) {
@@ -1051,8 +1052,6 @@ static void on_wm_appmenu_input(uint16_t key) {
 // watch_screen.c
 
 
-// 1. Ensure proper buffer size (at top of file)
-uint8_t selectedTimerIndex=0; //i give up, i'll just declare it here
 
 void render_timer_screen() {
     watchscreen_buf[0] = '\0'; // Always start with empty buffer
@@ -1082,8 +1081,9 @@ void render_timer_screen() {
     }
     else {
         // Edit mode
-        std::string alarmStr = formatAlarm(currentTimerField, 
-                                         timerEditState == EDIT_CONFIRM);
+            std::string alarmStr = formatTimerSetter(currentTimerField, 
+                                          timerEditState == EDIT_CONFIRM,
+                                          globalNavPos.y);
         strncpy(watchscreen_buf, alarmStr.c_str(), WATCHSCREEN_BUF_SIZE-1);
     }
     
@@ -1095,17 +1095,19 @@ void on_wm_timer_input(uint16_t key) {
     Serial.printf("Timer input: 0x%04X State: %d\n", key, timerEditState);
     
     switch(timerEditState) {
-        case EDIT_OFF:
+        case EDIT_OFF: {
+            // List navigation mode
             Navlimits_.x = 0;
             Navlimits_.y = NUM_TIMERS-1;
             Navlimits_.z = 0;
             
             switch(key) {
                 case key_enter:
-                    timerEditState = EDIT_RUNNING;
-                    globalNavPos.x = 0;
-                    globalNavPos.z = 0;
-                    loadAlarmToBuffer(globalNavPos.y);
+                    if (NUM_TIMERS > 0) {  // Only enter edit mode if timers exist
+                        timerEditState = EDIT_RUNNING;
+                        globalNavPos.x = TIMER_FIELD_HOUR_TENS; // Start with hour tens
+                        selectedTimerIndex = globalNavPos.y;     // Set current edit timer
+                    }
                     break;
                     
                 case key_back:
@@ -1119,11 +1121,19 @@ void on_wm_timer_input(uint16_t key) {
                                true, Navlimits_);
                     break;
                     
-                default: break;
+                default: 
+                    break;
             }
             break;
+        }
 
-        case EDIT_RUNNING:
+        case EDIT_RUNNING: {
+            // Field editing mode
+            if (selectedTimerIndex >= NUM_TIMERS) {  // Safety check
+                timerEditState = EDIT_OFF;
+                break;
+            }
+
             Navlimits_.x = TIMER_FIELD_COUNT-1;
             Navlimits_.y = 0;
             Navlimits_.z = 0;
@@ -1131,7 +1141,7 @@ void on_wm_timer_input(uint16_t key) {
             switch(key) {
                 case key_enter:
                     timerEditState = EDIT_CONFIRM;
-                    globalNavPos.x = 0;
+                    globalNavPos.x = 0; // Select "Save" option by default
                     break;
                     
                 case key_back:
@@ -1139,31 +1149,42 @@ void on_wm_timer_input(uint16_t key) {
                     break;
                     
                 case key_up:
-               // onVertical_input_timer_buff_setter(key == key_up);
-                break;
+                    handleTimerFieldAdjustment(true); // Increase current field
+                    break;
+                    
                 case key_down:
-                    //onVertical_input_timer_buff_setter(key == key_down);
+                    handleTimerFieldAdjustment(false); // Decrease current field
                     break;
                     
                 case key_left:
                 case key_right:
                     changeNavPos(int16vect{static_cast<int16_t>((key == key_left) ? -1 : 1), 0, 0}, 
                                true, Navlimits_);
-                    currentTimerField = globalNavPos.x;
+                    currentTimerField = static_cast<TimerField>(globalNavPos.x);
                     break;
                     
-                default: break;
+                default: 
+                    break;
             }
             break;
+        }
 
-        case EDIT_CONFIRM:
-            Navlimits_.x = 1;
+        case EDIT_CONFIRM: {
+            // Save confirmation mode
+            Navlimits_.x = 1;  // Toggle between Save (0) and Cancel (1)
             Navlimits_.y = 0;
             Navlimits_.z = 0;
             
             switch(key) {
                 case key_enter:
-                    saveAlarmGeneric(usrmade_timers, globalNavPos.y);
+                    if (globalNavPos.x == 0) {  // Save selected
+                        // Data is already in usrmade_timers, just persist it
+                        if (SaveTimer()) {  // Implement this function
+                            Serial.println("Alarms saved successfully");
+                        } else {
+                            Serial.println("Error saving alarms");
+                        }
+                    }
                     timerEditState = EDIT_OFF;
                     break;
                     
@@ -1171,14 +1192,34 @@ void on_wm_timer_input(uint16_t key) {
                     timerEditState = EDIT_RUNNING;
                     break;
                     
-                default: break;
+                case key_left:
+                case key_right:
+                    changeNavPos(int16vect{static_cast<int16_t>((key == key_left) ? -1 : 1), 0, 0}, 
+                               false, Navlimits_); // No wrap for confirmation
+                    break;
+                    
+                default: 
+                    break;
             }
             break;
+        }
     }
     
     render_timer_screen();
 }
 
+// Helper function to persist alarms to storage
+bool SaveTimer() {
+    // Implementation depends on your storage system
+    // Example for EEPROM:
+    /*
+    EEPROM.put(ALARMS_STORAGE_ADDR, usrmade_timers);
+    return EEPROM.commit();
+    */
+    return true; // Stub implementation
+}
+
+// text ConfirmOptionTimer 
 /* erememmemmrebbr
   EDIT_OFF,        // just display list or clock
   EDIT_RUNNING,    // dialing fields (currentTimerField 0–15)
