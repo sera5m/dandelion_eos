@@ -126,7 +126,7 @@ const char* appNames[] = {
 typedef enum {
   APP_LOCK_SCREEN,
   APP_HEALTH,
-  APP_NFC_TOOLS,
+  APP_NFC,
   APP_SETTINGS,
   APP_GYRO_INFO,
   APP_FILES,
@@ -142,4 +142,11 @@ typedef enum {
   APP_COUNT // always handy for bounds checking
 }AppName;
 
+typedef enum{
+nam_reading,
+nam_writing,
+nam_sleep,
+nam_saving,
+nam_loadfromStorage,
+}nfcAppMode;
 

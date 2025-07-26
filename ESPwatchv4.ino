@@ -188,7 +188,7 @@ Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); //flashlight
 //init windows
 WindowManager* windowManagerInstance = nullptr;
 
-static std::shared_ptr<Window> lockscreen_clock; QueueHandle_t lockscreenQueue = nullptr;
+static std::shared_ptr<Window> Win_GeneralPurpose; QueueHandle_t lockscreenQueue = nullptr;
 static std::shared_ptr<Window> lockscreen_biomon;
 static std::shared_ptr<Window> lockscreen_thermometer;
 //static std::shared_ptr<Window> lockscreen_systemIcons;
@@ -613,8 +613,8 @@ WindowCfg d_ls_th_cfg = {//thermometer
 };
 
 void CREATE_LOCKSCREEN_WINDOWS(){
-        lockscreen_clock = std::make_shared<Window>("lockscreen_clock", d_ls_c_cfg, "HH:MM:SS");
-    windowManagerInstance->registerWindow(lockscreen_clock);
+        Win_GeneralPurpose = std::make_shared<Window>("Win_GeneralPurpose", d_ls_c_cfg, "HH:MM:SS");
+    windowManagerInstance->registerWindow(Win_GeneralPurpose);
     DBG_PRINTLN("Clock OK");
 
             lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
@@ -631,6 +631,9 @@ void CREATE_LOCKSCREEN_WINDOWS(){
     AppName app = (AppName)index;
 rst_nav_pos(); //reset mouse pos between apps
     switch (app) {
+        //set 
+        CurrentOpenApplicationIndex=app; //set via lazymaxxing
+
         case APP_LOCK_SCREEN:
             // Do something for lock screen
             CurrentOpenApplicationIndex=APP_LOCK_SCREEN; //note! need to set this on sucess, move this later to outside just this mode. this is the current open app n should only be set on success!
@@ -638,7 +641,7 @@ rst_nav_pos(); //reset mouse pos between apps
         case APP_HEALTH:
             // Do something for health app
             break;
-        case APP_NFC_TOOLS:
+        case APP_NFC:
             // ...
             break;
         case APP_SETTINGS:
@@ -717,7 +720,7 @@ int stopwatchElapsed=0;
 
 void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
    rst_nav_pos();//reset mouse
-  lockscreen_clock->updateContent("");//remove content, avoid visual only bug
+  Win_GeneralPurpose->updateContent("");//remove content, avoid visual only bug
 
 switch (desiredMode){
   
@@ -728,20 +731,20 @@ switch (desiredMode){
             Navlimits_ = {0, 0, 0};
                 WatchScreenUpdateInterval=500;
                 //update bg? 
-                //lockscreen_clock->updateContent("");//fixes bug with text overflow
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
+                //Win_GeneralPurpose->updateContent("");//fixes bug with text overflow
+                Win_GeneralPurpose->setWinTextSize(2);
+                Win_GeneralPurpose->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                Win_GeneralPurpose->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true); //reset to original config size reguardless of original config
                 
                 break;
                 
                 case WM_STOPWATCH:
                     Navlimits_ = {0, 1, 0}; //there's nothing to nav here, just enter and such
                     WatchScreenUpdateInterval=120;//update more frequently. unfortunately, there's still an issue with latency so we'll keep 
-                    //lockscreen_clock->updateContent("");//fixes bug with text overflow
-                    lockscreen_clock->setWinTextSize(2);
-                    lockscreen_clock->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
+                    //Win_GeneralPurpose->updateContent("");//fixes bug with text overflow
+                    Win_GeneralPurpose->setWinTextSize(2);
+                    Win_GeneralPurpose->ResizeWindow(128, d_ls_c_cfg.height,false);//expand for more digits, .xyz expand by  pixels
+                    Win_GeneralPurpose->MoveWindow(d_ls_c_cfg.x-14, d_ls_c_cfg.y,true);//move 14 pixels to the left to offset more digits.
                                                         //x now has effective increased size of 28px. probably better if i did this as a new struct but who cares. 
                          //resize window and force update as of 6/25/25 have the ability to not force the screen to update, preventing graphical glitches
                  
@@ -752,42 +755,42 @@ switch (desiredMode){
                 Navlimits_ = {0, 1, 0};//expand nav limits later navlimits
                     // TODO: Display upcoming alarms or alarm setup screen
                     WatchScreenUpdateInterval=350;
-                    lockscreen_clock->setWinTextSize(1);
-                    lockscreen_clock->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(0,16,false); //xy
+                    Win_GeneralPurpose->setWinTextSize(1);
+                    Win_GeneralPurpose->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
+                    Win_GeneralPurpose->MoveWindow(0,16,false); //xy
 
                  break;
 
                 case WM_TIMER:
                 Navlimits_ = {0, NUM_TIMERS-1, 0};//this needs to change inside the timer itself
                 WatchScreenUpdateInterval=350;
-                lockscreen_clock->setWinTextSize(1);
-               lockscreen_clock->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(0,16,false);
+                Win_GeneralPurpose->setWinTextSize(1);
+               Win_GeneralPurpose->ResizeWindow(128, 112,false);//expand for more digits, .xyz expand by  pixels
+                    Win_GeneralPurpose->MoveWindow(0,16,false);
                   break;
 
                 case WM_NTP_SYNCH:
                 WatchScreenUpdateInterval=500;
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,false);
-                 lockscreen_clock->updateContent("time synch, wifi");
+                Win_GeneralPurpose->setWinTextSize(2);
+                Win_GeneralPurpose->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                Win_GeneralPurpose->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,false);
+                 Win_GeneralPurpose->updateContent("time synch, wifi");
 
                   break;
 
                 case WM_SET_TIME:
                 WatchScreenUpdateInterval=500;
-                lockscreen_clock->setWinTextSize(2);
-                lockscreen_clock->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
-                lockscreen_clock->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true);
+                Win_GeneralPurpose->setWinTextSize(2);
+                Win_GeneralPurpose->ResizeWindow(d_ls_c_cfg.width, d_ls_c_cfg.height,false);
+                Win_GeneralPurpose->MoveWindow(d_ls_c_cfg.x, d_ls_c_cfg.y,true);
 
                     break;
 
                 case WM_SET_TIMEZONE:
                 WatchScreenUpdateInterval=350;
-                    lockscreen_clock->setWinTextSize(1);
-                    lockscreen_clock->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
-                    lockscreen_clock->MoveWindow(16,16,false);
+                    Win_GeneralPurpose->setWinTextSize(1);
+                    Win_GeneralPurpose->ResizeWindow(112, 112,false);//expand for more digits, .xyz expand by  pixels
+                    Win_GeneralPurpose->MoveWindow(16,16,false);
 
                     break;
 
@@ -795,16 +798,16 @@ switch (desiredMode){
                 Navlimits_ = {0, 1, 0};
                 WatchScreenUpdateInterval=500;
                      Navlimits_ = {0, APP_COUNT-1, 0};
-                    lockscreen_clock->setWinTextSize(1); //reduce text size to handle list on screen correctly
-                    lockscreen_clock->ResizeWindow(128, 128,false);
-                    lockscreen_clock->MoveWindow(0,0,true);
+                    Win_GeneralPurpose->setWinTextSize(1); //reduce text size to handle list on screen correctly
+                    Win_GeneralPurpose->ResizeWindow(128, 128,false);
+                    Win_GeneralPurpose->MoveWindow(0,0,true);
                    
                 break;    
 
                 default:
                     Serial.println("Unknown WatchMode!");
                     WatchScreenUpdateInterval=600;
-                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                    Win_GeneralPurpose->updateContent("ERROR: Bad Mode");
                    
                 break;
             }//end switch
@@ -828,7 +831,7 @@ void watchscreen(void *pvParameters) {
 
 
     for (;;) {
-        if (IsScreenOn && lockscreen_clock) {
+        if (IsScreenOn && Win_GeneralPurpose) {
             unsigned long now = millis();
 
             switch (currentWatchMode) {
@@ -841,7 +844,7 @@ void watchscreen(void *pvParameters) {
                              CurrentNormieTime.second,
                              TRIchar_month_names[CurrentNormieTime.month],
                              CurrentNormieTime.day);
-                    lockscreen_clock->updateContent(watchscreen_buf);
+                    Win_GeneralPurpose->updateContent(watchscreen_buf);
 
                     snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
                     lockscreen_thermometer->updateContent(thermoStr);
@@ -868,14 +871,14 @@ void watchscreen(void *pvParameters) {
 
 
 
-                    lockscreen_clock->updateContent(watchscreen_buf);//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent(watchscreen_buf);//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
                 }
 
                 case WM_ALARMS:
                 
                     // TODO: Display upcoming alarms or alarm setup screen
-                    lockscreen_clock->updateContent("ALARM MODE");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("ALARM MODE");//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
 case WM_TIMER:
@@ -885,22 +888,22 @@ case WM_TIMER:
 
 
                 case WM_NTP_SYNCH:
-                    lockscreen_clock->updateContent("Syncing Time...");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Syncing Time...");//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIME:
-                    lockscreen_clock->updateContent("Set Time Mode");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Set Time Mode");//windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIMEZONE:
-                    lockscreen_clock->updateContent("Set TZ Mode");
+                    Win_GeneralPurpose->updateContent("Set TZ Mode");
                     windowManagerInstance->UpdateAllWindows(true,false);
                     break;
 
 
                 case WM_APPMENU:
                     updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
-                    lockscreen_clock->updateContent(buf_applist);
+                    Win_GeneralPurpose->updateContent(buf_applist);
                  break;
 
 
@@ -910,16 +913,16 @@ case WM_TIMER:
                 default:
                     Serial.println("Unknown WatchMode!");
                     WatchScreenUpdateInterval=600;
-                    lockscreen_clock->updateContent("ERROR: Bad Mode");
+                    Win_GeneralPurpose->updateContent("ERROR: Bad Mode");
                     break;
             }//switch statement
-       // lockscreen_clock->WinDraw();
+       // Win_GeneralPurpose->WinDraw();
 
         //if (currentWatchMode != WM_APPMENU) { 
            windowManagerInstance->UpdateAllWindows(true,false);
 
         clearScreenEveryXCalls(1000); //sometimes screen has weird update colisions, this resets it. sure it's spagetti and will make it stutter, but whatever man. temp only, do not use in prod. 
-        updateCurrentTimeVars();
+        
         vTaskDelay(pdMS_TO_TICKS(WatchScreenUpdateInterval));
 
     }//if screen is the clock
@@ -1034,7 +1037,7 @@ static void on_wm_appmenu_input(uint16_t key) {
                        true, 
                        Navlimits_);
             updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
-            lockscreen_clock->updateContent(buf_applist);
+            Win_GeneralPurpose->updateContent(buf_applist);
             break;
             
         case key_back:
@@ -1088,7 +1091,7 @@ void render_timer_screen() {
     }
     
     watchscreen_buf[WATCHSCREEN_BUF_SIZE-1] = '\0';
-    lockscreen_clock->updateContent(watchscreen_buf);
+    Win_GeneralPurpose->updateContent(watchscreen_buf);
 }
 
 void on_wm_timer_input(uint16_t key) {
@@ -1290,6 +1293,7 @@ void INPUT_tick(void *pvParameters) {
     const TickType_t xDelay = pdMS_TO_TICKS(10);
 
     for (;;) {
+        updateCurrentTimeVars(); //keep time up to date, put here because this task must allways be ready
         while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
             if (!uinput.isDown || (millis() - lastInputTime < 150)) {
                 continue;  // Skip releases and debounce
@@ -1303,6 +1307,10 @@ void INPUT_tick(void *pvParameters) {
                 case APP_HEALTH:
                     // Health app input handling
                     break;
+                case APP_APP_NFC:
+                input_handler_fn_NFCAPP(uinput.key);
+                break;   //nfc tools itself
+
                 default:
                     break;
             }
@@ -1375,114 +1383,7 @@ void healthMonitorTask(void *pvParameters) {
   }
 }
 
-// app nfc===================================================================================================================================================================================// NFC globals
-std::shared_ptr<NFCManager> nfc_manager; // Keeps alive
-TaskHandle_t nfcTaskHandle = NULL;
-static std::shared_ptr<Window> nfcStatusWindow;
 
-WindowCfg nfcStatusCfg = {
-  10, 50, 100, 20, false, false, 1, true,
-  tcol_secondary, tcol_background, tcol_primary,
-  500
-};
-
-void setupNFCUI() {
-  nfcStatusWindow = std::make_shared<Window>("nfc_app", nfcStatusCfg, "NFC: OFF");
-  windowManagerInstance->registerWindow(nfcStatusWindow);
- nfc_manager = std::make_shared<NFCManager>(IRQ, NFC_RST_PIN);
-
-}
-
-void start_nfc_task() {
-  if (nfc_manager == nullptr) {
-    Serial.println("[ERROR] NFC Manager is null!");
-    return;
-  }
-
-  xTaskCreatePinnedToCore(
-    nfcTask,
-    "NFCTask",
-    8192,
-    nfc_manager.get(),  // Pass raw pointer
-    1,
-    &nfcTaskHandle,
-    1
-  );
-}
-
-void nfcTask(void *pvParameters) {
-  NFCManager* local_manager = static_cast<NFCManager*>(pvParameters);
-  uint8_t uid[7];
-  uint8_t uidLength;
-  char NFC_filepath[80];
-
-  while (1) {
-    Serial.println("[NFC] Scanning...");
-
-    bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 200);
-
-    if (!success) {
-      vTaskDelay(pdMS_TO_TICKS(200));
-      continue;
-    }
-
-    Serial.print("[NFC] Found Tag UID: ");
-    for (uint8_t i = 0; i < uidLength; i++) {
-      Serial.printf("%02X ", uid[i]);
-    }
-    Serial.println();
-
-    snprintf(NFC_filepath, sizeof(NFC_filepath), "/nfc");
-    if (!SD.exists(NFC_filepath)) {
-      SD.mkdir(NFC_filepath);
-    }
-
-    snprintf(NFC_filepath, sizeof(NFC_filepath),
-             "/nfc/%02X%02X%02X%02X%02X%02X%02X.nfcdat",
-             uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6]);
-
-    File dataFile = SD.open(NFC_filepath, FILE_WRITE);
-    if (!dataFile) {
-      Serial.println("[SD] Couldn't open file to write");
-    } else {
-      Serial.println("[SD] Writing tag data...");
-
-      uint8_t data[4];
-      for (uint8_t page = 0; page < 42; page++) {
-        success = nfc.ntag2xx_ReadPage(page, data);
-        if (success) {
-          dataFile.printf("PAGE %02d: %02X %02X %02X %02X\n",
-                          page, data[0], data[1], data[2], data[3]);
-        } else {
-          dataFile.printf("PAGE %02d: Read Error\n", page);
-        }
-      }
-      dataFile.close();
-      Serial.printf("[SD] Saved: %s\n", NFC_filepath);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(2000));
-  }
-}
-
-void NFC_SCREEN_TRANSITION(NFC_MODE desiredMode) {
-  switch (desiredMode) {
-    case NFC_OFF: nfcStatusWindow->updateContent("NFC: rdy"); break;
-    case NFC_PLAYBACK: nfcStatusWindow->updateContent("NFC: PLAYBACK"); break;
-    case NFC_RECORD: nfcStatusWindow->updateContent("NFC: RECORDING"); break;
-  }
-
-  if (nfc_manager) {
-    nfc_manager->setMode(desiredMode);
-  }
-}
-
-void end_nfc_task() {
-  if (nfcTaskHandle) {
-    vTaskDelete(nfcTaskHandle);
-    nfcTaskHandle = NULL;
-  }
-}
 
 
 //app settings [dogshit gear icon,general settings]================================================================================================================================================

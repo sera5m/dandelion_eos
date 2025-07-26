@@ -9,6 +9,10 @@ typedef enum {
     NFC_RECORD
 } NFC_MODE;
 
+typedef enum{
+  //  
+}NFC_app_activeMode;
+
 class NFCManager {
 public:
     NFCManager(uint8_t irqPin, uint8_t resetPin);
