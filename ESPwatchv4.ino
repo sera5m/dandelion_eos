@@ -66,12 +66,12 @@
 #include "NFC.h"
 #include "inputHandler.h"
 #include "mdl_clock.h"
-#include "SDFS.ino"
+#include "SDFS.h"
 #include "IR_Remote.ino"
 #include "Micro2D_A.ino"
 //apps
-#include "apps/MainApp.h"
-#include "apps/NFCAPP.h"
+#include "MainApp.h"
+#include "NFCAPP.h"
 // Hardware SPI bus instance
 SPIClass spiBus(HSPI);
 
@@ -342,18 +342,9 @@ scanI2C();
     DBG_PRINTLN("Input OK");
 
     DBG_PRINTLN("Checking SD");
-    if (!SD.begin(SPI_CS_SD, spiBus)) {
-        DBG_PRINTLN("SD FAIL 1");
-        for (int i = 0; i < 3; ++i) {
-            delay(500);
-            if (SD.begin(SPI_CS_SD)) {
-                DBG_PRINTLN("SD OK");
-                break;
-            }
-        }
-    } else {
-        DBG_PRINTLN("SD OK 1");
-    }
+    
+   // if (initSDCard()){        DBG_PRINTLN("SD Card initialized.");}else{DBG_PRINTLN("SD Card failed!");} 
+
 
 if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("MAX30105 was not found. Please check wiring/power.");
@@ -445,7 +436,7 @@ void clearScreenEveryXCalls(uint16_t x) {
     }
 }
 
-#define WATCHSCREEN_BUF_SIZE 512  
+ 
     // Shared buffers for display
     char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
     char thermoStr[8];
@@ -1307,7 +1298,7 @@ void INPUT_tick(void *pvParameters) {
                 case APP_HEALTH:
                     // Health app input handling
                     break;
-                case APP_APP_NFC:
+                case APP_NFC:
                 input_handler_fn_NFCAPP(uinput.key);
                 break;   //nfc tools itself
 

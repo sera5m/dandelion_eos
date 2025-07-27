@@ -1,32 +1,28 @@
-// NFCManager.h
 #pragma once
-
 #include <Adafruit_PN532.h>
-
-typedef enum {
-    NFC_OFF,
-    NFC_PLAYBACK,
-    NFC_RECORD
-} NFC_MODE;
-
-typedef enum{
-  //  
-}NFC_app_activeMode;
+#include <vector>
 
 class NFCManager {
 public:
+    enum class Mode { Off, Read, Write,emulate };
+    
     NFCManager(uint8_t irqPin, uint8_t resetPin);
     ~NFCManager();
-    void begin();
-    void setMode(NFC_MODE newMode);
+    
+    bool begin();
+    void setMode(Mode newMode);
+    bool tryReadTag(std::vector<uint8_t>& uid, std::vector<uint8_t>& data);
+    bool tryWriteTag(const std::vector<uint8_t>& data);
+    bool isTagPresent();
     void update();
-
+    
 private:
-    void handlePlayback();
-    void handleRecording();
-
+    void handleReadMode();
+    void handleWriteMode();
+    
     Adafruit_PN532* nfc;
-    NFC_MODE currentMode;
-    uint8_t lastUid[7];
-    uint8_t uidLength;
+    Mode currentMode = Mode::Off;
+    uint32_t lastCheck = 0;
+    std::vector<uint8_t> lastUid;
+    bool tagWritten = false;
 };
