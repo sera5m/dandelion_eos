@@ -1,21 +1,27 @@
+
 #ifndef INPUT_HANDLER_H
 #define INPUT_HANDLER_H
 
 
 #include <Arduino.h>
 #include "Wiring.h"
-//#pragma once
+#include "types.h"
 #include "driver/pulse_cnt.h"
-// Constants
+
+#pragma once
 #define AllowSimultaneousKeypress true
 
 // Key mappings-map the hardware keys to the ascii versions of keys
+//16 bit unsigned int, for ascii++ and potential unicode, maybe?
 #define key_enter 0x23CE  // ⏎
 #define key_back  0x232B  // ⌫
 #define key_up    0x2191  // ↑
 #define key_down  0x2193  // ↓
 #define key_left  0x2190  // ←
 #define key_right 0x2192  // →
+ extern int16vect globalNavPos;
+extern bool ShouldNavWrap;           // wrap or clamp
+extern int16vect Navlimits_;
 
 typedef struct encoder_state {
     pcnt_unit_handle_t unit;

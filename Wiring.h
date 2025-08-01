@@ -1,11 +1,13 @@
 #ifndef WIRING_H
 #define WIRING_H
 //conf for wiring
-
+#pragma once
 //device chip, esp32-s3
 //http://wiki.fluidnc.com/en/hardware/ESP32-S3_Pin_Reference
 
 //orange wire cs yellow wire clk
+
+
 
 #define SPI_SCK   12 //may aslo be called clk
 #define SPI_CLK 12 //UGH
@@ -30,7 +32,8 @@
 #define SCL_PIN 9//if i read the data right these are also acessable by the ulp co-proscessor
 
 //other pins
-#define IRQ 16 //notify from input devices
+//#define IRQ 16 //notify from input devices
+#define NFC_IRQ_PIN 16  
 
 #define OLED_DC 4
 #define OLED_DC_DIRECT_REF GPIO_NUM_4

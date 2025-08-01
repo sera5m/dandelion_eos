@@ -4,6 +4,12 @@
 #include "kernel.ino"
 #include "driver/pulse_cnt.h"
 #include "inputHandler.h"
+#include "types.h"
+
+ int16vect globalNavPos = {0, 0, 0};
+ bool ShouldNavWrap = true;           // wrap or clamp
+ int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 64 of each
+
 // Actual struct definition (only here, not in header)
 //typedef struct {pcnt_unit_handle_t unit;int16_t last_count;} encoder_state_t;
 

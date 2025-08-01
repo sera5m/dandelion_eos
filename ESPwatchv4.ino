@@ -61,9 +61,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 //req for most things
+
+//mathematics prerequisite
 #include "types.h"
-// Local headers
-#include "NFC.h"
+
+
 #include "inputHandler.h"
 #include "mdl_clock.h"
 #include "SDFS.h"
@@ -114,9 +116,12 @@ typedef enum {
 // Clamp macro
 
 // Global nav position
-int16vect globalNavPos = {0, 0, 0};
-bool ShouldNavWrap = true;           // wrap or clamp
-int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 64 of each
+/*
+extern int16vect globalNavPos = {0, 0, 0};
+extern bool ShouldNavWrap = true;           // wrap or clamp
+extern int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 64 of each
+*/
+//input handler.h has these
 
 // Wrap helper
 static inline int16_t wrap_value(int16_t value, int16_t min, int16_t max) {

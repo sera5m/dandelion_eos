@@ -1,5 +1,5 @@
 //i have an addiction for doing ths stupidest shit possible
-
+/*
 //so fuck it let's port basic on here
 #include <cstring>
 #include <cstddef>
@@ -127,4 +127,4 @@ BASIC_INTERPRETER_CMD matchBasicKeyword(const char* token) {
         }
     }
     return CMD_UNKNOWN; // fallback for not found
-}
+}*/

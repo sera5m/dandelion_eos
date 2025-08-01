@@ -1,4 +1,7 @@
 //ligma
+#ifndef TYPES_H
+#define TYPES_H
+
 #pragma once
 #include <cstdint>
 //pragma twice would be funny lol
@@ -15,8 +18,9 @@ struct int16vect {
 };
 
 //application info
-
-
+//defs in types.cpp
+extern const char* GlobalSettingsListCategoryNames[];
+extern const char* appNames[];
 
 
 typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU,WM_COUNT}WatchMode;
@@ -58,14 +62,6 @@ typedef enum {
     ALERT_SRC_CLOCK
 } AlertSource;
 
-const char* GlobalSettingsListCategoryNames[] = {
-    "power",        // sleep modes
-    "alerts",       // notifications, alarms
-    "display",      // screen settings
-    "data",         // storage, sd card
-    "wireless",     // wifi, bt
-    "ext_hardware"  // modules, sensors
-};
 
 
 typedef struct {
@@ -105,23 +101,7 @@ typedef struct {
 } GlobalSettings;
 
 
-const char* appNames[] = {
-  "lock screen",
-  "health",
-  "NFC Tools",
-  "Settings",
-  "Gyro Info",
-  "Files",
-  "Radio",
-  "IR Remote",
-  "utilities",
-  "eTools", // combination of oscilloscope and signal gen
-  "rubberducky",
-  "connections",
-  "smart devices",
-  "Diagnostics",
-  "Games"
-};
+
 
 typedef enum {
   APP_LOCK_SCREEN,
@@ -150,3 +130,4 @@ nam_saving,
 nam_loadfromStorage,
 }nfcAppMode;
 
+#endif // TYPES_H

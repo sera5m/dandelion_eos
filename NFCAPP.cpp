@@ -1,183 +1,202 @@
-#include "nfcapp.h"    // includes types.h, Wiring.h, etc.
-#include <SD.h>        // if you need SD here
-#include "InputHandler.h"
-// Remove these lines:
-// #include "Micro2d_A.ino"
-// #include "SDFS.ino"
-// #include "ESPwatchv4.ino"
-//never ever include.ino
+// nfcapp.cpp
+#include "nfcapp.h"
+#include "types.h"
+// --- PN532 pins from Wiring.h ---
 
-NFCApp::NFCApp() : nfc(std::make_shared<NFCManager>(IRQ_PIN, RST_PIN)) {}
 
-void NFCApp::init() {
-    nfc->begin();
-    transition(NFCAppMode::Off);
+
+// Global app state
+NFCAppState nfcAppState;
+
+// Low-level NFC helpers (formerly nfc.cpp)
+static bool nfc_begin() {
+  nfcAppState.nfc = new Adafruit_PN532(NFC_IRQ_PIN, NFC_RST_PIN);
+  if (!nfcAppState.nfc->begin()) {
+    Serial.println("PN532 not found");
+    return false;
+  }
+  if (!nfcAppState.nfc->getFirmwareVersion()) {
+    Serial.println("No firmware");
+    return false;
+  }
+  nfcAppState.nfc->SAMConfig();
+  return true;
 }
 
-void NFCApp::transition(NFCAppMode newMode) {
-    // Cleanup previous mode
-    switch(currentMode) {
-        case NFCAppMode::Reading:
-            nfc->setMode(NFCManager::Mode::Off);
-            break;
-        case NFCAppMode::Writing:
-            nfc->setMode(NFCManager::Mode::Off);
-            break;
-    }
-
-    currentMode = newMode;
-    navPosition = 0;
-
-    // Initialize new mode
-    switch(newMode) {
-        case NFCAppMode::Reading:
-            nfc->setMode(NFCManager::Mode::Read);
-            break;
-        case NFCAppMode::Writing:
-            nfc->setMode(NFCManager::Mode::Emulate);
-            break;
-        case NFCAppMode::Loading:
-            loadTagList();
-            updateNavLimits();
-            break;
-    }
+static void nfc_setMode(NFCMode m) {
+  if (m == nfcAppState.nfcMode) return;
+  nfcAppState.lastUid.clear();
+  nfcAppState.tagWritten = false;
+  nfcAppState.nfcMode = m;
 }
 
-void NFCApp::update() {
-    if (!nfc) return;
-
-    switch(currentMode) {
-        case NFCAppMode::Reading:
-            if (nfc->tryReadTag(currentUid, currentData)) {
-                // Process read data
-            }
-            break;
-            
-        case NFCAppMode::Writing:
-            // Handle emulation updates
-            break;
-    }
-}
-std::string NFCApp::generateMenuContent() {
-    std::string content = "Select Mode:\n";
-    const char* modes[] = {"1. Read Tag", "2. Write Tag", "3. Load Tags", "4. Settings"};
-    
-    for(uint8_t i = 0; i <= navState.maxPosition; i++) {
-        content += (i == navState.position) ? "> " : "  ";
-        content += modes[i];
-        content += "\n";
-    }
-    return content;
+static bool nfc_isTagPresent() {
+  uint8_t uidBuf[7], len;
+  return nfcAppState.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
 }
 
-void NFCApp::updateUI() {
-    std::string content;
-    
-    if(!navState.inSubMenu) {
-        content = generateMenuContent();
-    } else {
-        switch(currentMode) {
-            case NFCAppMode::Reading:
-                content = "Scanning...\n";
-                if(!lastUid.empty()) {
-                    content += "UID: ";
-                    for(auto b : lastUid) {
-                        content += String(b, HEX).c_str();
-                        content += " ";
-                    }
-                }
-                break;
-                
-            case NFCAppMode::Writing:
-                content = tagWritten ? "Write successful!\n" : "Place tag to write\n";
-                break;
-                
-            // Other modes...
+static bool nfc_tryReadTag(std::vector<uint8_t>& uid, std::vector<uint8_t>& data) {
+  // deliver lastUid+data once
+  if (nfcAppState.lastUid.empty() || data.empty()) return false;
+  uid = nfcAppState.lastUid;
+  return true;
+}
+
+static bool nfc_tryWriteTag(const std::vector<uint8_t>& data) {
+  uint8_t pageBuf[4];
+  for (size_t i = 0; i < data.size(); i += 4) {
+    size_t chunk = min((size_t)4, data.size() - i);
+    memset(pageBuf, 0, 4);
+    memcpy(pageBuf, data.data()+i, chunk);
+    uint8_t page = 4 + i/4;
+    if (!nfcAppState.nfc->ntag2xx_WritePage(page, pageBuf)) {
+      Serial.print("Fail @page "); Serial.println(page);
+      return false;
+    }
+  }
+  return true;
+}
+
+static void nfc_update() {
+  uint32_t now = millis();
+  if (now - nfcAppState.lastCheck < 100) return;
+  nfcAppState.lastCheck = now;
+
+  uint8_t uidBuf[7], len;
+  bool present = nfcAppState.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
+
+  switch (nfcAppState.nfcMode) {
+    case NFC_MODE_READ:
+      if (present) {
+        nfcAppState.lastUid.assign(uidBuf, uidBuf + len);
+        Serial.println("Tag detected");
+      }
+      break;
+
+    case NFC_MODE_WRITE:
+      if (!present) {
+        nfcAppState.tagWritten = false;
+        break;
+      }
+      if (nfcAppState.lastUid.size()!=len ||
+          memcmp(nfcAppState.lastUid.data(), uidBuf,len)!=0) {
+        nfcAppState.lastUid.assign(uidBuf, uidBuf + len);
+        nfcAppState.tagWritten = false;
+      }
+      if (!nfcAppState.tagWritten &&
+          nfc_tryWriteTag(nfcAppState.pendingWriteData)) {
+        nfcAppState.tagWritten = true;
+        Serial.println("Write OK");
+      }
+      break;
+
+    default: break;
+  }
+}
+
+// --- Application lifecycle ---
+
+void NFC_APP_INIT() {
+  nfc.begin();  
+
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.println("Didn't find PN53x board");
+    while (1); // hang
+  }
+
+  Serial.println("Found chip");
+  nfc.SAMConfig();
+}
+
+void NFC_APP_EXIT() {
+  nfc_setMode(NFC_MODE_OFF);
+  delete nfcAppState.nfc;
+  nfcAppState = NFCAppState();
+}
+
+void NFC_APP_TRANSITION(NFCAppMode newMode) {
+  // turn off reader/writer
+  if (nfcAppState.currentMode==NAM_READING ||
+      nfcAppState.currentMode==NAM_WRITING) {
+    nfc_setMode(NFC_MODE_OFF);
+  }
+
+  // mode-specific inits
+  switch (newMode) {
+    case NAM_OFF:
+      nfcAppState.navPosition = 0;
+      nfcAppState.navMaxPosition = 3;
+      Navlimits_ = {nfcAppState.navMaxPosition,1,0};
+      break;
+
+    case NAM_READING:
+      nfc_setMode(NFC_MODE_READ);
+      nfcAppState.currentUid.clear();
+      nfcAppState.currentData.clear();
+      Navlimits_ = {0,0,0};
+      break;
+
+    case NAM_WRITING:
+      nfc_setMode(NFC_MODE_WRITE);
+      Navlimits_ = {0,0,0};
+      break;
+
+    case NAM_LOADING:
+      // load file list…
+      nfcAppState.tagFiles.clear();
+      {
+        File root = SD.open("/nfc");
+        while (File f = root.openNextFile()) {
+          if (!f.isDirectory()) nfcAppState.tagFiles.push_back(f.name());
+          f.close();
         }
-    }
-    
-    Win_GeneralPurpose->updateContent(content);
+        root.close();
+      }
+      nfcAppState.navPosition = 0;
+      nfcAppState.navMaxPosition = min<size_t>
+         (nfcAppState.tagFiles.size(), nfcAppState.config.maxCards)-1;
+      Navlimits_ = {nfcAppState.navMaxPosition,1,0};
+      break;
+
+    default: break;
+  }
+
+  nfcAppState.currentMode = newMode;
+  globalNavPos = {0,0,0};
 }
 
-void NFCApp::handleInput(uint16_t key) {
-    switch(key) {
-        case key_up:
-            navState.position = (navState.position > 0) ? 
-                navState.position - 1 : navState.maxPosition;
-            break;
-            
-        case key_down:
-            navState.position = (navState.position < navState.maxPosition) ? 
-                navState.position + 1 : 0;
-            break;
-            
-        case key_enter:
-            if(!navState.inSubMenu) {
-                transition(static_cast<NFCAppMode>(navState.position + 1));
-                navState.inSubMenu = true;
-                navState.maxPosition = /* Set based on mode */;
-            } else {
-                // Handle mode-specific actions
-            }
-            break;
-            
-        case key_back:
-            if(navState.inSubMenu) {
-                transition(NFCAppMode::Off);
-                navState.inSubMenu = false;
-                navState.maxPosition = 3; // Reset to main menu
-            }
-            break;
-    }
-    updateUI();
-}
-void NFCApp::setModeNavigation(NFCAppMode mode) {
-    switch(mode) {
-        case NFCAppMode::Loading:
-            navState.maxPosition = min(tagList.size(), NFC_TAG_NAMES_MAX_DISPLAYABLE) - 1;
-            break;
-        case NFCAppMode::Settings:
-            navState.maxPosition = 4; // Number of settings options
-            break;
-        default:
-            navState.maxPosition = 0; // Most modes don't need vertical nav
-    }
+void input_handler_fn_NFCAPP(uint16_t key) {
+  // unchanged…
 }
 
-void NFCApp::render() {
-    std::string content;
-    
-    switch(currentMode) {
-        case NFCAppMode::Off:
-            content = "NFC Tools\n"
-                      "1. Read Tag\n"
-                      "2. Write Tag\n"
-                      "3. Load Tags";
-            break;
-            
-        case NFCAppMode::Reading:
-            content = "Scanning...\n";
-            if (!currentUid.empty()) {
-                content += "Tag detected!";
-            }
-            break;
-            
-        // ... other modes ...
-    }
-    
-    Win_GeneralPurpose->updateContent(content);
+void NFC_APP_UPDATE() {
+  nfc_update();
+
+  switch (nfcAppState.currentMode) {
+    case NAM_READING:
+      if (nfc_tryReadTag(nfcAppState.currentUid, nfcAppState.currentData)) {
+        NFC_APP_TRANSITION(NAM_SAVING);
+      }
+      break;
+    case NAM_WRITING:
+      // pendingWriteData should be set elsewhere before entering
+      break;
+    case NAM_SAVING:
+      // save to SD or internal…
+      NFC_APP_TRANSITION(NAM_OFF);
+      break;
+    default: break;
+  }
+}
+
+void NFC_APP_RENDER() {
+  // unchanged…
 }
 
 void nfcTask(void* pvParameters) {
-    NFCManager* nfc = static_cast<NFCManager*>(pvParameters);
-    while(true) {
-        nfc->update();
-        
-        // Optional: Notify main thread of changes
-        if(nfc->stateChanged()) {
-            xTaskNotify(uiTaskHandle, NFC_UPDATE, eSetBits);
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+  while (1) {
+    nfc_update();
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
 }
