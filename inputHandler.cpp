@@ -4,7 +4,8 @@
 #include "kernel.ino"
 #include "driver/pulse_cnt.h"
 #include "inputHandler.h"
-#include "types.h"
+#include "types.h" 
+#include "helperfunctions.h"
 
  int16vect globalNavPos = {0, 0, 0};
  bool ShouldNavWrap = true;           // wrap or clamp
@@ -336,3 +337,20 @@ bitmask
 
 
 }*/
+void changeNavPos(int16vect input, bool wrap, int16vect navLimits) {
+    if (wrap) {
+        globalNavPos.x = wrap_value(globalNavPos.x + input.x, 0, navLimits.x);
+        globalNavPos.y = wrap_value(globalNavPos.y + input.y, 0, navLimits.y);
+        globalNavPos.z = wrap_value(globalNavPos.z + input.z, 0, navLimits.z);
+    } else {
+        globalNavPos.x = CLAMP<int16_t>(globalNavPos.x + input.x, 0, navLimits.x);
+        globalNavPos.y = CLAMP<int16_t>(globalNavPos.y + input.y, 0, navLimits.y);
+        globalNavPos.z = CLAMP<int16_t>(globalNavPos.z + input.z, 0, navLimits.z);
+    }
+}
+
+void rst_nav_pos(){ //easier than manually tpying this each time
+    globalNavPos.x=0;
+    globalNavPos.y=0;
+    globalNavPos.z=0;
+}

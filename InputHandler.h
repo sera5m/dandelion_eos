@@ -7,6 +7,7 @@
 #include "Wiring.h"
 #include "types.h"
 #include "driver/pulse_cnt.h"
+#include "helperfunctions.h"
 
 #pragma once
 #define AllowSimultaneousKeypress true
@@ -110,5 +111,10 @@ void PollButtons();
 void SetupPCNT();
 
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout);
+
+
+void changeNavPos(int16vect input, bool wrap, int16vect navLimits);
+
+void rst_nav_pos();
 
 #endif // INPUT_HANDLER_H

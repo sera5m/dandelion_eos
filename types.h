@@ -17,12 +17,9 @@ struct int16vect {
     int16vect(int16_t x, int16_t y, int16_t z) : x(x), y(y), z(z) {}
 };
 
-//application info
-//defs in types.cpp
-extern const char* GlobalSettingsListCategoryNames[];
-extern const char* appNames[];
+//application info-modes-full type implementations of whatever in types.cpp
 
-
+//enums
 typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE,WM_APPMENU,WM_COUNT}WatchMode;
 
 typedef enum{HMM_BIOMONITOR, //Current fuckshit like that beep boop beeip in hopital
@@ -129,5 +126,40 @@ nam_sleep,
 nam_saving,
 nam_loadfromStorage,
 }nfcAppMode;
+
+
+
+extern const char* GlobalSettingsListCategoryNames[];
+
+extern const char* appNames[];
+
+extern const char* GameNames[];
+
+
+typedef enum{snake,snakeys,pong,tetris,evilTetris,asteroids,_2048,poker,chess,checkers,dice,cat,idk}APP_GAMES_GAMELIST;
+//reminder to self that 2048 is by default understood as an int litteral not a name, so use _2048
+//the temptation to say kibby here is immense, but i'd likely spell it correctly and be forced to debug it, agony....OF NOT TYPING KIBBY
+// ^   ^    __
+//( 0.0 ) _//-
+//| > < |/ /
+//d_____/ /
+//wow i'm bad at ascii art
+extern const char* GameApps[]; 
+extern const char* GameDescriptions[];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #endif // TYPES_H

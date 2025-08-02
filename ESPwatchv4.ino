@@ -64,7 +64,7 @@
 
 //mathematics prerequisite
 #include "types.h"
-
+#include "helperfunctions.h"
 
 #include "inputHandler.h"
 #include "mdl_clock.h"
@@ -87,32 +87,6 @@ SPIClass spiBus(HSPI);
 
 
 
-typedef enum {
-    TIMER_FIELD_HOUR_TENS = 0,   // First digit of hour [0-2]
-    TIMER_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
-    TIMER_FIELD_MIN_TENS,        // First digit of minute [0-5]
-    TIMER_FIELD_MIN_ONES,        // Second digit of minute [0-9]
-    TIMER_FIELD_ALARM_ACTION,    // Alarm type selection
-    TIMER_FIELD_SNOOZE,          // Snooze duration [1-30]
-    TIMER_FIELD_COUNT            // Total fields
-} TimerField;
-
-typedef enum {
-    ALARM_FIELD_HOUR_TENS,   // First digit of hour [0-2]
-    ALARM_FIELD_HOUR_ONES,       // Second digit of hour [0-9] (0-3 if tens=2)
-    ALARM_FIELD_MIN_TENS,        // First digit of minute [0-5]
-    ALARM_FIELD_MIN_ONES,        // Second digit of minute [0-9]
-    ALARM_FIELD_ALARM_ACTION,    // Alarm type selection
-    ALARM_FIELD_SNOOZE,          // Snooze duration [1-30]
-    ALARM_FIELD_DAY_MON,         // Day selection starts here
-    ALARM_FIELD_DAY_TUE,
-    ALARM_FIELD_DAY_WED,
-    ALARM_FIELD_DAY_THU,
-    ALARM_FIELD_DAY_FRI,
-    ALARM_FIELD_DAY_SAT,
-    ALARM_FIELD_DAY_SUN,
-    ALARM_FIELD_COUNT            // Total fields
-} ALARMField;
 // Clamp macro
 
 // Global nav position
@@ -124,22 +98,13 @@ extern int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 
 //input handler.h has these
 
 // Wrap helper
-static inline int16_t wrap_value(int16_t value, int16_t min, int16_t max) {
-    int16_t range = max - min + 1;
-    if (range <= 0) return min;  // Defensive
-    while (value < min) value += range;
-    while (value > max) value -= range;
-    return value;
-}
+
 
 
 
 #define WATCHSCREEN_BUF_SIZE 512
 
-template<typename T>
-inline T CLAMP(const T& val, const T& min, const T& max) {
-    return (val < min) ? min : (val > max) ? max : val;
-}
+
 
 #define DBG_PRINTLN(x)  do { \
     tft.setCursor(0, _dbg_ypos); \
@@ -150,8 +115,6 @@ inline T CLAMP(const T& val, const T& min, const T& max) {
 } while(0)
 
 int _dbg_ypos = 0;  // screen Y cursor
-uint32_t clocki32cache=0; 
-//stupid fucking debugs to make this work right
 
 
 //#include "watch_Settings.h" //configuration file for settings
@@ -198,16 +161,13 @@ static std::shared_ptr<Window> lockscreen_biomon;
 static std::shared_ptr<Window> lockscreen_thermometer;
 //static std::shared_ptr<Window> lockscreen_systemIcons;
 
-bool IsScreenOn=true;
+bool IsScreenOn=true;//why. just why
 
 // timer_editor.h
 
 
-#define NUM_TIMERS 5  // Replace magic number
-#define NUM_TIMER_FIELDS 2  // For HH:MM editing
-
- EditState timerEditState;
- uint8_t currentTimerField;  
+ extern EditState timerEditState;
+ extern uint8_t currentTimerField;  
 
 
 
@@ -230,8 +190,8 @@ uint16_t tcol_background=0x2000;
 
 
 extern QueueHandle_t processInputQueue;
-#define MAX_VISIBLE 15
-char buf_applist[25*MAX_VISIBLE]; //ext for better access
+
+extern char buf_applist[]; //ext for better access
 
 bool is_watch_screen_in_menu=false;
 bool isConfirming = false;
@@ -269,15 +229,7 @@ NormieTime CurrentNormieTime; //real current time
 QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
 
 
-void split_u32_to_24(uint32_t input, uint8_t *last8, uint8_t *color) {
-    // Extract 24-bit color (lower 24 bits)
-    color[0] = (input >> 16) & 0xFF; // Red component
-    color[1] = (input >> 8) & 0xFF;  // Green component
-    color[2] = input & 0xFF;         // Blue component
 
-    // Extract last 8 bits (most significant byte)
-    *last8 = (input >> 24) & 0xFF;   // Days bitmask
-}
 
 void scanI2C() {
   byte error, address;
@@ -456,121 +408,9 @@ uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, O
 
 
 // Modified handleTimerFieldAdjustment
-void handleTimerFieldAdjustment(bool increase) {
-    // Safety check - ensure we're editing a valid timer
-    if (globalNavPos.y >= NUM_TIMERS) return;
-    
-    // Get reference to the timer we're editing
-    usr_alarm_st& currentAlarm = usrmade_timers[globalNavPos.y];
-    
-    const int8_t direction = increase ? 1 : -1;
-    uint8_t days_bitmask;
-    uint8_t color[3];
-    
-    split_u32_to_24(currentAlarm.LightColor, &days_bitmask, color);
-
-    switch (currentTimerField) {
-        case TIMER_FIELD_HOUR_TENS: {
-            int tens = currentAlarm.hours / 10;
-            tens = (tens + direction + 3) % 3; // Wrap 0-2
-            int ones = min(currentAlarm.hours % 10, tens == 2 ? 3 : 9);
-            currentAlarm.hours = tens * 10 + ones;
-            break;
-        }
-        
-        case TIMER_FIELD_HOUR_ONES: {
-            int tens = currentAlarm.hours / 10;
-            int max_ones = (tens == 2) ? 3 : 9;
-            int ones = (currentAlarm.hours % 10 + direction + max_ones + 1) % (max_ones + 1);
-            currentAlarm.hours = tens * 10 + ones;
-            break;
-        }
-        
-        // ... other cases similarly updated ...
-        
-        case TIMER_FIELD_ALARM_ACTION: {
-            int action = (static_cast<int>(currentAlarm.E_AlarmAction) + direction);
-            action = (action + ALARM_ACTION_MAX) % ALARM_ACTION_MAX;
-            currentAlarm.E_AlarmAction = static_cast<alarmAction>(action);
-            break;
-        }
-        
-        // Recombine LightColor
-        currentAlarm.LightColor = ((uint32_t)days_bitmask << 24) | 
-                                (color[0] << 16) | 
-                                (color[1] << 8) | 
-                                color[2];
-    }
-}
 
 
-std::string formatTimerSetter(uint8_t highlightedField, bool confirmMode, uint8_t timerIndex) {
-    // Validate timer index first
-    if (timerIndex >= NUM_TIMERS) {
-        return "Invalid timer";
-    }
 
-    // Get reference to the current timer
-    usr_alarm_st& currentTimer = usrmade_timers[timerIndex];
-    uint8_t days_bitmask;
-    uint8_t color[3];
-    split_u32_to_24(currentTimer.LightColor, &days_bitmask, color);
-
-    std::ostringstream oss;
-    
-    // 1. Format Time Section
-    oss << "Create new timer: <n>Duration: ";
-    char timeStr[6];
-    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", currentTimer.hours, currentTimer.minutes);
-    
-    // Highlight individual time components
-    for (uint8_t i = 0; i < 5; i++) {
-        if (i == 2) { // Colon separator
-            oss << timeStr[i];
-            continue;
-        }
-        
-        bool shouldHighlight = false;
-        switch (i) {
-            case 0: shouldHighlight = (highlightedField == TIMER_FIELD_HOUR_TENS); break;
-            case 1: shouldHighlight = (highlightedField == TIMER_FIELD_HOUR_ONES); break;
-            case 3: shouldHighlight = (highlightedField == TIMER_FIELD_MIN_TENS); break;
-            case 4: shouldHighlight = (highlightedField == TIMER_FIELD_MIN_ONES); break;
-        }
-        
-        if (shouldHighlight) {
-            oss << "<setcolor(0xF005)>[" << timeStr[i] << "]<setcolor(0x07ff)>";
-        } else {
-            oss << timeStr[i];
-        }
-    }
-
-    // 2. Format Alarm Action
-    oss << "<n><n>Alert: ";
-    if (highlightedField == TIMER_FIELD_ALARM_ACTION) {
-        oss << "<setcolor(0xF005)>[" << AlarmActionNames[currentTimer.E_AlarmAction] << "]<setcolor(0x07ff)>";
-    } else {
-        oss << AlarmActionNames[currentTimer.E_AlarmAction];
-    }
-
-    // 3. Format Snooze Duration
-    oss << "<n><n>Snooze: ";
-    if (highlightedField == TIMER_FIELD_SNOOZE) {
-        oss << "<setcolor(0xF005)>[" << static_cast<int>(currentTimer.SnoozeDur) << "min]<setcolor(0x07ff)>";
-    } else {
-        oss << static_cast<int>(currentTimer.SnoozeDur) << "min";
-    }
-
-    // 4. Format Action Buttons
-    oss << "<n><n>enter/back";
-    if (confirmMode) {
-        oss << "<setcolor(0xF005)>[SAVE?]";
-    } else {
-        oss << "<setcolor(0xF005)>[edit]";
-    }
-
-    return oss.str();
-}
 
 //to keep the apps out of main for orginization we'll just slap those motherfuckers in here for definitions
 
@@ -621,14 +461,16 @@ void CREATE_LOCKSCREEN_WINDOWS(){
     windowManagerInstance->registerWindow(lockscreen_thermometer);
 
 }
+
 //i put this above everything to avoid bugs because .ino is evil. typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE}Wat ch mo de enum
 //app-appmenu==============================================================================
   void transitionApp(uint8_t index) {
     AppName app = (AppName)index;
 rst_nav_pos(); //reset mouse pos between apps
+
     switch (app) {
         //set 
-        CurrentOpenApplicationIndex=app; //set via lazymaxxing
+        
 
         case APP_LOCK_SCREEN:
             // Do something for lock screen
@@ -679,35 +521,12 @@ rst_nav_pos(); //reset mouse pos between apps
             // Handle invalid selection gracefully
             break;
     }
+    //run a verif step in the future, todo. LIKELY a wait too, so it can even set the app
+    CurrentOpenApplicationIndex=app; //set via lazymaxxing
 }
 //scrolling up enters it?
 //globalNavPos.x
 
-void updateAppList(char *buf, size_t bufSize, const char **apps, int count) { //part of appmenu
-    buf[0] = '\0';
-    for (int i = 0; i < min(count, MAX_VISIBLE); ++i) {
-        if (i == globalNavPos.y) {  // Now checking y position
-            strncat(buf, "<setcolor(0xdbbf)>[", bufSize);
-            strncat(buf, apps[i], bufSize);
-            strncat(buf, "]<setcolor(0x07ff)>", bufSize);
-        } else {
-            strncat(buf, apps[i], bufSize);
-        }
-        strncat(buf, "<n>", bufSize);
-    }//end for, also i should not use for lol
-
-
-// Pad with blank lines if needed
-int visibleLines = APP_COUNT < MAX_VISIBLE ? APP_COUNT : MAX_VISIBLE;
- for (int i = visibleLines; i < MAX_VISIBLE; ++i) {
-  strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-}
-
-    // Optionally ensure trailing newline if needed
-    //strncat(buf, "<n>", bufSize - strlen(buf) - 1);
-//end fn update applist
-
-}//end fn
 
 
 
@@ -942,23 +761,7 @@ case WM_TIMER:
 
 
 // Updated changeNavPos function
-void changeNavPos(int16vect input, bool wrap, int16vect navLimits) {
-    if (wrap) {
-        globalNavPos.x = wrap_value(globalNavPos.x + input.x, 0, navLimits.x);
-        globalNavPos.y = wrap_value(globalNavPos.y + input.y, 0, navLimits.y);
-        globalNavPos.z = wrap_value(globalNavPos.z + input.z, 0, navLimits.z);
-    } else {
-        globalNavPos.x = CLAMP<int16_t>(globalNavPos.x + input.x, 0, navLimits.x);
-        globalNavPos.y = CLAMP<int16_t>(globalNavPos.y + input.y, 0, navLimits.y);
-        globalNavPos.z = CLAMP<int16_t>(globalNavPos.z + input.z, 0, navLimits.z);
-    }
-}
 
-void rst_nav_pos(){ //easier than manually tpying this each time
-    globalNavPos.x=0;
-    globalNavPos.y=0;
-    globalNavPos.z=0;
-}
 
 void onVertical_input_timer_buff_setter(bool increase, uint8_t fieldIndex, uint8_t timerIndex) {
     if (timerIndex >= NUM_TIMERS) return;
@@ -1021,6 +824,7 @@ static void on_wm_stopwatch_input(uint16_t key) {
             break;
     }
 }
+
 static void on_wm_appmenu_input(uint16_t key) {
     switch(key) {
         case key_enter:
@@ -1381,19 +1185,7 @@ void healthMonitorTask(void *pvParameters) {
 
 
 
-
-//app settings [dogshit gear icon,general settings]================================================================================================================================================
-//=================================================================================================================================================================================================
 /*
-    GSLC_POWER,         // sleep modes
-    GSLC_ALERTS,        // notifications, alarms
-    GSLC_DISPLAY,       // screen settings
-    GSLC_DATA,          // storage, sd card
-    GSLC_WIRELESS,      // wifi, bt
-    GSLC_EXT_HARDWARE,  // modules, sensors
-    GSLC_CATEGORY_COUNT
-*/
-
 
 
 // mode_select_settings function with empty switch
@@ -1464,61 +1256,7 @@ void mode_select_settings(GlobalSettingsListCategory category, GlobalSettings* s
 }
 
 
-/*
-void nfc_task(void *pvParameters) {
-    // "Constructor" code - runs once when task starts
-    // Initialize NFC hardware (turn on power pin, etc.)
-    FGPIO_HIGH(PWR_NFC);
-    //nfc_init();  // Or whatever your initialization function is
-    
-    // Main task loop
-    for (;;) {
-        // Your normal task processing here
-        vTaskDelay(pdMS_TO_TICKS(100));  // Example delay
-    }
-    
-    // Note: Code here would normally never run because of the infinite loop
-    // But if you have a loop condition or break from the loop:
-    
-    // "Destructor" code - runs when task is about to exit
-    FGPIO_LOW(PWR_NFC);  // Turn off NFC power
-   // nfc_deinit();  // Clean up NFC resources if needed
-    
-    // Task must self-delete if it exits its function
-    vTaskDelete(NULL);
-}
-
-
-
-void task_main_menu(void *pvParameters) {
-    // "Constructor" code - runs once when task starts
-    enum mainmenumode{
-        
-    }; //idk fuck you it's a temp. rn we'll do text shit for now
-   
-    // Main task loop
-    for (;;) {
-        // Your normal task processing here
-        vTaskDelay(pdMS_TO_TICKS(100));  // Example delay
-    }
-    
-    // Note: Code here would normally never run because of the infinite loop
-    // But if you have a loop condition or break from the loop:
-    
-
-    // Task must self-delete if it exits its function
-    vTaskDelete(NULL);
-}
 */
-
-
-
-//infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-//infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-//infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-//infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-//infared remote=-----------=-=--==-=-=-=-=-=-=-===-=-=--=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
 
 std::shared_ptr<Window> IR_REMOTE_WIN; //declare existance of the window for the application
 

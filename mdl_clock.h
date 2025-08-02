@@ -25,6 +25,9 @@
 static const char* TAG = "alarm";
 #include <Adafruit_NeoPixel.h>
 
+#define NUM_TIMERS 5  // Replace magic number
+//#define NUM_TIMER_FIELDS 2  // For HH:MM editing
+
 
 // ========== ENUMS ========== //
 

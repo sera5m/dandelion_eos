@@ -41,7 +41,7 @@ kotlin??? phone link
 nice to have: bluetooth to phones or pc??
 
 
-
+boy do i have things to SAY. GRRRR ANGER ANGER ANGER TORMENT ANGER GRRR
 
 
 
