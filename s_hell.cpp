@@ -1,3 +1,70 @@
+#include "types.h"
+#include "helperfunctions.h"
+#include "s_hell.h"
+#include "InputHandler.h"
+
+void transitionApp(uint8_t index) {
+    AppName app = (AppName)index;
+rst_nav_pos(); //reset mouse pos between apps
+
+    switch (app) {
+        //set 
+        
+
+        case APP_LOCK_SCREEN:
+            // Do something for lock screen
+            CurrentOpenApplicationIndex=APP_LOCK_SCREEN; //note! need to set this on sucess, move this later to outside just this mode. this is the current open app n should only be set on success!
+            break;
+        case APP_HEALTH:
+            // Do something for health app
+            break;
+        case APP_NFC:
+            // ...
+            break;
+        case APP_SETTINGS:
+            // ...
+            break;
+        case APP_GYRO_INFO:
+            // ...
+            break;
+        case APP_FILES:
+            // ...
+            break;
+        case APP_RADIO:
+            // ...
+            break;
+        case APP_IR_REMOTE:
+            // ...
+            break;
+        case APP_UTILITIES:
+            // ...
+            break;
+        case APP_ETOOLS:
+            // ...
+            break;
+        case APP_RUBBERDUCKY:
+            // ...
+            break;
+        case APP_CONNECTIONS:
+            // ...
+            break;
+        case APP_SMART_DEVICES:
+            // ...
+            break;
+        case APP_DIAGNOSTICS:
+            // ...
+            break;
+
+        case APP_COUNT:  // Usually no action here, just for bounds
+        default:
+            // Handle invalid selection gracefully
+            break;
+    }
+    //run a verif step in the future, todo. LIKELY a wait too, so it can even set the app
+    CurrentOpenApplicationIndex=app; //set via lazymaxxing
+}
+//scrolling up enters it?
+//globalNavPos.x
 //i have an addiction for doing ths stupidest shit possible
 /*
 //so fuck it let's port basic on here

@@ -7,13 +7,18 @@
 #include "helperfunctions.h"
 #include "InputHandler.h"
 #include "mdl_clock.h"
+#include "s_hell.h"
 #pragma once
 
 #define MAX_VISIBLE 15
-char buf_applist[25*MAX_VISIBLE]; //
+extern char buf_applist[25 * MAX_VISIBLE]; //
 
  EditState timerEditState; //in types.h, options off,running,confirm
  uint8_t currentTimerField; 
+ 
+WatchMode currentWatchMode = WM_MAIN;
+int stopwatchElapsed=0;
+
 
 extern usr_alarm_st usrmade_alarms[10]; 
 extern usr_alarm_st usrmade_timers[5];
@@ -50,6 +55,13 @@ typedef enum {
 void handleTimerFieldAdjustment(bool increase);
 void updateAppList(char *buf, size_t bufSize, const char **apps, int count);
 std::string formatTimerSetter(uint8_t highlightedField, bool confirmMode, uint8_t timerIndex);
-
+void Input_handler_fn_main_screen(uint16_t key);
+void WATCH_SCREEN_TRANSITION(WatchMode desiredMode);
+void onVertical_input_timer_buff_setter(bool increase, uint8_t fieldIndex, uint8_t timerIndex);
+static void on_wm_main_input(uint16_t key);
+static void on_wm_stopwatch_input(uint16_t key);
+static void on_wm_appmenu_input(uint16_t key);
+void render_timer_screen();
+void on_wm_timer_input(uint16_t key);
 
 #endif

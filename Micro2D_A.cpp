@@ -1,7 +1,4 @@
-// LILLYPAD_RENDERER.h
 
-#ifndef Micro2D_A_H
-#define Micro2D_A_H
 
 
 #include <memory>
@@ -12,56 +9,15 @@
 #include <Adafruit_SSD1351.h>
 #include <esp32-hal-spi.h>
 //move this to another file later, PLEASE
+#include "Micro2D_A.h"
+#include <SD.h>
 
-
-#define SSD1351_CMD_COMMANDLOCK   0xFD
-#define SSD1351_CMD_DISPLAYOFF    0xAE
-#define SSD1351_CMD_MUXRATIO      0xCA
-#define SSD1351_CMD_SETREMAP      0xA0
-#define SSD1351_CMD_STARTLINE     0xA1
-#define SSD1351_CMD_DISPLAYOFFSET 0xA2
-#define SSD1351_CMD_SETGPIO       0xB5
-#define SSD1351_CMD_FUNCTIONSEL   0xAB
-#define SSD1351_CMD_NONINVERT     0xA6
-#define SSD1351_CMD_CONTRASTABC   0xC1
-#define SSD1351_CMD_CLOCKDIV      0xB3
-#define SSD1351_CMD_MASTER_CURRENT_CONTROL 0x87
-#define SSD1351_CMD_CONTRASTABC   0xC1
-#define SSD1351_CMD_ENHANCE       0xB2
-#define SSD1351_CMD_DISPLAYON     0xAF
-
- struct TextChunk {
-    bool isTag;
-    std::string value;
-};
-
+/*
 using WrappedLine = std::vector<TextChunk>;
 
 std::vector<std::vector<TextChunk>> wrappedLines;
-
-#define BATCH_SIZE 64
-
-#define icon_transparency_color 0x5220; //this disgusting brown color will be parsed as clear by the bitmap parser
-
-#define SCREEN_WIDTH  128
-#define SCREEN_HEIGHT 128 
-
-// black,white,grey
-#define BLACK   0x0000
-#define WHITE   0xFFFF
-#define Grey 0xDDDD
-
-//regular colors
-#define RED     0xF800
-#define YELLOW  0xFFE0 
-#define GREEN   0x07E0
-#define CYAN    0x07FF
-#define BLUE    0x001F
-#define MAGENTA 0xF81F
-#define PURPLE  0x780F
-
-//other color defaults
-#define PEACH   0xFD20 
+//oh god, please don't tell me these things all share a buffer. that's a landmine.
+*/
 #define MAX_SPAN   ((SCREEN_WIDTH > SCREEN_HEIGHT) ? SCREEN_WIDTH : SCREEN_HEIGHT)
 static uint8_t spanBuf[MAX_SPAN * 2];
 
@@ -74,21 +30,19 @@ constexpr int MIN_WINDOW_HEIGHT = 12;
 uint16_t ScreenBackgroundColor=0x0000; //defined in the settings tab, you jerk off. this is just the default. you will have to use this in main and load pallette in main
 // Global/static buffer (safer than stack)
 
-#define BYTES_PER_PIXEL 2  // 16-bit color (RGB565)
+
 
 // PSRAM framebuffer
 
 #include <esp32-hal-psram.h>
 
 // Screen dimensions
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 128
-#define BYTES_PER_PIXEL 2  // RGB565
 
 // Global framebuffer in PSRAM
 uint16_t* framebuffer = NULL; // PSRAM framebuffer
 SPIClass* hspi = NULL; // SPI instance
 
+/*
 bool initScreenBuffer() {
     if (!psramFound()) {
         Serial.println("No PSRAM - falling back to slow mode");
@@ -113,10 +67,9 @@ void pushToScreen() {
     tft.writePixels(framebuffer, SCREEN_WIDTH * SCREEN_HEIGHT);
     tft.endWrite();
 }
+*/
 
 
-#define DefaultCharHeight  8
-#define DefaultCharWidth  6
 /*
 void flushFramebuffer() {
     if (!framebuffer) return;
@@ -461,20 +414,7 @@ static uint32_t read32(File &f) {
   return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
 }
 
-// ——— DIRECTORY LISTING ———
-void listFiles(File dir, uint8_t indent = 0) {
-  while (true) {
-    File entry = dir.openNextFile();
-    if (!entry) break;
-    for (uint8_t i=0; i<indent; i++) Serial.print(' ');
-    Serial.print(entry.isDirectory() ? "[DIR] " : "      ");
-    Serial.println(entry.name());
-    if (entry.isDirectory()) {
-      listFiles(entry, indent + 2);
-    }
-    entry.close();
-  }
-}
+
 
 // ——— DRAW BMP FROM SD ———
 // example path = "/img/cat.bmp", x/y = top-left on 128×128
@@ -618,14 +558,10 @@ void DrawBmpFromSD(const char *path, uint16_t x, uint16_t y) {
 // by default spi is 8mhz. i have adjusted the adafruit library to use a higher frequency for more fps!
  
 
-void set_orientation(uint8_t rotation);
+void set_orientation(uint8_t rotation);//what is this
 
 // Function for adjusting SPI speed and debugging
-void set_spi_speed(uint32_t frequency) {
-  Serial.print("SPI speed set to: ");
-  Serial.print(frequency / 1000000);  // Print in MHz
-  Serial.println(" MHz");
-}
+
 
 // Add a function to toggle the reset pin properly
 void screen_reboot() {
@@ -648,11 +584,10 @@ void writeData(uint8_t data) {
   SPI.transfer(data);
   digitalWrite(SPI_CS_OLED, HIGH);
 }
+
  void screen_startup() {
   tft.begin();
   tft.fillScreen(BLACK);
-
- // SPI.beginTransaction(SPISettings(12000000, MSBFIRST, SPI_MODE0));  writeCommand(SSD1351_CMD_CONTRASTABC);  writeData(0xFF);  writeData(0xFF);  writeData(0xFF);  SPI.endTransaction();
 
   tft.setCursor(32, 64);
   tft.setTextColor(WHITE);
@@ -682,514 +617,23 @@ void screen_off() {
 
 
 //forward declare all possible dependencies/child of Window before we use them
-
+/*
 class Canvas;  // forward declaration 
 class Window; //do i have to define the Window class?
 class WindowManager; //only make one of these on os start
 //include the struct dependencies of children
 
-//userspace graphics config import do not delete this or the whole system will fuck up
+*///userspace graphics config import do not delete this or the whole system will fuck up
  bool AreGraphicsEnabled = true;//userconfig
  bool IsWindowHandlerAlive = false;//do not touch this in user code ever, for the Window manager code only. "hey guys what if we could break the entire goddamn Window manager on a whim!!!" "get the fuck outta my office"
 
 //define it here, it's extern in main idk
-//declare structs and stuff of the elements of this stupid thing.
-
-// Window structure to hold Window properties
-typedef struct {
-    uint8_t x = 0, y = 0, width = 64, height = 64;
-    bool AutoAlignment = false, WrapText = true;
-    int TextSize = 1;
-    bool borderless = false;
-
-    // Pointers to color values
-    const uint16_t BorderColor;
-    const uint16_t BgColor;
-    const uint16_t WinTextColor;
-
-    uint16_t UpdateTickRate = 500;
-} WindowCfg;
-
-enum class DrawType {
-    Text, Line, Pixel, FRect, Rect, RFRect, RRect,
-    Triangle, FTriangle, FCircle, Circle, Bitmap
-};
-
-struct CanvasCfg {
-    int x = 0, y = 0, width = 32, height = 32;
-    bool borderless=true; 
-    bool DrawBG=true;
-     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF; 
-      Window* parentWindow = nullptr;
-};
-
-uint16_t randomColor() {
-  static uint16_t seed = 0xACE1;  // Any non-zero seed
-  seed ^= seed << 7;
-  seed ^= seed >> 9;
-  seed ^= seed << 8;
-  return seed & 0xFFFF;  // Return 16-bit color
-}
 
 
-void CanvasForceParentUpdate(std::shared_ptr<Window> p);//forward slop dependancy 4 this, do not edit pls
-
-
-
-struct TextData {
-    int posX, posY;
-    char text[64];  // Fixed-size buffer for text
-    uint8_t txtsize;
-    uint16_t color;
-};
-
-struct LineData {
-    int posX0, posY0, posX1, posY1;
-    uint16_t color;
-};
-
-struct PixelData {
-    int posX, posY;
-    uint16_t color;
-};
-
-struct FRectData {
-    int posX, posY, w, h;
-    uint16_t color;
-};
-
-struct RectData {
-    int posX, posY, w, h;
-    uint16_t color;
-};
-
-struct RFRectData {
-    int posX, posY, w, h, r;
-    uint16_t color;
-};
-
-struct RRectData {
-    int posX, posY, w, h, r;
-    uint16_t color;
-};
-
-struct TriangleData {
-    int x0, y0, x1, y1, x2, y2;
-    uint16_t color;
-};
-
-struct FTriangleData {
-    int x0, y0, x1, y1, x2, y2;
-    uint16_t color;
-};
-
-struct FCircleData {
-    int posX, posY, r;
-    uint16_t color;
-};
-
-struct CircleData {
-    int posX, posY, r;
-    uint16_t color;
-};
-
-struct BitmapData {
-    int posX, posY;
-    const uint16_t* bitmap;
-    int w, h;
-};
-
-struct PixelDat {  // This should match what you're using in your vector
-    int posX, posY;
-    uint16_t color;
-    uint layer;
-};
-
-// Initialize the static Window manager structure
-static std::unique_ptr<WindowManager> WinManagerInstance;
 
 
 //end forward dependencieslastUpdateTime
 
-
-
-//****************************************************************************************************************************************
-
-//canvas draw logic
-//canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like Windows
-
-//******************************************************************************************************************************************************
-union DrawCommand {
-    TextData text;
-    LineData line;
-    PixelData pixel;
-    FRectData frect;
-    RectData rect;
-    RFRectData rfrect;
-    RRectData rrect;
-    TriangleData triangle;
-    FTriangleData ftriangle;
-    FCircleData fcircle;
-    CircleData circle;
-    BitmapData bitmap;
-
-};
-
-// 4. Modified DrawableElement structure
-struct DrawableElement {
-    uint layer;
-    DrawType type;
-    DrawCommand command;
-};
-
-
-// Canvas class definition
-
-class Canvas {
-private:
-    unsigned long lastUpdateTime = 0;
-    unsigned int UpdateTickRate = 100;  // CONSISTENT NAME
-    unsigned int lastFrameTime = 0;
-    
-public:
-    // Position and size of the canvas on screen (relative to parent Window if needed)
-    int x, y, width, height;
-    uint16_t bgColor, BorderColor;
-    
-    // Flag to indicate if canvas needs updating.
-    bool canvasDirty = true;
-    bool borderless;  //now takes borderless from struct
-    bool DrawBG=true;
-    // Container for drawable elements on this canvas.
-    std::vector<DrawableElement> drawElements; //replace with function ptr in future
-    
-    // Reference to parent Window (if any)
-    std::shared_ptr<Window> parentWindow;  // Now shared to avoid ownership cycles
-    
-    // Constructor: initializes from a CanvasCfg structure and assigns parent pointer.
-// Window owns Canvas, Canvas just references Window (not owning)
-//for reference when working with this code,
-/*struct CanvasCfg {
-    int x = 0, y = 0, width = 32, height = 32;
-    bool borderless=true; 
-    bool DrawBG=true;
-     uint16_t bgColor = 0x0000, BorderColor = 0xFFFF; 
-      Window* parentWindow = nullptr;
-};*/
-
-Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent): x(cfg.x), y(cfg.y), width(cfg.width), height(cfg.height), borderless(cfg.borderless),DrawBG(cfg.DrawBG), bgColor(cfg.bgColor), BorderColor(cfg.BorderColor), parentWindow(parent) {}
-
-    // Clear the canvas area
-    void clear() { //todo: modify for backgroundless 
-        // Fill the canvas area with the background color to clear it
-        // Note: if you need clipping, ensure tft supports it or implement it yourself,dear user.
-        if(DrawBG) {
-        TFillRect(x, y, width, height, bgColor);
-        canvasDirty = true;
-        }
-        else{
-            //put some kind of logic to force parent to update?
-          // In clear():
-            CanvasForceParentUpdate(parentWindow);
-          //this is the worst fucking way to do this. but i can't un-draw shit. unsure what to do here because transparency is...evil and impossible for DMAA i think.
-        }
-    }
-    
-    // Adds a text line to the canvas.
-    // (No WrapTextping—if the text extends beyond the canvas, it is simply clipped.)
-    void AddTextLine(int posX, int posY, const String& text, uint8_t txtsize, 
-                    uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.type = DrawType::Text;
-        strncpy(element.command.text.text, text.c_str(), sizeof(element.command.text.text) - 1);
-        element.command.text.text[sizeof(element.command.text.text) - 1] = '\0';
-        element.command.text.posX = posX;
-        element.command.text.posY = posY;
-        element.command.text.txtsize = txtsize;
-        element.command.text.color = color;
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }//i made it more convoluted
-
-
-
-//draw shapes **********************************************************************************
-//********************these are shapes the user should be calling to draw in canvas,each one should be set to it's own layer-non automatically set as of now, cope. plus you get more controll**********************************************
-
-    void AddLine(int posX0, int posY0, int posX1, int posY1, 
-                uint16_t color, int layer = 0) {
-        DrawableElement element;
-        element.layer = layer;
-        element.type = DrawType::Line;
-        element.command.line = {posX0, posY0, posX1, posY1, color};
-        drawElements.push_back(element);
-        canvasDirty = true;
-    }
-  //adafruit has optimized line draWing and normal line draWing, for an angular one it's drawLine,
-  // for a perfectly vertical or horizontal line it's  drawFastVLine or drawFastHLine. fortunately they take simular args, so here i've switched between them
-
-
-
-
-
-
-
-//draw multiple pixels on multiple layers
-// Implementation of all drawing methods
-void AddPixel(int posX, int posY, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::Pixel;
-    element.command.pixel = {posX, posY, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-
-
-void AddFRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::FRect;
-    element.command.frect = {posX, posY, w, h, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddRect(int posX, int posY, int w, int h, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::Rect;
-    element.command.rect = {posX, posY, w, h, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddRFRect(int posX, int posY, int w, int h, uint16_t r, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::RFRect;
-    element.command.rfrect = {posX, posY, w, h, r, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddRRect(int posX, int posY, int w, int h, uint16_t r, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::RRect;
-    element.command.rrect = {posX, posY, w, h, r, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, 
-                uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::Triangle;
-    element.command.triangle = {x0, y0, x1, y1, x2, y2, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
-                 uint16_t x2, uint16_t y2, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::FTriangle;
-    element.command.ftriangle = {x0, y0, x1, y1, x2, y2, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddFCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::FCircle;
-    element.command.fcircle = {posX, posY, r, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-void AddCircle(int posX, int posY, int r, uint16_t color, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::Circle;
-    element.command.circle = {posX, posY, r, color};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-
-
-void AddBitmap(int posX, int posY, const uint16_t* bitmap, int w, int h, int layer = 0) {
-    DrawableElement element;
-    element.layer = layer;
-    element.type = DrawType::Bitmap;
-    element.command.bitmap = {posX, posY, bitmap, w, h};
-    drawElements.push_back(element);
-    canvasDirty = true;
-}
-
-
-
-
-
-//back to main draw logic for canvas here
-
-
-
-    // Draws the canvas: first draws the canvas background (and border if not borderless),
-    // then sorts and draws the drawable elements by layer.
-    void CanvasDraw() {
-    if(DrawBG) TFillRect(x, y, width, height, bgColor);
-    if(!borderless) tft.drawRect(x, y, width, height, BorderColor);
-//
-    std::sort(drawElements.begin(), drawElements.end(), 
-        [](const DrawableElement& a, const DrawableElement& b) {
-            return a.layer < b.layer;
-        });
-
-    for(const auto& elem : drawElements) { //blocking this out temporarily
-        switch(elem.type) {
-          /*
-            case DrawType::Text:
-                tft.setTextColor(elem.command.text.color);
-                tft.setTextSize(elem.command.text.txtsize);
-                tft.setCursor(x + elem.command.text.posX, y + elem.command.text.posY);
-                tft.print(elem.command.text.text);
-                break;
-            
-            case DrawType::Line: {
-    const auto& l = elem.command.line;  // define l here
-//NEED TO REPLACE TODO FIX MEEE
-    if(l.posX0 == l.posX1) {
-         tft.drawFastVLine(x + l.posX0, y + std::min(l.posY0, l.posY1), std::abs(l.posY1 - l.posY0), l.color);
-    } else if(l.posY0 == l.posY1) {
-         tft.drawFastHLine(x + std::min(l.posX0, l.posX1), y + l.posY0, std::abs(l.posX1 - l.posX0), l.color);
-    } else {
-        drawLine(x + l.posX0, y + l.posY0, x + l.posX1, y + l.posY1, l.color);
-    }
-    break;
-}
-
-            
-            case DrawType::Pixel:
-                 tft.drawPixel(x + elem.command.pixel.posX, 
-                             y + elem.command.pixel.posY, 
-                             elem.command.pixel.color);
-                break;
-                
-
-                
-            case DrawType::FRect:
-                TFillRect(x + elem.command.frect.posX,
-                            y + elem.command.frect.posY,
-                            elem.command.frect.w,
-                            elem.command.frect.h,
-                            elem.command.frect.color);
-                break;
-                
-            case DrawType::Rect:
-                 tft.drawRect(x + elem.command.rect.posX,
-                            y + elem.command.rect.posY,
-                            elem.command.rect.w,
-                            elem.command.rect.h,
-                            elem.command.rect.color);
-                break;
-                
-            case DrawType::RFRect:
-                 tft.fillRoundRect(x + elem.command.rfrect.posX,
-                                y + elem.command.rfrect.posY,
-                                elem.command.rfrect.w,
-                                elem.command.rfrect.h,
-                                elem.command.rfrect.r,
-                                elem.command.rfrect.color);
-                break;
-                
-            case DrawType::RRect:
-                 tft.drawRoundRect(x + elem.command.rrect.posX,
-                                y + elem.command.rrect.posY,
-                                elem.command.rrect.w,
-                                elem.command.rrect.h,
-                                elem.command.rrect.r,
-                                elem.command.rrect.color);
-                break;
-                
-            case DrawType::Triangle:
-                 tft.drawTriangle(x + elem.command.triangle.x0,
-                                y + elem.command.triangle.y0,
-                                x + elem.command.triangle.x1,
-                                y + elem.command.triangle.y1,
-                                x + elem.command.triangle.x2,
-                                y + elem.command.triangle.y2,
-                                elem.command.triangle.color);
-                break;
-                
-            case DrawType::FTriangle:
-                 tft.fillTriangle(x + elem.command.ftriangle.x0,
-                                y + elem.command.ftriangle.y0,
-                                x + elem.command.ftriangle.x1,
-                                y + elem.command.ftriangle.y1,
-                                x + elem.command.ftriangle.x2,
-                                y + elem.command.ftriangle.y2,
-                                elem.command.ftriangle.color);
-                break;
-                
-            case DrawType::FCircle:
-                 tft.fillCircle(x + elem.command.fcircle.posX,
-                               y + elem.command.fcircle.posY,
-                               elem.command.fcircle.r,
-                               elem.command.fcircle.color);
-                break;
-                
-            case DrawType::Circle:
-                 tft.drawCircle(x + elem.command.circle.posX,
-                              y + elem.command.circle.posY,
-                              elem.command.circle.r,
-                              elem.command.circle.color);
-                break;
-                
-            case DrawType::Bitmap: {
-                const auto& bmp = elem.command.bitmap;
-                 tft.drawRGBBitmap(x + bmp.posX, y + bmp.posY, bmp.bitmap, bmp.w, bmp.h);
-                break;
-            }*/
-                
-            default:
-                // Handle unexpected types (should never happen)
-                break;
-        }  // This was the missing closing brace for the switch
-    }
-}
-    void CanvasUpdate(bool force) { //only updates if dirty,chexks as to not waste frames
-        int now=millis();//now less long
-        if (canvasDirty || (millis() - lastUpdateTime >= UpdateTickRate)|| force) {
-            CanvasDraw();
-            lastUpdateTime = millis();
-            canvasDirty = false;
-        }
-    }
-
-void ClearAll() {
-    //for(auto& elem : drawElements) {
-
-    //}
-    drawElements.clear();
-    canvasDirty = true;
-}
-
-~Canvas() {
-
-    //for(auto& elem : drawElements) { }
-}
-
-
-
-
-};
 
 
 //****************************************************************************************************************************************
@@ -1213,71 +657,33 @@ void ClearAll() {
 
 
 
-class Window : public std::enable_shared_from_this<Window> {
-
-public:
-
-    std::string name;       // Window's name
-    WindowCfg cfg; //setup the var      // Window configuration
-    std::string content;    // Full text content (may be longer than visible area)
-   // std::vector<std::string> wrappedLines;    // Wrapped text lines for rendering.  todo:move private
-
-    // List of canvases attached to this Window
-    std::vector<std::shared_ptr<Canvas>> canvases; // Vector of smart pointers
-
-  unsigned int UpdateTickRate = 100; // CONSISTENT VARIABLE NAME
-  // update interval in ms-take from config now! yay i think
-    bool dirty = false;     // uased as redraw flag
-unsigned long lastUpdateTime = 0;  // in ms
-unsigned int lastFrameTime = 0;    // duration of last draw
-
-//define colors before constructor uses them as sane defaults for high vis
- uint16_t   win_internal_color_background=0x0000; // default if nullptr
- uint16_t    win_internal_color_border=0xFFFF;
- uint16_t    win_internal_color_text=0xFFFF;
-
-uint8_t win_internal_textsize=1;
-uint16_t win_internal_width=16;
-uint16_t win_internal_height=10;
-uint16_t win_internal_x=32;
-uint16_t win_internal_y=32;
-
-    bool IsWindowShown = true;//windows are shown by default on creation
-
-       int scrollOffsetX=0; //scroll offsets for these Windows //TODO:MOVE THESE TO PRIVATE
-       int scrollOffsetY=0;
-
-      int accumDX = 0, accumDY = 0; // member var for the stupid scroll func: todo: move to private, this is awful
-
-
-    // Constructor
-Window(const std::string& WindowName,
-       const WindowCfg& windowConfiguration,  // Parameter name changed
-       const std::string& initialContent = ""): name(WindowName),cfg(windowConfiguration),  // Now correctly using the parameter
-    content(initialContent),
-    win_internal_textsize(cfg.TextSize),
-    win_internal_color_background(cfg.BgColor),
-    win_internal_color_border(cfg.BorderColor),
-    win_internal_color_text(cfg.WinTextColor),
-    UpdateTickRate(cfg.UpdateTickRate){
-    //GET THE FUCKING SIZE
-win_internal_width  = std::max<int>(MIN_WINDOW_WIDTH, cfg.width);
-win_internal_height = std::max<int>(MIN_WINDOW_HEIGHT, cfg.height);
-win_internal_x=cfg.x;
-win_internal_y=cfg.y;
+Window::Window(const std::string& WindowName, const WindowCfg& windowConfiguration, const std::string& initialContent)
+    : name(WindowName),
+      cfg(windowConfiguration),
+      content(initialContent),
+      win_internal_textsize(cfg.TextSize),
+      win_internal_color_background(cfg.BgColor),
+      win_internal_color_border(cfg.BorderColor),
+      win_internal_color_text(cfg.WinTextColor),
+      UpdateTickRate(cfg.UpdateTickRate)
+{
+    win_internal_width  = std::max<int>(MIN_WINDOW_WIDTH, cfg.width);
+    win_internal_height = std::max<int>(MIN_WINDOW_HEIGHT, cfg.height);
+    win_internal_x = cfg.x;
+    win_internal_y = cfg.y;
 }
 
 
     // Destructor: Clean up canvases
-~Window() {
-    //Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted
+Window::~Window() {
+  //WinManagerInstance->Callback2WinManager_Window_deleted();  // Custom callback when the Window is deleted-disabled untill i get proper singlet ref
     // Any other custom cleanup tasks
 }
-void setWinTextSize(uint8_t t){
+void Window::setWinTextSize(uint8_t t){
     win_internal_textsize=t;
 }
 
-void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
+void Window::ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen canvas comps-this updates em all by force
     dirty = true;
     WinDraw();  // Immediately update Window content now, FUCKING RIGHT NOW 
     if (UpdateSubComps) {
@@ -1288,7 +694,7 @@ void ForceUpdate(bool UpdateSubComps) {//todo: toggle to NOT update offscreen ca
     }
 }
 
-void ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLOR) {
+void Window::ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLOR) {
     win_internal_color_background = BG_COLOR;
     win_internal_color_border = BORDER_COLOR;
     win_internal_color_text = WIN_TEXT_COLOR;
@@ -1296,7 +702,7 @@ void ApplyTheme(uint16_t BORDER_COLOR, uint16_t BG_COLOR, uint16_t WIN_TEXT_COLO
 }
 
 
-void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
+void Window::ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
   for (auto& canvas : canvases) {
             // Force update on each canvas (even if off-screen or timer-based)
             if (canvas) canvas->CanvasUpdate(true); //push canvas update for iterator -this makes sure canvas-> update checks for valid first
@@ -1306,13 +712,13 @@ void ForceUpdateSubComps(){ //todo: toggle to NOT update offscreen canvas comps
 //change properties===============================================================================================
 
 //why didn't i add this before
-void SetBgColor(uint16_t newColor) {
+void Window::SetBgColor(uint16_t newColor) {
     win_internal_color_background = newColor; //sets internal ref, does not alter configs
     dirty = true;
 }
 
     // Set border color
-void SetBorderColor(uint16_t newColor) {
+void Window::SetBorderColor(uint16_t newColor) {
     if (win_internal_color_border != newColor) {
         win_internal_color_border = newColor;
         dirty = true;
@@ -1321,7 +727,7 @@ void SetBorderColor(uint16_t newColor) {
 
 
     // Toggle border visibility
-    void ForceBorderState(bool isShown) {
+    void Window::ForceBorderState(bool isShown) {
         if (cfg.borderless != !isShown) {
             cfg.borderless = !isShown;
             dirty = true;
@@ -1330,7 +736,7 @@ void SetBorderColor(uint16_t newColor) {
 
 
 //scaling
-void ResizeWindow(int newW, int newH,bool fUpdate) {
+void Window::ResizeWindow(int newW, int newH,bool fUpdate) {
     if (win_internal_width == newW && win_internal_height == newH)
         return;
 
@@ -1347,7 +753,7 @@ void ResizeWindow(int newW, int newH,bool fUpdate) {
 
 
 
-void MoveWindow(int newX, int newY,bool fUpdate) { //mofe from old location to new
+void Window::MoveWindow(int newX, int newY,bool fUpdate) { //mofe from old location to new
     if (win_internal_x == newX && win_internal_y == newY) return; // No change, no need to update
     TFillRect(win_internal_x,win_internal_y,win_internal_width,win_internal_height,ScreenBackgroundColor);//xywh
     win_internal_x = newX;
@@ -1366,7 +772,7 @@ void setUpdateTickRate(int newRate) {
 
 
     // Add a canvas to this Window
-    void addCanvas(const CanvasCfg& cfg) {
+    void Window::addCanvas(const CanvasCfg& cfg) {
 
         if (cfg.parentWindow != this) {
         Serial.print("Error: Canvas parent mismatch in Window: "); Serial.println(name.c_str());
@@ -1386,7 +792,7 @@ uint64_t lastScrollTime = millis();
 const int scrollLimit = 3; // max scrolls per period
 const int scrollPeriod = 100; // in ms
 
-int calculateTotalTextWidth() {
+int Window::calculateTotalTextWidth() {
     int charWidth = 6 * win_internal_textsize; // Assuming fixed-width font
     int maxWidth = 0;
     for (const auto& line : wrappedLines) {
@@ -1399,7 +805,7 @@ int calculateTotalTextWidth() {
 }
 
 //new scroll code, now supporting directions
-void WindowScroll(int DX, int DY) { //changes in directions
+void Window::WindowScroll(int DX, int DY) { //changes in directions
     // accumulate scroll deltas
 accumDX += DX;
 accumDY += DY;
@@ -1440,7 +846,7 @@ int maxOffsetX = (totalTextWidth > win_internal_width - 4) ? totalTextWidth - (w
 }
 
 
-void animateMove(int targetX, int targetY, int steps = 5) { //move the Window but try to animate it
+void Window::animateMove(int targetX, int targetY, int steps) { //move the Window but try to animate it
     int stepX = (targetX - win_internal_x) / steps;
     int stepY = (targetY - win_internal_y) / steps;
     
@@ -1459,7 +865,7 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
 
 
 
- void HideWindow() {
+ void Window::HideWindow() {
   IsWindowShown = false; //note:this automatically will stop void winupdate from updating even when called: because we have the flag in THERE
   tft.fillRect(win_internal_x, win_internal_y, win_internal_width, win_internal_height,ScreenBackgroundColor);//fill the area with background color to hide it
 
@@ -1467,25 +873,54 @@ void animateMove(int targetX, int targetY, int steps = 5) { //move the Window bu
         // for (auto& canvas : Canvases) { if (canvas) canvas->Hide(); }
     }//end hide win
 
- void ShowWindow() {
+ void Window::ShowWindow() {
   IsWindowShown = true;
   ForceUpdate(true);
         // Optionally, instruct all sub-elements (Canvases) to show themselves.
     }//end show window
 
- void setUpdateMode(bool manualOnly) {
+ void Window::setUpdateMode(bool manualOnly) {
         manualUpdateOnly = manualOnly;
         Serial.printf("[Config] Update mode set to %s\n",  manualOnly ? "MANUAL" : "AUTO");
     }
 
 
-void updateContent(const std::string &newContent) {
+void Window::updateContent(const std::string &newContent) {
     if (content == newContent) return;
     content = newContent;
     dirty = true;
 }
 
-void WinDraw() {
+std::vector<TextChunk> Window::tokenize(const std::string &input) {
+    std::vector<TextChunk> chunks;
+    size_t pos = 0, len = input.size();
+
+    while (pos < len) {
+        if (input[pos] == '<') {
+            // Find end of tag
+            size_t end = input.find('>', pos);
+            if (end == std::string::npos) {
+                // Malformed tag: treat '<' as normal char
+                chunks.push_back({false, input.substr(pos, 1)});
+                pos++;
+            } else {
+                // Valid tag: include '<' and '>'
+                chunks.push_back({true, input.substr(pos, end - pos + 1)});
+                pos = end + 1;
+            }
+        } else {
+            // Find next tag start or end of string
+            size_t next = input.find('<', pos);
+            if (next == std::string::npos) next = len;
+            chunks.push_back({false, input.substr(pos, next - pos)});
+            pos = next;
+        }
+    }
+    return chunks;
+}
+
+
+void Window::WinDraw(/*bool force*/) {
     if (!IsWindowShown/*|| !dirty*/) return;
 
     // 1) Clear the window area
@@ -1553,45 +988,18 @@ void WinDraw() {
 
 
 
-private:
+//private:
 /*
 struct TextChunk {
   bool isTag;
   std::string value;
 };*/
+//using WrappedLine = std::vector<TextChunk>; std::vector<WrappedLine> wrappedLines;
 
-using WrappedLine = std::vector<TextChunk>;
-std::vector<WrappedLine> wrappedLines;
-
-static std::vector<TextChunk> tokenize(const std::string &input) {
-    std::vector<TextChunk> chunks;
-    size_t pos = 0, len = input.size();
-
-    while (pos < len) {
-        if (input[pos] == '<') {
-            size_t end = input.find('>', pos);
-            if (end == std::string::npos) {
-                // malformed: consume one char
-                chunks.push_back({false, input.substr(pos,1)});
-                pos++;
-            } else {
-                chunks.push_back({true, input.substr(pos, end-pos+1)});
-                pos = end+1;
-            }
-        } else {
-            size_t next = input.find('<', pos);
-            if (next == std::string::npos) next = len;
-            chunks.push_back({false, input.substr(pos, next-pos)});
-            pos = next;
-            //Serial.printf("next parse pos");
-        }
-    }
-    return chunks;
-    //Serial.printf("chunks ret");
-}
     bool manualUpdateOnly = true; // Default to manual-only mode
     uint32_t lastContentUpdate = 0;
 //defaults for delimiters for orderlyness
+/*
 std::string Delim_LinBreak ="<n>";
 std::string Delim_Seperator ="<_>";
 //properties
@@ -1602,25 +1010,18 @@ std::string Delim_Sizechange = "<textsize(";
 //properties of special text
 std::string Delim_Strikethr = "<s>";        // Italic text 
 std::string Delim_Underline = "<u>";  // Underline text 
-
+*/
 // ================== Text Rendering Engine ==================
 
-    struct TextState {
-        uint16_t color;
-        uint8_t size;
-        int16_t cursorX;
-        int16_t cursorY;
-        bool underline;
-        bool strikethrough;
-    };
 
-    void applyTextState(const TextState& state) {
+
+    void Window::applyTextState(const TextState& state) {
         tft.setTextColor(state.color);
         tft.setTextSize(state.size);
         tft.setCursor(state.cursorX, state.cursorY);
     }
 
-    void handleTextTag(const std::string& tag, TextState& state) {
+    void Window::handleTextTag(const std::string& tag, TextState& state) {
         if (tag == Delim_LinBreak) {
             return; // Handled during line wrapping
         }
@@ -1664,7 +1065,7 @@ std::string Delim_Underline = "<u>";  // Underline text
         }
     }
 
-    void renderTextLine(const std::string& line, int yPos, TextState initialState) {
+    void Window::renderTextLine(const std::string& line, int yPos, TextState initialState) {
         
         TextState currentState = initialState;
         applyTextState(currentState);
@@ -1719,7 +1120,7 @@ std::string Delim_Underline = "<u>";  // Underline text
         
     }
 
-void updateWrappedLinesOptimized() {
+void Window::updateWrappedLinesOptimized() {
     wrappedLines.clear();
     if (content.empty()) return;
 
@@ -1780,7 +1181,7 @@ if (tag == Delim_LinBreak) {
 }
 
 
-   void wrapTextIntoLines(const std::string& text, WrappedLine& currentLine, int maxCharsPerLine) {
+   void Window::wrapTextIntoLines(const std::string& text, WrappedLine& currentLine, int maxCharsPerLine) {
     size_t start = 0;
     while (start < text.size()) {
         size_t nextSpace = text.find(' ', start);
@@ -1809,7 +1210,7 @@ if (tag == Delim_LinBreak) {
         start = (nextSpace == text.size()) ? nextSpace : nextSpace + 1;
     }
 }
-void drawVisibleLinesOptimized() {
+void Window::drawVisibleLinesOptimized() {
     if (!IsWindowShown) return;
 
     const int charHeight = DefaultCharHeight * win_internal_textsize;
@@ -1847,7 +1248,7 @@ void drawVisibleLinesOptimized() {
     }
 }
 
-void renderTextChunk(const std::string& text, TextState& state) {
+void Window::renderTextChunk(const std::string& text, TextState& state) {
     tft.setCursor(state.cursorX, state.cursorY);
     //tft.setcolor
     //set text size
@@ -1860,10 +1261,7 @@ tft.setCursor(x, y);
 
 
 
-
-
-
-}; //end Window obj
+ //end Window obj
 
 
 //shitty workaround for canvas to force the parent to update
@@ -1876,159 +1274,115 @@ void CanvasForceParentUpdate(std::shared_ptr<Window> p){
 
 
 
-struct WindowAndUpdateInterval {
-    std::weak_ptr<Window> windowWeakPtr; // Renamed to avoid conflict
-    int UpdateTickRate;
 
-    // Constructor takes a shared_ptr and stores it as a weak_ptr
-    WindowAndUpdateInterval(std::shared_ptr<Window> Win) 
-        : windowWeakPtr(Win), UpdateTickRate(Win->UpdateTickRate) {}
-
-    void updateIfValid() {
-        if (auto WinPtr = windowWeakPtr.lock()) {  // Try to get a shared_ptr from weak_ptr
-            WinPtr->WinDraw(); // Call WinDraw() on the Window
-        }
-    }
-};
 
 
 //*************************************************************************************
 //                        Window manager
 //handles Windows and updating. just create a background osproscess with this in it.
 //do not create more than one object in main, i've got some code to reject creation of one already exists
+//cpp file
 
-class WindowManager {
+WindowManager::WindowManager() {
+    IsWindowHandlerAlive = true;
+    Serial.print("WindowManager created.\n");
+}
 
-public:
-    WindowManager() { 
-        IsWindowHandlerAlive = true;
-        Serial.print("WindowManager created.\n"); 
+WindowManager::~WindowManager() {
+    clearAllWindows();
+    WinManagerInstance = nullptr;
+    IsWindowHandlerAlive = false;
+    Serial.print("WindowManager destroyed.\n");
+    tft_Fillscreen(ScreenBackgroundColor);
+    tft.print("graphics system disabled");
+}
+
+WindowManager* WindowManager::getWinManagerInstance() {
+    if (!AreGraphicsEnabled) {
+        Serial.print("Error: Graphics not enabled. WindowManager will not start.");
+        return nullptr;
     }
-
-    ~WindowManager() { 
-        clearAllWindows();  // Properly clean up all Windows
-        WinManagerInstance = nullptr; // Nullify the singleton reference
-        IsWindowHandlerAlive = false;
-
-        Serial.print("WindowManager destroyed.\n");
-        tft_Fillscreen(ScreenBackgroundColor);
-         tft.print("graphics system disabled");
-    }//DEStructor
-
-
-
-// Returns pointer to the sole WinManagerInstance (creates if needed)
-    static WindowManager* getWinManagerInstance() {
-        // Only create if graphics are enabled
-        if (!AreGraphicsEnabled) {Serial.print("Error: Graphics not enabled. WindowManager will not start.");
-        //////tft.setCursor(0,64);tft_Fillscreen(ScreenBackgroundColor);//////tft.print("err: graphics disabled"); //notify usr
-            return nullptr;//really hope this doesn't cause a memeory leak
-        }
-        // Check if WinManagerInstance exists; if not, reinitialize it. todo: trigger construct if an attempt made to reference this while not around, currently not called as of 3/11/25
-        if (!WinManagerInstance) {
-            WinManagerInstance = std::make_unique<WindowManager>();
-        }
-        return WinManagerInstance.get();
+    if (!WinManagerInstance) {
+        WinManagerInstance = std::make_unique<WindowManager>();
     }
-    
+    return WinManagerInstance.get();
+}
 
+void WindowManager::registerWindow(std::shared_ptr<Window> Win) {
+    WindowRegistry.emplace_back(Win);
+}
 
-    std::vector<WindowAndUpdateInterval> WindowRegistry;
+void WindowManager::unregisterWindow(Window* Win) {
+    if (!Win) return;
 
-    // Register a new Window
-    void registerWindow(std::shared_ptr<Window> Win) {
-        WindowRegistry.emplace_back(Win); // Create a WindowAndUpdateInterval object //todo error this needs to have a defa ult rateset
-    }
-
-    // Unregister a Window (& delete)
-        void unregisterWindow(Window* Win) {
-        if (!Win) return;  // Safety check
-
-        auto it = std::remove_if(WindowRegistry.begin(), WindowRegistry.end(),
-            [&](const WindowAndUpdateInterval& entry) {
-                if (auto winPtr = entry.windowWeakPtr.lock()) {
-                    return winPtr.get() == Win;
-                }
-                return false;
-            });
-
-        if (it != WindowRegistry.end()) {
-            WindowRegistry.erase(it, WindowRegistry.end());
-        }
-
-        // Clear Window from screen
-        TFillRect(Win->cfg.x, Win->cfg.y, Win->win_internal_width, Win->win_internal_height, ScreenBackgroundColor);
-    }
-
-/*
-void Callback2WinManager_Window_deleted (){//todo: say which one
-Serial.print("something deleted a Window.\n"); }
-*/
-
- // Clear all Windows
-    void clearAllWindows() {
-        for (auto& entry : WindowRegistry) {
+    auto it = std::remove_if(WindowRegistry.begin(), WindowRegistry.end(),
+        [&](const WindowAndUpdateInterval& entry) {
             if (auto winPtr = entry.windowWeakPtr.lock()) {
-                TFillRect(winPtr->cfg.x, winPtr->cfg.y, winPtr->cfg.width, winPtr->cfg.height, ScreenBackgroundColor);
+                return winPtr.get() == Win;
+            }
+            return false;
+        });
+
+    if (it != WindowRegistry.end()) {
+        WindowRegistry.erase(it, WindowRegistry.end());
+    }
+
+    TFillRect(Win->cfg.x, Win->cfg.y, Win->win_internal_width, Win->win_internal_height, ScreenBackgroundColor);
+}
+
+void WindowManager::clearAllWindows() {
+    for (auto& entry : WindowRegistry) {
+        if (auto winPtr = entry.windowWeakPtr.lock()) {
+            TFillRect(winPtr->cfg.x, winPtr->cfg.y, winPtr->cfg.width, winPtr->cfg.height, ScreenBackgroundColor);
+        }
+    }
+    WindowRegistry.clear();
+    tft_Fillscreen(ScreenBackgroundColor);
+}
+
+std::shared_ptr<Window> WindowManager::GetWindowByName(const std::string& WindowName) {
+    for (auto& entry : WindowRegistry) {
+        if (auto winPtr = entry.windowWeakPtr.lock()) {
+            if (winPtr->name == WindowName) {
+                return winPtr;
             }
         }
-        WindowRegistry.clear();  // Smart pointers clean up automatically
-        tft_Fillscreen(ScreenBackgroundColor);  // Black wipe the whole screen
     }
+    return nullptr;
+}
 
-    // Get Window by name
-    std::shared_ptr<Window> GetWindowByName(const std::string& WindowName) {
-        for (auto& entry : WindowRegistry) {
-            if (auto winPtr = entry.windowWeakPtr.lock()) {
-                if (winPtr->name == WindowName) {
-                    return winPtr;
-                }
-            }
-        }
-        return nullptr;  // If not found
-    }
-
-    // Other members...
-
-
-    // Update all Windows based on their tick intervals
-void UpdateAllWindows(bool Force,bool AndSubComps) {
+void WindowManager::UpdateAllWindows(bool Force, bool AndSubComps) {
     unsigned long currentTime = millis();
-
     for (auto it = WindowRegistry.begin(); it != WindowRegistry.end(); ) {
         if (auto winPtr = it->windowWeakPtr.lock()) {
             if (Force || (currentTime - winPtr->lastUpdateTime >= winPtr->UpdateTickRate)) {
-                if (winPtr->dirty || Force) {  // Check both conditions
+                if (winPtr->dirty || Force) {
                     winPtr->WinDraw();
-                    if (AndSubComps){winPtr->ForceUpdateSubComps(); }
+                    if (AndSubComps) winPtr->ForceUpdateSubComps();
                     winPtr->lastUpdateTime = currentTime;
-                    winPtr->dirty = false;  // Clear dirty flag after drawing
+                    winPtr->dirty = false;
                 }
             }
             ++it;
         } else {
-            it = WindowRegistry.erase(it);  // Remove invalid entry
+            it = WindowRegistry.erase(it);
         }
     }
 }
 
-
-void ApplyThemeAllWindows(uint16_t secondary, uint16_t background, uint16_t primary){
-
+void WindowManager::ApplyThemeAllWindows(uint16_t secondary, uint16_t background, uint16_t primary) {
     for (auto it = WindowRegistry.begin(); it != WindowRegistry.end(); ) {
         if (auto winPtr = it->windowWeakPtr.lock()) {
-          winPtr->ApplyTheme(secondary, background,primary);//change colors
+            winPtr->ApplyTheme(secondary, background, primary);
             ++it;
-            } else {
-            it = WindowRegistry.erase(it);  // Remove invalid entry
+        } else {
+            it = WindowRegistry.erase(it);
         }
     }
-
-UpdateAllWindows(true,true);
+    UpdateAllWindows(true, true);
 }
 
-
-void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
+void WindowManager::notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
     for (auto& entry : WindowRegistry) {
         if (auto winPtr = entry.windowWeakPtr.lock()) {
             if (winPtr.get() == targetWindow) {
@@ -2044,29 +1398,16 @@ void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate) {
     Serial.print("Error: Window not found in registry!");
 }
 
-
-
-
-
-void selfDestructWinManager(){ //for when we need to delete the manager becausse some fuckshit is happening
+void WindowManager::selfDestructWinManager() {
     WinManagerInstance = nullptr;
-
-//TODO, MAKE SURE I'M PROPERLY KILLING SINGLETON
     clearAllWindows();
-   tft.setCursor(0,64);
-  tft_Fillscreen(ScreenBackgroundColor); 
-   tft.print("graphics disabled"); //put on screen and it should just stay like that till they restart
-  Serial.print("shutting down all the fucking graphics. hope you have something to restart it later. try not to call anything when it's shut down.");
-  }
+    tft.setCursor(0, 64);
+    tft_Fillscreen(ScreenBackgroundColor);
+    tft.print("graphics disabled");
+    Serial.print("shutting down all the fucking graphics. hope you have something to restart it later. try not to call anything when it's shut down.");
+}
 
-
-private:
-//nothing in private. because we have nothing to hide. I LOVE THE GOVERNMENT I LOVE THE GOVERNMENT I LOVE THE GOVERNMENT PLEASE HIRE ME PLEASE I WANT MONEY
-
-};//end winmanager
-
-
-
+//void WindowManager::Callback2WinManager_Window_deleted(){   /*nothing yet, but callbacks are useful*/};
 
 //tips: to get Win by name use "Window* myWindow = WindowManager.getWindowByName("Window1");" w/ the name :)
 
@@ -2077,15 +1418,175 @@ private:
 
 
 
+//****************************************************************************************************************************************
+
+//canvas draw logic
+//canvases are pannels that you can draw various things in, and they'll keep it from spilling off. great for doing stuff like Windows
+
+//******************************************************************************************************************************************************
 
 
+// Canvas class definition
+Canvas::Canvas(const CanvasCfg& cfg, std::shared_ptr<Window> parent)
+  : x(cfg.x), y(cfg.y),
+    width(cfg.width), height(cfg.height),
+    borderless(cfg.borderless),
+    DrawBG(cfg.DrawBG),
+    bgColor(cfg.bgColor),
+    BorderColor(cfg.BorderColor),
+    parentWindow(parent),
+    UpdateTickRate(cfg.UpdateTickRate)
+{
+    clear();
+}
 
+Canvas::~Canvas() {
+    // nothing special for now
+}
 
-///***************************************************************************************************************************************************************************************************************************************************************
-//operating system defaults for various types of screen setups
-//default groupings are groups of default Windows to put on the screen in some conditions, saving you time from having to manually add one of each Window to the screen [lock screen,app screen, etc]
-///***************************************************************************************************************************************************************************************************************************************************************
+void Canvas::clear() {
+    if (DrawBG) {
+        TFillRect(x, y, width, height, bgColor);
+        canvasDirty = true;
+    } else if (auto p = parentWindow.lock()) {
+        CanvasForceParentUpdate(p);
+    }
+}
 
-//NONE NOW, WE NOW USE APPLICATIONS FOR THIS
+void Canvas::AddTextLine(int posX, int posY, const String& text,
+                         uint8_t txtsize, uint16_t color, int layer)
+{
+    DrawableElement e;
+    e.layer = layer;
+    e.type  = DrawType::Text;
+    strncpy(e.command.text.text, text.c_str(),
+            sizeof(e.command.text.text) - 1);
+    e.command.text.posX   = posX;
+    e.command.text.posY   = posY;
+    e.command.text.txtsize= txtsize;
+    e.command.text.color  = color;
+    drawElements.push_back(e);
+    canvasDirty = true;
+}
 
-#endif
+void Canvas::AddLine(int posX0, int posY0, int posX1, int posY1,
+                     uint16_t color, int layer)
+{
+    DrawableElement e;
+    e.layer = layer;
+    e.type  = DrawType::Line;
+    e.command.line = { posX0, posY0, posX1, posY1, color };
+    drawElements.push_back(e);
+    canvasDirty = true;
+}
+
+void Canvas::AddPixel(int posX, int posY, uint16_t color, int layer) {
+    DrawableElement e;
+    e.layer = layer;
+    e.type  = DrawType::Pixel;
+    e.command.pixel = { posX, posY, color };
+    drawElements.push_back(e);
+    canvasDirty = true;
+}
+
+void Canvas::AddFRect(int posX, int posY, int w, int h,
+                      uint16_t color, int layer) {
+    DrawableElement e; e.layer = layer; e.type = DrawType::FRect;
+    e.command.frect = { posX, posY, w, h, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddRect(int posX, int posY, int w, int h,
+                     uint16_t color, int layer) {
+    DrawableElement e; e.layer = layer; e.type = DrawType::Rect;
+    e.command.rect = { posX, posY, w, h, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddRFRect(int posX, int posY, int w, int h, uint16_t r,
+                       uint16_t color, int layer) {
+    DrawableElement e; e.layer = layer; e.type = DrawType::RFRect;
+    e.command.rfrect = { posX, posY, w, h, r, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddRRect(int posX, int posY, int w, int h, uint16_t r,
+                      uint16_t color, int layer) {
+    DrawableElement e; e.layer = layer; e.type = DrawType::RRect;
+    e.command.rrect = { posX, posY, w, h, r, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddTriangle(uint16_t x0, uint16_t y0, uint16_t x1,
+                         uint16_t y1, uint16_t x2, uint16_t y2,
+                         uint16_t color, int layer)
+{
+    DrawableElement e; e.layer = layer; e.type = DrawType::Triangle;
+    e.command.triangle = { x0, y0, x1, y1, x2, y2, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddFTriangle(uint16_t x0, uint16_t y0, uint16_t x1,
+                          uint16_t y1, uint16_t x2, uint16_t y2,
+                          uint16_t color, int layer)
+{
+    DrawableElement e; e.layer = layer; e.type = DrawType::FTriangle;
+    e.command.ftriangle = { x0, y0, x1, y1, x2, y2, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddFCircle(int posX, int posY, int r,
+                        uint16_t color, int layer)
+{
+    DrawableElement e; e.layer = layer; e.type = DrawType::FCircle;
+    e.command.fcircle = { posX, posY, r, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddCircle(int posX, int posY, int r,
+                       uint16_t color, int layer)
+{
+    DrawableElement e; e.layer = layer; e.type = DrawType::Circle;
+    e.command.circle = { posX, posY, r, color };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::AddBitmap(int posX, int posY, const uint16_t* bitmap,
+                       int w, int h, int layer)
+{
+    DrawableElement e; e.layer = layer; e.type = DrawType::Bitmap;
+    e.command.bitmap = { posX, posY, bitmap, w, h };
+    drawElements.push_back(e); canvasDirty = true;
+}
+
+void Canvas::CanvasDraw() {
+    if (DrawBG) TFillRect(x, y, width, height, bgColor);
+    if (!borderless) tft.drawRect(x, y, width, height, BorderColor);
+
+    std::sort(drawElements.begin(), drawElements.end(),
+              [](auto const &a, auto const &b){ return a.layer < b.layer; });
+
+    for (auto const &e : drawElements) {
+        switch (e.type) {
+            // uncomment & fill in your drawing code for each DrawType...
+            default: break;
+        }
+    }
+}
+
+void Canvas::CanvasUpdate(bool force) {
+    auto now = millis();
+    if (canvasDirty || (now - lastUpdateTime >= UpdateTickRate) || force) {
+        CanvasDraw();
+        lastUpdateTime = now;
+        canvasDirty = false;
+    }
+}
+
+void Canvas::ClearAll() {
+    drawElements.clear();
+    canvasDirty = true;
+}
+
+std::unique_ptr<WindowManager> WinManagerInstance;
+
