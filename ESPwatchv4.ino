@@ -65,7 +65,7 @@
 //mathematics prerequisite
 #include "types.h"
 #include "helperfunctions.h"
-
+#include "s_hell.h"
 #include "inputHandler.h"
 #include "mdl_clock.h"
 #include "SDFS.h"
@@ -85,7 +85,7 @@ SPIClass spiBus(HSPI);
 #define PCNT_CHANNEL_X PCNT_CHANNEL_0
 #define PCNT_CHANNEL_Y PCNT_CHANNEL_0  // Separate unit gets its own channel 0
 
-
+#include "globals.h"
 
 // Clamp macro
 
@@ -98,13 +98,6 @@ extern int16vect Navlimits_ = {64, 64, 0};//xyz, just as example here init'd to 
 //input handler.h has these
 
 // Wrap helper
-
-
-
-
-#define WATCHSCREEN_BUF_SIZE 512
-
-
 
 #define DBG_PRINTLN(x)  do { \
     tft.setCursor(0, _dbg_ypos); \
@@ -154,11 +147,12 @@ Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC,
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); //flashlight 
 
 //init windows
-WindowManager* windowManagerInstance = nullptr;
+extern std::unique_ptr<WindowManager> WinManagerInstance;
 
-static std::shared_ptr<Window> Win_GeneralPurpose; QueueHandle_t lockscreenQueue = nullptr;
-static std::shared_ptr<Window> lockscreen_biomon;
-static std::shared_ptr<Window> lockscreen_thermometer;
+extern std::shared_ptr<Window> Win_GeneralPurpose; 
+QueueHandle_t lockscreenQueue = nullptr;
+extern std::shared_ptr<Window> lockscreen_biomon;
+extern  std::shared_ptr<Window> lockscreen_thermometer;
 //static std::shared_ptr<Window> lockscreen_systemIcons;
 
 bool IsScreenOn=true;//why. just why
@@ -173,11 +167,11 @@ bool IsScreenOn=true;//why. just why
 
 
 
-uint16_t tcol_primary=0x0EFF;
-uint16_t tcol_secondary=0x88fB;
-uint16_t tcol_tertiary=0xe4ff;
-uint16_t tcol_highlight=0xdbbf;
-uint16_t tcol_background=0x2000;
+extern uint16_t tcol_primary;
+extern uint16_t tcol_secondary;
+extern uint16_t tcol_tertiary;
+extern uint16_t tcol_highlight;
+extern uint16_t tcol_background;
 //var references to set for the theme
  //   0x07ff, //teal
    // 0x77f9, //i can't find a good green
@@ -193,16 +187,16 @@ extern QueueHandle_t processInputQueue;
 
 extern char buf_applist[]; //ext for better access
 
-bool is_watch_screen_in_menu=false;
-bool isConfirming = false;
+extern bool is_watch_screen_in_menu;
+extern bool isConfirming;
 
 
 
-extern uint8_t CurrentOpenApplicationIndex=0; //for self referential current code-original reference in s_hell
+extern uint8_t CurrentOpenApplicationIndex; //for self referential current code-original reference in s_hell
 
 
-bool stopwatchRunning = false;
-unsigned long stopwatchStart = 0;
+extern bool stopwatchRunning;
+extern unsigned long stopwatchStart;
 
 
 //nfc-rfid
@@ -257,7 +251,6 @@ void scanI2C() {
 
 }
 
-uint8_t selectedTimerIndex = 0;  // Tracks which timer we're editing
 
 TaskHandle_t watchScreenHandle; //handle be4 use
 
@@ -329,8 +322,8 @@ DBG_PRINTLN("hr sensor ok");
 }
 
 
-    windowManagerInstance = WindowManager::getWinManagerInstance();
-    if (!windowManagerInstance) {
+    WinManagerInstance = std::unique_ptr<WindowManager>(WindowManager::getWinManagerInstance());
+    if (!WinManagerInstance) {
         DBG_PRINTLN("WinMgr FAIL");
         return;
     } else {
@@ -346,7 +339,7 @@ CREATE_LOCKSCREEN_WINDOWS();//CREATE DEFAULT LOCKSCREEN SHIT
 TFillRect(0,0,128,128,tcol_background);//black screen out
 
 
-windowManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
+WinManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
 
 
 
@@ -377,7 +370,7 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
 
 
 
-    int WatchScreenUpdateInterval=500;//declaration
+    extern int WatchScreenUpdateInterval;
 
 
 
@@ -395,11 +388,11 @@ void clearScreenEveryXCalls(uint16_t x) {
 
  
     // Shared buffers for display
-    char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
+   extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
     char thermoStr[8];
     char hrStr[8];
     
-uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
+extern uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
 
   
   //need struct for theother thing here for alarm mode
@@ -418,49 +411,13 @@ uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, O
 
 
 
-WindowCfg d_ls_c_cfg = { //clock
-    14, 64, //xy
-    100, 42, //wh
-    false, false, //auto align,wraptext
-    2, //text size
-    true,//borderless?
-    tcol_secondary, tcol_background, tcol_primary, // <-- pass addresses!. colors
-    1000 //update interval ms
-};
+extern WindowCfg d_ls_c_cfg;
 
-WindowCfg d_ls_b_cfg = {//heart monitor
-    86, 0,
-    50, 12,
-    false, false,
-    1,
-    true,
-    tcol_secondary, tcol_background, tcol_primary,
-    1000
-};
+extern WindowCfg d_ls_b_cfg;
 
-WindowCfg d_ls_th_cfg = {//thermometer
-    8, 0,
-    50, 12,
-    false, false,
-    1,
-    false,
-    tcol_secondary, tcol_background, tcol_primary,
-    1000
-};
+extern WindowCfg d_ls_th_cfg;
 
-void CREATE_LOCKSCREEN_WINDOWS(){
-        Win_GeneralPurpose = std::make_shared<Window>("Win_GeneralPurpose", d_ls_c_cfg, "HH:MM:SS");
-    windowManagerInstance->registerWindow(Win_GeneralPurpose);
-    DBG_PRINTLN("Clock OK");
 
-            lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
-    windowManagerInstance->registerWindow(lockscreen_biomon);
-    DBG_PRINTLN("Biomon OK");
-
-        lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
-    windowManagerInstance->registerWindow(lockscreen_thermometer);
-
-}
 
 //i put this above everything to avoid bugs because .ino is evil. typedef enum{WM_MAIN, WM_STOPWATCH,WM_ALARMS,WM_TIMER,WM_NTP_SYNCH, WM_SET_TIME,WM_SET_TIMEZONE}Wat ch mo de enum
 //app-appmenu==============================================================================
@@ -525,14 +482,14 @@ void watchscreen(void *pvParameters) {
 
 
 
-                    Win_GeneralPurpose->updateContent(watchscreen_buf);//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent(watchscreen_buf);//WinManagerInstance->UpdateAllWindows(true,false);
                     break;
                 }
 
                 case WM_ALARMS:
                 
                     // TODO: Display upcoming alarms or alarm setup screen
-                    Win_GeneralPurpose->updateContent("ALARM MODE");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("ALARM MODE");//WinManagerInstance->UpdateAllWindows(true,false);
                     break;
 
 case WM_TIMER:
@@ -542,16 +499,16 @@ case WM_TIMER:
 
 
                 case WM_NTP_SYNCH:
-                    Win_GeneralPurpose->updateContent("Syncing Time...");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Syncing Time...");//WinManagerInstance->UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIME:
-                    Win_GeneralPurpose->updateContent("Set Time Mode");//windowManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Set Time Mode");//WinManagerInstance->UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIMEZONE:
                     Win_GeneralPurpose->updateContent("Set TZ Mode");
-                    windowManagerInstance->UpdateAllWindows(true,false);
+                    WinManagerInstance->UpdateAllWindows(true,false);
                     break;
 
 
@@ -573,7 +530,7 @@ case WM_TIMER:
        // Win_GeneralPurpose->WinDraw();
 
         //if (currentWatchMode != WM_APPMENU) { 
-           windowManagerInstance->UpdateAllWindows(true,false);
+           WinManagerInstance->UpdateAllWindows(true,false);
 
         clearScreenEveryXCalls(1000); //sometimes screen has weird update colisions, this resets it. sure it's spagetti and will make it stutter, but whatever man. temp only, do not use in prod. 
         
@@ -604,16 +561,7 @@ case WM_TIMER:
 
 
 
-// Helper function to persist alarms to storage
-bool SaveTimer() {
-    // Implementation depends on your storage system
-    // Example for EEPROM:
-    /*
-    EEPROM.put(ALARMS_STORAGE_ADDR, usrmade_timers);
-    return EEPROM.commit();
-    */
-    return true; // Stub implementation
-}
+
 
 // text ConfirmOptionTimer 
 /* erememmemmrebbr
@@ -684,7 +632,7 @@ WindowCfg w_conf_hrmon = {
 
 void CREATE_Healthmonitor_WINDOWS() {
   hrmonitor = std::make_shared<Window>("hrmonitor", w_conf_hrmon, "x");
-  windowManagerInstance->registerWindow(hrmonitor);
+  WinManagerInstance->registerWindow(hrmonitor);
   DBG_PRINTLN("HR Monitor OK");
 }
 

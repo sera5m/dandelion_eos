@@ -116,3 +116,7 @@ FileType GetFileType(const char* extension) {
 FileType GetFileTypeFromName(const char* filename) {
     return GetFileType(getFileExtension(filename));
 }
+
+
+
+

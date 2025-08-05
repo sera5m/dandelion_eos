@@ -8,16 +8,39 @@
 #include "InputHandler.h"
 #include "mdl_clock.h"
 #include "s_hell.h"
+#include "Micro2D_A.h"
+#include "globals.h"
+#include <cstdint>
+#include <Arduino.h>
+
 #pragma once
+extern std::unique_ptr<WindowManager> WinManagerInstance;
+extern std::shared_ptr<Window> Win_GeneralPurpose; 
+extern std::shared_ptr<Window> lockscreen_biomon;
+extern std::shared_ptr<Window> lockscreen_thermometer;
+
 
 #define MAX_VISIBLE 15
 extern char buf_applist[25 * MAX_VISIBLE]; //
+extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
 
- EditState timerEditState; //in types.h, options off,running,confirm
- uint8_t currentTimerField; 
- 
-WatchMode currentWatchMode = WM_MAIN;
-int stopwatchElapsed=0;
+extern EditState timerEditState;
+extern uint8_t currentTimerField;
+
+// Watch mode and timers
+extern WatchMode currentWatchMode;
+extern int stopwatchElapsed;
+extern uint8_t selectedTimerIndex;
+
+// UI state
+extern bool is_watch_screen_in_menu;
+extern bool isConfirming;
+
+// Stopwatch
+extern bool stopwatchRunning;
+extern unsigned long stopwatchStart;
+extern uint8_t watchModeIndex;
+extern int WatchScreenUpdateInterval;
 
 
 extern usr_alarm_st usrmade_alarms[10]; 
@@ -52,6 +75,7 @@ typedef enum {
 
 
 //function declarations
+void CREATE_LOCKSCREEN_WINDOWS();
 void handleTimerFieldAdjustment(bool increase);
 void updateAppList(char *buf, size_t bufSize, const char **apps, int count);
 std::string formatTimerSetter(uint8_t highlightedField, bool confirmMode, uint8_t timerIndex);
@@ -63,5 +87,5 @@ static void on_wm_stopwatch_input(uint16_t key);
 static void on_wm_appmenu_input(uint16_t key);
 void render_timer_screen();
 void on_wm_timer_input(uint16_t key);
-
+bool SaveTimer();
 #endif

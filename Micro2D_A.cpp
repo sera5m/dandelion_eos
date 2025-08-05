@@ -1588,5 +1588,5 @@ void Canvas::ClearAll() {
     canvasDirty = true;
 }
 
-std::unique_ptr<WindowManager> WinManagerInstance;
+std::unique_ptr<WindowManager> WinManagerInstance; //singlet of windowmanager/winmanager
 

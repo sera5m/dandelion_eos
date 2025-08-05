@@ -14,15 +14,49 @@
 //give up and shotgun them all in because fuck me
 #include "InputHandler.h"
 #include "s_hell.h"
+#include "Micro2D_A.h"
+#include "globals.h"
+#include <Arduino.h>
 
+extern std::unique_ptr<WindowManager> WinManagerInstance;
 
+ std::shared_ptr<Window> Win_GeneralPurpose; 
+ std::shared_ptr<Window> lockscreen_biomon;
+ std::shared_ptr<Window> lockscreen_thermometer;
+
+ void CREATE_LOCKSCREEN_WINDOWS(){
+    Win_GeneralPurpose = std::make_shared<Window>("Win_GeneralPurpose", d_ls_c_cfg, "HH:MM:SS");
+WinManagerInstance->registerWindow(Win_GeneralPurpose);
+//do not use this here!//DBG_PRINTLN("Clock OK");
+
+        lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
+WinManagerInstance->registerWindow(lockscreen_biomon);
+//do not use this here!//DBG_PRINTLN("Biomon OK");
+
+    lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
+WinManagerInstance->registerWindow(lockscreen_thermometer);
+
+}
+int WatchScreenUpdateInterval=500;
+char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
 char buf_applist[25*MAX_VISIBLE]; 
- extern EditState timerEditState; //in types.h, options off,running,confirm
- extern uint8_t currentTimerField; 
- 
+// Timer editing state and field
+EditState timerEditState;
+uint8_t currentTimerField;
 
-extern WatchMode currentWatchMode = WM_MAIN;
-extern int stopwatchElapsed=0;
+// Watch mode and timers
+WatchMode currentWatchMode = WM_MAIN;
+int stopwatchElapsed = 0;
+uint8_t selectedTimerIndex = 0;
+uint8_t watchModeIndex=0;
+
+// UI state
+bool is_watch_screen_in_menu = false;
+bool isConfirming = false;
+
+// Stopwatch
+bool stopwatchRunning = false;
+unsigned long stopwatchStart = 0;
 
 void handleTimerFieldAdjustment(bool increase) {
     // Safety check - ensure we're editing a valid timer
@@ -564,6 +598,16 @@ switch (desiredMode){
                    
                 break;
             }//end switch
-tft.fillScreen(tcol_background); //clean the scren up, prep 4 next udpate
+            tft_Fillscreen(tcol_background); //clean the scren up, prep 4 next udpate
 }//end fn       
 
+// Helper function to persist alarms to storage
+bool SaveTimer() {
+    // Implementation depends on your storage system
+    // Example for EEPROM:
+    /*
+    EEPROM.put(ALARMS_STORAGE_ADDR, usrmade_timers);
+    return EEPROM.commit();
+    */
+    return true; // Stub implementation
+}

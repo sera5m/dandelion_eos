@@ -2,6 +2,46 @@
 #include "helperfunctions.h"
 #include "s_hell.h"
 #include "InputHandler.h"
+#include "Micro2D_A.h"
+#include "globals.h"
+#include <cstdint>
+#include <Arduino.h>
+
+uint8_t CurrentOpenApplicationIndex=0; 
+
+
+WindowCfg d_ls_c_cfg = { //clock
+    14, 64, //xy
+    100, 42, //wh
+    false, false, //auto align,wraptext
+    2, //text size
+    true,//borderless?
+    tcol_secondary, tcol_background, tcol_primary, // <-- pass addresses!. colors
+    1000 //update interval ms
+};
+
+ WindowCfg d_ls_b_cfg = {//heart monitor
+    86, 0,
+    50, 12,
+    false, false,
+    1,
+    true,
+    tcol_secondary, tcol_background, tcol_primary,
+    1000
+};
+
+ WindowCfg d_ls_th_cfg = {//thermometer
+    8, 0,
+    50, 12,
+    false, false,
+    1,
+    false,
+    tcol_secondary, tcol_background, tcol_primary,
+    1000
+};
+
+
+
 
 void transitionApp(uint8_t index) {
     AppName app = (AppName)index;
@@ -87,7 +127,7 @@ enum BASIC_INTERPRETER_CMD_EXECUTION {
     EM_BASIC_STOP,     // "STOP"
     EM_BASIC_CLEAR,    // "CLEAR"
     EM_BASIC_CLS       // "CLS"
-};
+}   ;
 
 // === Control Flow ===
 enum BASIC_INTERPRETER_CMD_FLOW {
