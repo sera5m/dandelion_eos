@@ -18,7 +18,7 @@
 #include "globals.h"
 #include <Arduino.h>
 
-extern std::unique_ptr<WindowManager> WinManagerInstance;
+//extern std::unique_ptr<WindowManager> WinManagerInstance;
 
  std::shared_ptr<Window> Win_GeneralPurpose; 
  std::shared_ptr<Window> lockscreen_biomon;
@@ -26,15 +26,15 @@ extern std::unique_ptr<WindowManager> WinManagerInstance;
 
  void CREATE_LOCKSCREEN_WINDOWS(){
     Win_GeneralPurpose = std::make_shared<Window>("Win_GeneralPurpose", d_ls_c_cfg, "HH:MM:SS");
-WinManagerInstance->registerWindow(Win_GeneralPurpose);
+WindowManager::getInstance().registerWindow(Win_GeneralPurpose);
 //do not use this here!//DBG_PRINTLN("Clock OK");
 
         lockscreen_biomon = std::make_shared<Window>("lockscreen_biomon", d_ls_b_cfg, "XXXbpm");
-WinManagerInstance->registerWindow(lockscreen_biomon);
+WindowManager::getInstance().registerWindow(lockscreen_biomon);
 //do not use this here!//DBG_PRINTLN("Biomon OK");
 
     lockscreen_thermometer = std::make_shared<Window>("lockscreen_thermometer", d_ls_th_cfg, "XXXC");
-WinManagerInstance->registerWindow(lockscreen_thermometer);
+WindowManager::getInstance().registerWindow(lockscreen_thermometer);
 
 }
 int WatchScreenUpdateInterval=500;

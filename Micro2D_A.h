@@ -417,14 +417,25 @@ class Window : public std::enable_shared_from_this<Window> {
         }
     };
     
-
-class WindowManager {
+    
+    class WindowManager {
     public:
-        WindowManager();
+        // Singleton access
+        static WindowManager& getInstance() {
+            static WindowManager instance;
+            return instance;
+        }
+    
+        // Public destructor
         ~WindowManager();
+        
+        // Remove copy/move operations
+        WindowManager(const WindowManager&) = delete;
+        WindowManager& operator=(const WindowManager&) = delete;
+        WindowManager(WindowManager&&) = delete;
+        WindowManager& operator=(WindowManager&&) = delete;
     
-        static WindowManager* getWinManagerInstance();
-    
+        // Existing methods
         void registerWindow(std::shared_ptr<Window> Win);
         void unregisterWindow(Window* Win);
         void clearAllWindows();
@@ -432,20 +443,21 @@ class WindowManager {
         void UpdateAllWindows(bool Force, bool AndSubComps);
         void ApplyThemeAllWindows(uint16_t secondary, uint16_t background, uint16_t primary);
         void notifyUpdateTickRateChange(Window* targetWindow, int newUpdateTickRate);
-        void selfDestructWinManager();
-       // void Callback2WinManager_Window_deleted();
+        
+        // Initialize graphics system
+        bool initialize(bool graphicsEnabled);
     
     private:
+        WindowManager(); // Private constructor
+        
+        bool AreGraphicsEnabled = false;
         std::vector<WindowAndUpdateInterval> WindowRegistry;
     };
 
 
 
 
-
-
-
-    extern std::unique_ptr<WindowManager> WinManagerInstance;
+    //extern std::unique_ptr<WindowManager> WinManagerInstance;
 
 
 

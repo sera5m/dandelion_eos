@@ -147,7 +147,7 @@ Adafruit_SSD1351 tft(SCREEN_WIDTH, SCREEN_HEIGHT, &spiBus, SPI_CS_OLED, OLED_DC,
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); //flashlight 
 
 //init windows
-extern std::unique_ptr<WindowManager> WinManagerInstance;
+//extern std::unique_ptr<WindowManager> WinManagerInstance;
 
 extern std::shared_ptr<Window> Win_GeneralPurpose; 
 QueueHandle_t lockscreenQueue = nullptr;
@@ -322,13 +322,13 @@ DBG_PRINTLN("hr sensor ok");
 }
 
 
-    WinManagerInstance = std::unique_ptr<WindowManager>(WindowManager::getWinManagerInstance());
-    if (!WinManagerInstance) {
+ if (!WindowManager::getInstance().initialize(true)) {
         DBG_PRINTLN("WinMgr FAIL");
         return;
     } else {
         DBG_PRINTLN("WinMgr OK");
     }
+
 //SetDeviceTheme(mint);
 //tft.setContrast(254);
 
@@ -339,7 +339,7 @@ CREATE_LOCKSCREEN_WINDOWS();//CREATE DEFAULT LOCKSCREEN SHIT
 TFillRect(0,0,128,128,tcol_background);//black screen out
 
 
-WinManagerInstance->ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
+WindowManager::getInstance().ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
 
 
 
@@ -392,7 +392,7 @@ void clearScreenEveryXCalls(uint16_t x) {
     char thermoStr[8];
     char hrStr[8];
     
-extern uint8_t watchModeIndex = 0; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
+extern uint8_t watchModeIndex; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
 
   
   //need struct for theother thing here for alarm mode
@@ -482,14 +482,14 @@ void watchscreen(void *pvParameters) {
 
 
 
-                    Win_GeneralPurpose->updateContent(watchscreen_buf);//WinManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent(watchscreen_buf);//WindowManager::getInstance().UpdateAllWindows(true,false);
                     break;
                 }
 
                 case WM_ALARMS:
                 
                     // TODO: Display upcoming alarms or alarm setup screen
-                    Win_GeneralPurpose->updateContent("ALARM MODE");//WinManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("ALARM MODE");//WindowManager::getInstance().UpdateAllWindows(true,false);
                     break;
 
 case WM_TIMER:
@@ -499,16 +499,16 @@ case WM_TIMER:
 
 
                 case WM_NTP_SYNCH:
-                    Win_GeneralPurpose->updateContent("Syncing Time...");//WinManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Syncing Time...");//WindowManager::getInstance().UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIME:
-                    Win_GeneralPurpose->updateContent("Set Time Mode");//WinManagerInstance->UpdateAllWindows(true,false);
+                    Win_GeneralPurpose->updateContent("Set Time Mode");//WindowManager::getInstance().UpdateAllWindows(true,false);
                     break;
 
                 case WM_SET_TIMEZONE:
                     Win_GeneralPurpose->updateContent("Set TZ Mode");
-                    WinManagerInstance->UpdateAllWindows(true,false);
+                    WindowManager::getInstance().UpdateAllWindows(true,false);
                     break;
 
 
@@ -530,7 +530,7 @@ case WM_TIMER:
        // Win_GeneralPurpose->WinDraw();
 
         //if (currentWatchMode != WM_APPMENU) { 
-           WinManagerInstance->UpdateAllWindows(true,false);
+           WindowManager::getInstance().UpdateAllWindows(true,false);
 
         clearScreenEveryXCalls(1000); //sometimes screen has weird update colisions, this resets it. sure it's spagetti and will make it stutter, but whatever man. temp only, do not use in prod. 
         
@@ -632,7 +632,7 @@ WindowCfg w_conf_hrmon = {
 
 void CREATE_Healthmonitor_WINDOWS() {
   hrmonitor = std::make_shared<Window>("hrmonitor", w_conf_hrmon, "x");
-  WinManagerInstance->registerWindow(hrmonitor);
+  WindowManager::getInstance().registerWindow(hrmonitor);
   DBG_PRINTLN("HR Monitor OK");
 }
 

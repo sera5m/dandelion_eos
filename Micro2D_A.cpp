@@ -1290,13 +1290,10 @@ WindowManager::WindowManager() {
 
 WindowManager::~WindowManager() {
     clearAllWindows();
-    WinManagerInstance = nullptr;
-    IsWindowHandlerAlive = false;
     Serial.print("WindowManager destroyed.\n");
-    tft_Fillscreen(ScreenBackgroundColor);
-    tft.print("graphics system disabled");
+    //if (tft_initialized) {        tft_Fillscreen(ScreenBackgroundColor);        tft.print("graphics system disabled");    }
 }
-
+/*
 WindowManager* WindowManager::getWinManagerInstance() {
     if (!AreGraphicsEnabled) {
         Serial.print("Error: Graphics not enabled. WindowManager will not start.");
@@ -1306,12 +1303,15 @@ WindowManager* WindowManager::getWinManagerInstance() {
         WinManagerInstance = std::make_unique<WindowManager>();
     }
     return WinManagerInstance.get();
-}
+}*/
 
 void WindowManager::registerWindow(std::shared_ptr<Window> Win) {
     WindowRegistry.emplace_back(Win);
 }
-
+bool WindowManager::initialize(bool graphicsEnabled) {
+    AreGraphicsEnabled = graphicsEnabled;
+    return AreGraphicsEnabled;
+}
 void WindowManager::unregisterWindow(Window* Win) {
     if (!Win) return;
 
@@ -1397,7 +1397,7 @@ void WindowManager::notifyUpdateTickRateChange(Window* targetWindow, int newUpda
     }
     Serial.print("Error: Window not found in registry!");
 }
-
+/*
 void WindowManager::selfDestructWinManager() {
     WinManagerInstance = nullptr;
     clearAllWindows();
@@ -1405,7 +1405,7 @@ void WindowManager::selfDestructWinManager() {
     tft_Fillscreen(ScreenBackgroundColor);
     tft.print("graphics disabled");
     Serial.print("shutting down all the fucking graphics. hope you have something to restart it later. try not to call anything when it's shut down.");
-}
+}*/
 
 //void WindowManager::Callback2WinManager_Window_deleted(){   /*nothing yet, but callbacks are useful*/};
 
@@ -1588,5 +1588,6 @@ void Canvas::ClearAll() {
     canvasDirty = true;
 }
 
-std::unique_ptr<WindowManager> WinManagerInstance; //singlet of windowmanager/winmanager
+//std::unique_ptr<WindowManager> WinManagerInstance; //singlet of windowmanager/winmanager
 
+//end micro2d_A.cpp
