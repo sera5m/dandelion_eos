@@ -18,7 +18,8 @@
 
  extern WindowCfg d_ls_th_cfg;
 
-
+ extern void WatchScreenTask(void*); //defined in mainapp
+ extern void nfcTask(void*);//defined at nfcapp
 
 
  extern AppName CurrentOpenApplicationIndex;

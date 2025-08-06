@@ -90,7 +90,7 @@ TaskHandle_t* GetTaskHandleByIndex(AppName index) {
 
 //taskdefs must be defined
 extern void WatchScreenTask(void*); //defined in mainapp
-extern void NFCTask(void*);//defined at nfcapp
+extern void nfcTask(void*);//defined at nfcapp
 // Add other task entry points as needed...
 
 bool on_app_change(
@@ -123,7 +123,7 @@ bool on_app_change(
                     xTaskCreate(WatchScreenTask, "WatchScreen", 2048, nullptr, 1, newTaskHandlePtr);
                     break;
                 case APP_NFC:
-                    xTaskCreate(NFCTask, "NFC", 4096, nullptr, 1, newTaskHandlePtr);
+                    xTaskCreate(nfcTask, "NFC", 4096, nullptr, 1, newTaskHandlePtr);
                     break;
                 // Add other app cases and task functions here
                 default:

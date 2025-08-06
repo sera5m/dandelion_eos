@@ -619,7 +619,7 @@ bool SaveTimer() {
 
 
 
-void watchscreen(void *pvParameters) { 
+void WatchScreenTask(void *pvParameters) { 
     (void)pvParameters;
 
 
@@ -730,7 +730,7 @@ case WM_TIMER:
 
 void CreateWatchscreen(){
     xTaskCreate(
-        watchscreen,           //  actual task function (void watchscreen(void*))
+        WatchScreenTask,           //  actual task function (void watchscreen(void*))
         "WatchScreen",         // Task name
         4096,                  // Stack size
         NULL,                  // Task params
