@@ -70,7 +70,7 @@ class Canvas;
 class WindowManager;*/
 
 //structs
-
+extern uint16_t tcol_background;
  struct TextChunk {
     bool isTag;
     std::string value;
@@ -458,7 +458,7 @@ class Window : public std::enable_shared_from_this<Window> {
 
 
     //extern std::unique_ptr<WindowManager> WinManagerInstance;
-
+void clearScreenEveryXCalls(uint16_t x);
 
 
 

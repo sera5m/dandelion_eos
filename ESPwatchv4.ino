@@ -133,7 +133,7 @@ GyroData gyroData;
 
 //time
 
-int16_t temp_c=69;
+extern int16_t temp_c;
 extern int AVG_HR;
 
 //fuckj this were gonna put it wice
@@ -181,7 +181,7 @@ extern uint16_t tcol_background;
 //list_Themes Current_Theme=mint; //set the current theme to a nice default
 
 
-
+extern TaskHandle_t watchScreenHandle;
 
 extern QueueHandle_t processInputQueue;
 
@@ -192,7 +192,7 @@ extern bool isConfirming;
 
 
 
-extern uint8_t CurrentOpenApplicationIndex; //for self referential current code-original reference in s_hell
+extern AppName CurrentOpenApplicationIndex; //for self referential current code-original reference in s_hell
 
 
 extern bool stopwatchRunning;
@@ -252,8 +252,8 @@ void scanI2C() {
 }
 
 
-TaskHandle_t watchScreenHandle; //handle be4 use
-
+extern TaskHandle_t watchScreenHandle; //handle be4 use
+extern TaskHandle_t inputTaskHandle;
 void setup() {
   strip.begin();
   strip.show(); 
@@ -342,19 +342,23 @@ TFillRect(0,0,128,128,tcol_background);//black screen out
 WindowManager::getInstance().ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
 
 
-
 processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
-xTaskCreate(watchscreen, "WatchScreen", 4096, NULL, 1, NULL);//core 0 watch screen 
 
+//create startup tasks
 xTaskCreatePinnedToCore(
-    INPUT_tick,         // Task function
-    "INPUT_tick",       // Name
-    4096,               // Stack size-potentially larger to handle things?
-    NULL,               // Params
-    2,                  // Priority
-    &watchScreenHandle, // Handle
-    1                   // Core
+    INPUT_tick,
+    "INPUT_tick",
+    4096,
+    NULL,
+    2,
+    &inputTaskHandle,  //now has input task handle
+    1
 );
+
+
+CreateWatchscreen();
+
+
 
 
 //evil spagetti
@@ -368,29 +372,19 @@ currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to rout
     tft.fillScreen(tcol_background);   
 }//end void setup
 
-
+extern TaskHandle_t watchScreenHandle;
 
     extern int WatchScreenUpdateInterval;
 
 
 
 
-void clearScreenEveryXCalls(uint16_t x) {
-    static uint16_t callCount = 0;
-    
-    callCount++;
-    
-    if (callCount >= x) {
-        tft.fillRect(0, 0, 128, 128, tcol_background);
-        callCount = 0;
-    }
-}
+
 
  
     // Shared buffers for display
    extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
-    char thermoStr[8];
-    char hrStr[8];
+  
     
 extern uint8_t watchModeIndex; //persistant var, COMPLETELY unrelated from mouse, ONLY indicates the watch mode itself
 
@@ -398,9 +392,6 @@ extern uint8_t watchModeIndex; //persistant var, COMPLETELY unrelated from mouse
   //need struct for theother thing here for alarm mode
 
 // Field ordering matching formatTimerSetter() display
-
-
-// Modified handleTimerFieldAdjustment
 
 
 
@@ -434,114 +425,6 @@ extern usr_alarm_st usrmade_timers[5];
 bool CacheMenuConfirmState = false; 
 */
 
-void watchscreen(void *pvParameters) { 
-    (void)pvParameters;
-
-
-    //update rate changes per device yammering
-
-
-    for (;;) {
-        if (IsScreenOn && Win_GeneralPurpose) {
-            unsigned long now = millis();
-
-            switch (currentWatchMode) {
-
-                case WM_MAIN:
-                WatchScreenUpdateInterval=500;
-                    snprintf(watchscreen_buf, sizeof(watchscreen_buf), "%02d:%02d<textsize(2)>:%02d<n><textsize(1)>%s %d",
-                             CurrentNormieTime.hour,
-                             CurrentNormieTime.minute,
-                             CurrentNormieTime.second,
-                             TRIchar_month_names[CurrentNormieTime.month],
-                             CurrentNormieTime.day);
-                    Win_GeneralPurpose->updateContent(watchscreen_buf);
-
-                    snprintf(thermoStr, sizeof(thermoStr), "%dC", temp_c);
-                    lockscreen_thermometer->updateContent(thermoStr);
-
-                    snprintf(hrStr, sizeof(hrStr), "%dbpm", AVG_HR);
-                    lockscreen_biomon->updateContent(hrStr);
-                    break;
-
-                case WM_STOPWATCH: {
-                    WatchScreenUpdateInterval=200;//update WAY more frequently at 200ms
-                    unsigned long elapsed;
-                    if (stopwatchRunning) {
-                        elapsed = stopwatchElapsed + (now - stopwatchStart);
-                    } else {
-                        elapsed = stopwatchElapsed;
-                    }
-                    
-                    unsigned int s  = (elapsed / 1000) % 60;
-                    unsigned int m  = (elapsed / 60000) % 60;
-                    unsigned int h  = elapsed / 3600000;
-                    unsigned int ms = elapsed % 1000;
-
-                   snprintf(watchscreen_buf, sizeof(watchscreen_buf), "%02u:%02u:%02u<n><textsize(1)>.%03u%s", h, m, s, ms, stopwatchRunning ? "<n><textsize(1)>RUN" : "<n><textsize(1)>STOP");
-
-
-
-                    Win_GeneralPurpose->updateContent(watchscreen_buf);//WindowManager::getInstance().UpdateAllWindows(true,false);
-                    break;
-                }
-
-                case WM_ALARMS:
-                
-                    // TODO: Display upcoming alarms or alarm setup screen
-                    Win_GeneralPurpose->updateContent("ALARM MODE");//WindowManager::getInstance().UpdateAllWindows(true,false);
-                    break;
-
-case WM_TIMER:
-    render_timer_screen();
-    break;
-
-
-
-                case WM_NTP_SYNCH:
-                    Win_GeneralPurpose->updateContent("Syncing Time...");//WindowManager::getInstance().UpdateAllWindows(true,false);
-                    break;
-
-                case WM_SET_TIME:
-                    Win_GeneralPurpose->updateContent("Set Time Mode");//WindowManager::getInstance().UpdateAllWindows(true,false);
-                    break;
-
-                case WM_SET_TIMEZONE:
-                    Win_GeneralPurpose->updateContent("Set TZ Mode");
-                    WindowManager::getInstance().UpdateAllWindows(true,false);
-                    break;
-
-
-                case WM_APPMENU:
-                    updateAppList(buf_applist, sizeof(buf_applist), appNames, APP_COUNT);
-                    Win_GeneralPurpose->updateContent(buf_applist);
-                 break;
-
-
-
-
-
-                default:
-                    Serial.println("Unknown WatchMode!");
-                    WatchScreenUpdateInterval=600;
-                    Win_GeneralPurpose->updateContent("ERROR: Bad Mode");
-                    break;
-            }//switch statement
-       // Win_GeneralPurpose->WinDraw();
-
-        //if (currentWatchMode != WM_APPMENU) { 
-           WindowManager::getInstance().UpdateAllWindows(true,false);
-
-        clearScreenEveryXCalls(1000); //sometimes screen has weird update colisions, this resets it. sure it's spagetti and will make it stutter, but whatever man. temp only, do not use in prod. 
-        
-        vTaskDelay(pdMS_TO_TICKS(WatchScreenUpdateInterval));
-
-    }//if screen is the clock
-
-
-    }//for;;
-
-}//void watch screen
 
 //input tick============================================================================================================================
 
@@ -618,7 +501,7 @@ void INPUT_tick(void *pvParameters) {
 }
 
 
-
+/*
 //app health monitor================================================================================================================================================
 std::shared_ptr<Window> hrmonitor;
 
@@ -671,7 +554,7 @@ void healthMonitorTask(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
-
+*/
 
 
 /*

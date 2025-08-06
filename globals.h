@@ -19,10 +19,30 @@ extern uint16_t tcol_background;
 // 0xE4FF, // lavender
 // 0xD7FD, // very light green highlight
 // 0x29E6  // background
+//default theme, plain
+extern int16_t temp_c;
+extern int AVG_HR;
 
-//#define evilcodebase 0 // Alternatively, define this externally
+
+//ui color pallettes
+typedef struct __attribute__((packed)) {
+  uint16_t primary;
+  uint16_t secondary;
+  uint16_t teritary;   // assuming this is not a typo (should be 'tertiary'?)
+  uint16_t highlight;
+  uint16_t background;
+} ui_color_palette;
 
 
+extern ui_color_palette UITHM_mint;
+// Other themes
+extern ui_color_palette UITHM_hacker;
+extern ui_color_palette UITHM_specOps;
+extern ui_color_palette UITHM_terminal;
+extern ui_color_palette UITHM_userCustom;
+
+
+#define evilcodebase 0 // Alternatively, define this externally
 //enable for EVIL!!!
 #ifndef evilcodebase
 #define evilcodebase 0

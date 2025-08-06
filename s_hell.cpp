@@ -6,10 +6,10 @@
 #include "globals.h"
 #include <cstdint>
 #include <Arduino.h>
+#include "NFCAPP.h"
 
-uint8_t CurrentOpenApplicationIndex=0; 
 
-
+//app ui configs
 WindowCfg d_ls_c_cfg = { //clock
     14, 64, //xy
     100, 42, //wh
@@ -40,69 +40,146 @@ WindowCfg d_ls_c_cfg = { //clock
     1000
 };
 
+AppName CurrentOpenApplicationIndex=APP_LOCK_SCREEN; 
+//handles for tasks/apps
+//follows finite state machine to ensure correct task starts, management done here.
+
+TaskHandle_t inputTaskHandle; //NEVER changed!!!!
+
+TaskHandle_t currentAppTaskHandle=nullptr; //current app task will be disabled and swapped to the desired app task
+TaskHandle_t watchScreenHandle    = nullptr;
+TaskHandle_t healthTaskHandle     = nullptr;
+TaskHandle_t nfcTaskHandle        = nullptr;
+TaskHandle_t settingsTaskHandle   = nullptr;
+TaskHandle_t gyroInfoTaskHandle   = nullptr;
+TaskHandle_t filesTaskHandle      = nullptr;
+TaskHandle_t radioTaskHandle      = nullptr;
+TaskHandle_t irRemoteTaskHandle   = nullptr;
+TaskHandle_t utilitiesTaskHandle  = nullptr;
+TaskHandle_t etoolsTaskHandle     = nullptr;
+TaskHandle_t rubberDuckyTaskHandle= nullptr;
+TaskHandle_t connectionsTaskHandle= nullptr;
+TaskHandle_t smartDevicesTaskHandle=nullptr;
+TaskHandle_t diagnosticsTaskHandle=nullptr;
+TaskHandle_t gamesTaskHandle      = nullptr;
+//functions
 
 
-
-void transitionApp(uint8_t index) {
-    AppName app = (AppName)index;
-rst_nav_pos(); //reset mouse pos between apps
-
-    switch (app) {
-        //set 
-        
-
-        case APP_LOCK_SCREEN:
-            // Do something for lock screen
-            CurrentOpenApplicationIndex=APP_LOCK_SCREEN; //note! need to set this on sucess, move this later to outside just this mode. this is the current open app n should only be set on success!
-            break;
-        case APP_HEALTH:
-            // Do something for health app
-            break;
-        case APP_NFC:
-            // ...
-            break;
-        case APP_SETTINGS:
-            // ...
-            break;
-        case APP_GYRO_INFO:
-            // ...
-            break;
-        case APP_FILES:
-            // ...
-            break;
-        case APP_RADIO:
-            // ...
-            break;
-        case APP_IR_REMOTE:
-            // ...
-            break;
-        case APP_UTILITIES:
-            // ...
-            break;
-        case APP_ETOOLS:
-            // ...
-            break;
-        case APP_RUBBERDUCKY:
-            // ...
-            break;
-        case APP_CONNECTIONS:
-            // ...
-            break;
-        case APP_SMART_DEVICES:
-            // ...
-            break;
-        case APP_DIAGNOSTICS:
-            // ...
-            break;
-
-        case APP_COUNT:  // Usually no action here, just for bounds
+TaskHandle_t* GetTaskHandleByIndex(AppName index) {
+    switch (index) {
+        case APP_LOCK_SCREEN:    return &watchScreenHandle;
+        case APP_HEALTH:         return &healthTaskHandle;
+        case APP_NFC:            return &nfcTaskHandle;
+        case APP_SETTINGS:       return &settingsTaskHandle;
+        case APP_GYRO_INFO:      return &gyroInfoTaskHandle;
+        case APP_FILES:          return &filesTaskHandle;
+        case APP_RADIO:          return &radioTaskHandle;
+        case APP_IR_REMOTE:      return &irRemoteTaskHandle;
+        case APP_UTILITIES:      return &utilitiesTaskHandle;
+        case APP_ETOOLS:         return &etoolsTaskHandle;
+        case APP_RUBBERDUCKY:    return &rubberDuckyTaskHandle;
+        case APP_CONNECTIONS:    return &connectionsTaskHandle;
+        case APP_SMART_DEVICES:  return &smartDevicesTaskHandle;
+        case APP_DIAGNOSTICS:    return &diagnosticsTaskHandle;
+        case APP_GAMES:          return &gamesTaskHandle;
         default:
-            // Handle invalid selection gracefully
+            // Fallback to current app handle
+            return &currentAppTaskHandle;
+    }
+}
+
+//taskdefs must be defined
+extern void WatchScreenTask(void*); //defined in mainapp
+extern void NFCTask(void*);//defined at nfcapp
+// Add other task entry points as needed...
+
+bool on_app_change(
+    AppName newIndex,
+    TaskHandle_t* newTaskHandlePtr,
+    AppName oldIndex,
+    TaskHandle_t* oldTaskHandlePtr,
+    bool deleteOldTask
+) {
+    // Suspend or delete the old task if valid
+    if (oldTaskHandlePtr && *oldTaskHandlePtr) {
+        if (oldIndex == APP_LOCK_SCREEN) {
+            vTaskSuspend(*oldTaskHandlePtr);
+        } else if (deleteOldTask) {
+            vTaskDelete(*oldTaskHandlePtr);
+            *oldTaskHandlePtr = nullptr;
+        } else {
+            vTaskSuspend(*oldTaskHandlePtr);
+        }
+    }
+
+    // Resume or create the new task
+    if (newTaskHandlePtr) {
+        if (*newTaskHandlePtr) {
+            vTaskResume(*newTaskHandlePtr);
+        } else {
+            // Attempt to auto-create the task
+            switch (newIndex) {
+                case APP_LOCK_SCREEN:
+                    xTaskCreate(WatchScreenTask, "WatchScreen", 2048, nullptr, 1, newTaskHandlePtr);
+                    break;
+                case APP_NFC:
+                    xTaskCreate(NFCTask, "NFC", 4096, nullptr, 1, newTaskHandlePtr);
+                    break;
+                // Add other app cases and task functions here
+                default:
+                    Serial.printf("Auto-create failed: Unknown task for app %d\n", newIndex);
+                    break;
+            }
+        }
+        currentAppTaskHandle = *newTaskHandlePtr;
+    }
+
+    CurrentOpenApplicationIndex = newIndex;
+    return true;
+}
+
+void transitionApp(AppName newApp, bool deleteOldTask) {
+    rst_nav_pos();
+
+    AppName oldApp = CurrentOpenApplicationIndex;
+    TaskHandle_t* oldHandle = GetTaskHandleByIndex(oldApp);
+    TaskHandle_t* newHandle = GetTaskHandleByIndex(newApp);
+
+    on_app_change(newApp, newHandle, oldApp, oldHandle, deleteOldTask);
+
+    switch (newApp) {
+        case APP_NFC:
+            NFC_APP_TRANSITION(NAM_READING);
+            break;
+        // Additional app-specific initializations can go here
+        default:
             break;
     }
-    //run a verif step in the future, todo. LIKELY a wait too, so it can even set the app
-    CurrentOpenApplicationIndex=app; //set via lazymaxxing
 }
+void SleepApp(TaskHandle_t target) {
+    if (target != nullptr) {
+        // Don't suspend if already suspended
+        eTaskState state = eTaskGetState(target);
+        if (state != eSuspended) {
+            vTaskSuspend(target);
+        }
+    } else {
+        Serial.println("SleepApp: Invalid TaskHandle");
+    }
+}
+
+void LaunchApp(TaskHandle_t target) {
+    if (target != nullptr) {
+        // Only resume if the task is suspended
+        eTaskState state = eTaskGetState(target);
+        if (state == eSuspended) {
+            vTaskResume(target);
+        }
+    } else {
+        Serial.println("LaunchApp: Invalid TaskHandle");
+    }
+}
+
 //scrolling up enters it?
 //globalNavPos.x
 //i have an addiction for doing ths stupidest shit possible

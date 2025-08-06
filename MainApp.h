@@ -18,8 +18,11 @@ extern std::unique_ptr<WindowManager> WinManagerInstance;
 extern std::shared_ptr<Window> Win_GeneralPurpose; 
 extern std::shared_ptr<Window> lockscreen_biomon;
 extern std::shared_ptr<Window> lockscreen_thermometer;
+extern char thermoStr[8];
+extern char hrStr[8];
+extern bool IsScreenOn;//why. just why
 
-
+extern TaskHandle_t watchScreenHandle;
 #define MAX_VISIBLE 15
 extern char buf_applist[25 * MAX_VISIBLE]; //
 extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
@@ -88,4 +91,11 @@ static void on_wm_appmenu_input(uint16_t key);
 void render_timer_screen();
 void on_wm_timer_input(uint16_t key);
 bool SaveTimer();
+
+
+
+extern void WatchScreenTask(void* pvParameters);
+
+void CreateWatchscreen();
+
 #endif

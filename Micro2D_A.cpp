@@ -26,7 +26,7 @@ extern Adafruit_SSD1351 tft;  /* fucking shit needs to be imported. why is this 
 
 constexpr int MIN_WINDOW_WIDTH = 18;
 constexpr int MIN_WINDOW_HEIGHT = 12;
-
+extern uint16_t tcol_background;
 uint16_t ScreenBackgroundColor=0x0000; //defined in the settings tab, you jerk off. this is just the default. you will have to use this in main and load pallette in main
 // Global/static buffer (safer than stack)
 
@@ -124,6 +124,17 @@ void tft_Fillscreen(uint16_t color){
 TFillRect(0,0,128,128,color);
 
 }
+void clearScreenEveryXCalls(uint16_t x) {
+    static uint16_t callCount = 0;
+    
+    callCount++;
+    
+    if (callCount >= x) {
+        tft_Fillscreen(tcol_background);
+        callCount = 0;
+    }
+}
+
 
 // Draw a vertical line at column x, from row y0 to y1 (inclusive)
 void drawVerticalLine(int x, int y0, int y1, uint16_t color) {
