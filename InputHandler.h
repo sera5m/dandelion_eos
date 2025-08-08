@@ -12,6 +12,11 @@
 #pragma once
 #define AllowSimultaneousKeypress true
 
+
+
+
+
+
 // Key mappings-map the hardware keys to the ascii versions of keys
 //16 bit unsigned int, for ascii++ and potential unicode, maybe?
 #define key_enter 0x23CE  // ⏎

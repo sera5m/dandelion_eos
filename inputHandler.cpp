@@ -343,6 +343,12 @@ PollEncoder(&enc0_state, ENCODER0_CLK_PIN, ENCODER0_DT_PIN,
 volatile bool encHTRGstate = 0; 
 volatile bool encVTRGstate = 0;
 
+
+
+//for debug prints just replace /*enableInputHandlerDebug*/ // with /*enableInputHandlerDebug*/
+
+
+
 void PollEncoders() {
     static uint32_t last_check = 0;
     uint32_t now = millis();
@@ -354,14 +360,13 @@ void PollEncoders() {
         int count;
         esp_err_t err = pcnt_unit_get_count(encoders[i].unit, &count);
         if (err != ESP_OK) {
-            Serial.printf("[PollEncoders] Error getting count for unit %d: %d\n", i, err);
+            /*enableInputHandlerDebug*/ // Serial.printf("[PollEncoders] Error getting count for unit %d: %d\n", i, err);
             continue;
         }
 
         int delta = count - encoders[i].last_count;
 
-        Serial.printf("[PollEncoders] Encoder %d count: %d, last: %d, delta: %d\n", 
-                      i, count, encoders[i].last_count, delta);
+        /*enableInputHandlerDebug*/ // Serial.printf("[PollEncoders] Encoder %d count: %d, last: %d, delta: %d\n", i, count, encoders[i].last_count, delta);
 
         if (delta != 0) {
             uint16_t key;
@@ -371,11 +376,10 @@ void PollEncoders() {
                 key = direction ? key_right : key_left;
                 encHTRGstate = !encHTRGstate;
 
-                Serial.printf("[PollEncoders] Horizontal encoder move (%s), trigger=%d\n", 
-                              direction ? "right" : "left", encHTRGstate);
+                /*enableInputHandlerDebug*/ // Serial.printf("[PollEncoders] Horizontal encoder move (%s), trigger=%d\n",  direction ? "right" : "left", encHTRGstate);
 
                 if (encHTRGstate) {
-                    Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "right" : "left");
+                    /*enableInputHandlerDebug*/ //Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "right" : "left");
                     RouteInput({key, true}, currentinputTarget);
                     RouteInput({key, false}, currentinputTarget);
                 }
@@ -384,11 +388,10 @@ void PollEncoders() {
                 key = direction ? key_down : key_up;
                 encVTRGstate = !encVTRGstate;
 
-                Serial.printf("[PollEncoders] Vertical encoder move (%s), trigger=%d\n", 
-                              direction ? "down" : "up", encVTRGstate);
+                /*enableInputHandlerDebug*/ //Serial.printf("[PollEncoders] Vertical encoder move (%s), trigger=%d\n",  direction ? "down" : "up", encVTRGstate);
 
                 if (encVTRGstate) {
-                    Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "down" : "up");
+                /*enableInputHandlerDebug*/ //Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "down" : "up");
                     RouteInput({key, true}, currentinputTarget);
                     RouteInput({key, false}, currentinputTarget);
                 }

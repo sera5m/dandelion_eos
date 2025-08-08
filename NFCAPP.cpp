@@ -178,26 +178,20 @@ void NFC_APP_UPDATE() {
 }
 
 void NFC_APP_RENDER() {
-  // unchanged…
+  // uh oh i lost the original code todo fix this shit!!
 }
 
-
 void nfcTask(void* pvParameters) {
-  Serial.println("NFC Task starting...");
+    Serial.println("NFC Task starting...");
 
+    // Commented out to isolate crash cause
+    // NFC_APP_TRANSITION(NAM_READING);
 
-
-  // App init logic
-  NFC_APP_TRANSITION(NAM_READING); // or NAM_OFF/NAM_LOADING based on desired startup state
-
-  while (true) {
-      NFC_APP_UPDATE(); // central logic per current mode
-
-      // Optional: render if task owns display updates (depends on system design)
-      // NFC_APP_RENDER();
-
-      vTaskDelay(pdMS_TO_TICKS(100)); // update cycle every 100ms
-  }
+    while (true) {
+        Serial.println("NFC task alive");
+        // NFC_APP_UPDATE();
+        vTaskDelay(pdMS_TO_TICKS(5000)); // print every 5 seconds
+    }
 }
 
 

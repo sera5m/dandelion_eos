@@ -128,16 +128,14 @@ extern void nfcTask(void*);//defined at nfcapp
 // Add other task entry points as needed...
 
 bool on_app_change(
-    AppName newIndex,
-    TaskHandle_t* newTaskHandlePtr,
+    AppName newIndex, TaskHandle_t* newTaskHandlePtr,
     AppName oldIndex,
-    TaskHandle_t* oldTaskHandlePtr,
-    bool deleteOldTask
-) {
+    TaskHandle_t* oldTaskHandlePtr, bool deleteOldTask)
+{
     // Suspend or delete the old task if valid
     if (oldTaskHandlePtr && *oldTaskHandlePtr) {
         if (oldIndex == APP_LOCK_SCREEN) {
-            vTaskSuspend(*oldTaskHandlePtr);//suspend main screen, do not delete because it's important
+            vTaskSuspend(*oldTaskHandlePtr); // Suspend, don't delete
         } else if (deleteOldTask) {
             vTaskDelete(*oldTaskHandlePtr);
             *oldTaskHandlePtr = nullptr;
@@ -151,19 +149,16 @@ bool on_app_change(
         if (*newTaskHandlePtr) {
             vTaskResume(*newTaskHandlePtr);
         } else {
-            // Attempt to auto-create the task
             switch (newIndex) {
                 case APP_LOCK_SCREEN:
-                //need to do a validation check to see what's goin on here
-                    //xTaskCreate(WatchScreenTask, "WatchScreen", 2048, nullptr, 1, newTaskHandlePtr);
+                    // do nothing, should already be created
                     break;
                 case APP_NFC:
-                if (xTaskCreate(nfcTask, "NFC", 8192, nullptr, tskIDLE_PRIORITY+1, newTaskHandlePtr) != pdPASS) {
-                    Serial.println("Failed to create NFC task");
-                    *newTaskHandlePtr = nullptr;
-                }                
+                    if (xTaskCreate(nfcTask, "NFC", 8192, nullptr, tskIDLE_PRIORITY+1, newTaskHandlePtr) != pdPASS) {
+                        Serial.println("Failed to create NFC task");
+                        *newTaskHandlePtr = nullptr;
+                    }
                     break;
-                // Add other app cases and task functions here
                 default:
                     Serial.printf("Auto-create failed: Unknown task for app %d\n", newIndex);
                     break;
@@ -176,6 +171,7 @@ bool on_app_change(
     return true;
 }
 
+
 void transitionApp(AppName newApp, bool deleteOldTask) {
     rst_nav_pos();
 
@@ -187,13 +183,14 @@ void transitionApp(AppName newApp, bool deleteOldTask) {
 
     switch (newApp) {
         case APP_NFC:
-            NFC_APP_TRANSITION(NAM_READING);
+           // NFC_APP_TRANSITION(NAM_READING); //should put it in main instead
             break;
         // Additional app-specific initializations can go here
         default:
             break;
     }
 }
+
 void SleepApp(TaskHandle_t target) {
     if (target != nullptr) {
         // Don't suspend if already suspended
@@ -224,14 +221,14 @@ void LaunchApp(TaskHandle_t target) {
 void INPUT_tick(void *pvParameters) {
     // Initial stack watermark
     UBaseType_t stackRemaining = uxTaskGetStackHighWaterMark(NULL);
-    Serial.printf("[INPUT_tick] Stack remaining: %u\n", stackRemaining);
+    //Serial.printf("[INPUT_tick] Stack remaining: %u\n", stackRemaining);
 
     S_UserInput uinput;
     uint32_t lastInputTime = 0;
     const TickType_t xDelay = pdMS_TO_TICKS(10);
 
     while (true) {
-        Serial.println("[INPUT_tick] Loop start");
+        //Serial.println("[INPUT_tick] Loop start");
         updateCurrentTimeVars();
 
         // Dequeue all pending inputs
@@ -274,19 +271,19 @@ void INPUT_tick(void *pvParameters) {
 
         // Queue status
         UBaseType_t queued = uxQueueMessagesWaiting(processInputQueue);
-        Serial.printf("[INPUT_tick] Queue waiting: %u items\n", queued);
+        //Serial.printf("[INPUT_tick] Queue waiting: %u items\n", queued);
         if (queued > 10) {
-            Serial.println("[INPUT_tick] Queue overflow, resetting queue");
+            //Serial.println("[INPUT_tick] Queue overflow, resetting queue");
             xQueueReset(processInputQueue);
         }
 
         // Poll hardware
-        Serial.println("[INPUT_tick] PollEncoders()");
+        //Serial.println("[INPUT_tick] PollEncoders()");
         PollEncoders();
-        Serial.println("[INPUT_tick] PollButtons()");
+        //Serial.println("[INPUT_tick] PollButtons()");
         PollButtons();
 
-        Serial.printf("[INPUT_tick] Sleeping for %u ticks\n", xDelay);
+       // Serial.printf("[INPUT_tick] Sleeping for %u ticks\n", xDelay);
         vTaskDelay(xDelay);
     }
 }
