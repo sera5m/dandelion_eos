@@ -220,7 +220,7 @@ int currentSecond = 0;
 NormieTime CurrentNormieTime; //real current time
 
 
-QueueHandle_t processInputQueue; //absolutely needs to be here because freerots. hadndles proscess input    
+
 
 
 
@@ -251,9 +251,8 @@ void scanI2C() {
 
 }
 
-
-extern TaskHandle_t watchScreenHandle; //handle be4 use
 extern TaskHandle_t inputTaskHandle;
+
 void setup() {
   strip.begin();
   strip.show(); 
@@ -342,28 +341,40 @@ TFillRect(0,0,128,128,tcol_background);//black screen out
 WindowManager::getInstance().ApplyThemeAllWindows(tcol_secondary, tcol_background, tcol_primary); //with new vars
 
 
-processInputQueue = xQueueCreate(8, sizeof(S_UserInput)); //set up default que
+//processInputQueue = lockscreenQueue;
 
-//create startup tasks
-xTaskCreatePinnedToCore(
-    INPUT_tick,
-    "INPUT_tick",
-    4096,
-    NULL,
-    2,
-    &inputTaskHandle,  //now has input task handle
-    1
-);
+ //2. MANUALLY alter input handling values to route to proscesses. we
+currentinputTarget = R_toProc;
+
+CreateInputHandler();
+
+
 
 
 CreateWatchscreen();
 
+// Initialize SPI bus for PN532 at a safe speed
+//spiBus.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0)); // 1 MHz safe for PN532
+
+if (!nfc.begin()) {
+    Serial.println("PN532 not found — halting");
+    while (1) { delay(1000); }
+}
+
+SPI.endTransaction();
+
+uint32_t version = nfc.getFirmwareVersion();
+if (!version) {
+    Serial.println("Could not detect PN532 — halting");
+    while (1) { delay(1000); }
+}
 
 
 
-//evil spagetti
-//processInputQueue = lockscreenQueue;//2. tell input router to use that que
-currentinputTarget = R_toProc; //3. MANUALLY alter input handling values to route to proscesses. we
+
+
+
 
 
 
@@ -456,49 +467,7 @@ bool CacheMenuConfirmState = false;
 // Unified input handler
 
 
-// input_task.c
-void INPUT_tick(void *pvParameters) {
-        UBaseType_t stackRemaining = uxTaskGetStackHighWaterMark(NULL);
-    Serial.printf("INPUT_tick stack: %d\n", stackRemaining);
-    S_UserInput uinput;
-    uint32_t lastInputTime = 0;
-    const TickType_t xDelay = pdMS_TO_TICKS(10);
 
-    for (;;) {
-        updateCurrentTimeVars(); //keep time up to date, put here because this task must allways be ready
-        while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
-            if (!uinput.isDown || (millis() - lastInputTime < 150)) {
-                continue;  // Skip releases and debounce
-            }
-            lastInputTime = millis();
-
-            switch (CurrentOpenApplicationIndex) {
-                case APP_LOCK_SCREEN:
-                    Input_handler_fn_main_screen(uinput.key);
-                    break;
-                case APP_HEALTH:
-                    // Health app input handling
-                    break;
-                case APP_NFC:
-                input_handler_fn_NFCAPP(uinput.key);
-                break;   //nfc tools itself
-
-                default:
-                    break;
-            }
-        }
-
-        // Purge if queue overflow
-        if (uxQueueMessagesWaiting(processInputQueue) > 10) {
-            xQueueReset(processInputQueue);
-        }
-
-        updateHRsensor();
-        PollEncoders();
-        PollButtons();
-        vTaskDelay(xDelay);
-    }
-}
 
 
 /*

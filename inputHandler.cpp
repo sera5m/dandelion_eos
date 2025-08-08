@@ -145,22 +145,31 @@ void SetupHardwareInput() {
 extern QueueHandle_t lockscreenQueue;
 extern QueueHandle_t processInputQueue;
 
+//target for the user input to be mapped to
+QueueHandle_t ProcInputQueTarget; //be sure to change this on changing apps or whatnot
+
 void RouteInput(S_UserInput uinput, HID_ROUTE_TARGET uout) {
     switch (uout) {
         case R_wakey:
             Serial.println("Waking up device...");
             break;
-        case R_toProc:
+            case R_toProc:
             if (processInputQueue) {
                 if (xQueueSend(processInputQueue, &uinput, 0) != pdPASS)
                     Serial.println("Process queue full.");
+                else
+                    Serial.printf("Sent to queue: key=%d isDown=%d\n", uinput.key, uinput.isDown);
+            } else {
+                Serial.println("processInputQueue is NULL");
             }
             break;
+        
         case R_os:
+        /*
             if (lockscreenQueue) {
                 if (xQueueSend(lockscreenQueue, &uinput, 0) != pdPASS)
                     Serial.println("OS queue full.");
-            }
+            }*/
             break;
         default:
             break;
@@ -208,7 +217,7 @@ static const uint8_t  BTN_DEBOUNCE_MS = 50;
 // Constants for debounce intervals (ms)
 
 //S_UserInput pollencoder(bool encoderid,){}
-
+/*
 void PollEncoder(EncoderState *state, uint8_t clk_pin, uint8_t dt_pin, 
                  uint16_t key_cw, uint16_t key_ccw, HID_ROUTE_TARGET route) 
 {
@@ -247,6 +256,50 @@ void PollEncoder(EncoderState *state, uint8_t clk_pin, uint8_t dt_pin,
         RouteInput({key_ccw, false}, route);
         state->dir_flag = false;
     }
+}*/
+void PollEncoder(EncoderState *state, uint8_t clk_pin, uint8_t dt_pin, 
+    uint16_t key_cw, uint16_t key_ccw, HID_ROUTE_TARGET route) 
+{
+uint32_t now = millis();
+uint8_t clk = digitalRead(clk_pin);
+
+Serial.printf("[PollEncoder] CLK=%d, LastCLK=%d, TimeSinceEdge=%lu\n", clk, state->last_clk, now - state->last_edge_time);
+
+// Only process if enough time has passed since last edge
+if ((now - state->last_edge_time) < ENC_COOLDOWN_MS) {
+Serial.println("[PollEncoder] Cooldown active — skipping");
+return;
+}
+
+// Detect valid state change with debouncing
+if (clk != state->last_clk) {
+state->last_edge_time = now;
+Serial.println("[PollEncoder] CLK edge detected");
+
+// Only act on stable transitions after debounce period
+if ((now - state->last_edge_time) > ENC_DEBOUNCE_MS) {
+if (clk == LOW) {  // Active edge
+   bool cw = (digitalRead(dt_pin) != clk);
+   state->position += (cw ? 1 : -1);
+
+   Serial.printf("[PollEncoder] Rotated %s — position: %d\n", cw ? "CW" : "CCW", state->position);
+   RouteInput({cw ? key_cw : key_ccw, true}, route);
+   state->dir_flag = true;
+}
+state->last_valid_clk = clk;
+}
+
+state->last_clk = clk;
+} 
+// Handle key release
+else if (state->dir_flag && clk == HIGH && state->last_valid_clk == LOW &&
+(now - state->last_edge_time) > ENC_DEBOUNCE_MS) 
+{
+Serial.println("[PollEncoder] Sending key release");
+RouteInput({key_cw, false}, route);
+RouteInput({key_ccw, false}, route);
+state->dir_flag = false;
+}
 }
 
 
@@ -293,39 +346,59 @@ volatile bool encVTRGstate = 0;
 void PollEncoders() {
     static uint32_t last_check = 0;
     uint32_t now = millis();
-    
+
     if (now - last_check < 10) return;
     last_check = now;
 
     for (int i = 0; i < 2; i++) {
-        int count; 
-        ESP_ERROR_CHECK(pcnt_unit_get_count(encoders[i].unit, &count));
-        
+        int count;
+        esp_err_t err = pcnt_unit_get_count(encoders[i].unit, &count);
+        if (err != ESP_OK) {
+            Serial.printf("[PollEncoders] Error getting count for unit %d: %d\n", i, err);
+            continue;
+        }
+
         int delta = count - encoders[i].last_count;
+
+        Serial.printf("[PollEncoders] Encoder %d count: %d, last: %d, delta: %d\n", 
+                      i, count, encoders[i].last_count, delta);
+
         if (delta != 0) {
             uint16_t key;
             bool direction = delta > 0;
-            
+
             if (i == ENC_UNIT_X) {
                 key = direction ? key_right : key_left;
-                encHTRGstate = !encHTRGstate; // Toggle state for horizontal
-                if(encHTRGstate) { // Only send on every other change
+                encHTRGstate = !encHTRGstate;
+
+                Serial.printf("[PollEncoders] Horizontal encoder move (%s), trigger=%d\n", 
+                              direction ? "right" : "left", encHTRGstate);
+
+                if (encHTRGstate) {
+                    Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "right" : "left");
                     RouteInput({key, true}, currentinputTarget);
                     RouteInput({key, false}, currentinputTarget);
                 }
+
             } else {
                 key = direction ? key_down : key_up;
-                encVTRGstate = !encVTRGstate; // Toggle state for vertical
-                if(encVTRGstate) { // Only send on every other change
+                encVTRGstate = !encVTRGstate;
+
+                Serial.printf("[PollEncoders] Vertical encoder move (%s), trigger=%d\n", 
+                              direction ? "down" : "up", encVTRGstate);
+
+                if (encVTRGstate) {
+                    Serial.printf("[PollEncoders] Routing key: %s\n", direction ? "down" : "up");
                     RouteInput({key, true}, currentinputTarget);
                     RouteInput({key, false}, currentinputTarget);
                 }
             }
-            
+
             encoders[i].last_count = count;
         }
     }
 }
+
 /*
 //unsure how i'll handle delays for this, i'll figure it out later
 uint_16t HARDWAREKEYINPUTBITMASK=0x0000;

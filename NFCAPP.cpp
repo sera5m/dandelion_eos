@@ -3,25 +3,12 @@
 #include "types.h"
 // --- PN532 pins from Wiring.h ---
 
-
+extern Adafruit_PN532 nfc;
 
 // Global app state
 NFCAppState nfcAppState;
 
-// Low-level NFC helpers (formerly nfc.cpp)
-static bool nfc_begin() {
-  nfcAppState.nfc = new Adafruit_PN532(NFC_IRQ_PIN, NFC_RST_PIN);
-  if (!nfcAppState.nfc->begin()) {
-    Serial.println("PN532 not found");
-    return false;
-  }
-  if (!nfcAppState.nfc->getFirmwareVersion()) {
-    Serial.println("No firmware");
-    return false;
-  }
-  nfcAppState.nfc->SAMConfig();
-  return true;
-}
+
 
 static void nfc_setMode(NFCMode m) {
   if (m == nfcAppState.nfcMode) return;
@@ -194,9 +181,23 @@ void NFC_APP_RENDER() {
   // unchanged…
 }
 
+
 void nfcTask(void* pvParameters) {
-  while (1) {
-    nfc_update();
-    vTaskDelay(pdMS_TO_TICKS(100));
+  Serial.println("NFC Task starting...");
+
+
+
+  // App init logic
+  NFC_APP_TRANSITION(NAM_READING); // or NAM_OFF/NAM_LOADING based on desired startup state
+
+  while (true) {
+      NFC_APP_UPDATE(); // central logic per current mode
+
+      // Optional: render if task owns display updates (depends on system design)
+      // NFC_APP_RENDER();
+
+      vTaskDelay(pdMS_TO_TICKS(100)); // update cycle every 100ms
   }
 }
+
+

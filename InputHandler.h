@@ -8,7 +8,7 @@
 #include "types.h"
 #include "driver/pulse_cnt.h"
 #include "helperfunctions.h"
-
+#include "InputHandler.h"
 #pragma once
 #define AllowSimultaneousKeypress true
 
@@ -33,6 +33,8 @@ typedef struct encoder_state {
 
 #define FixDoubleInputGlitch 1
 //encoder makes two pulses for notch
+
+extern QueueHandle_t ProcInputQueTarget;
 
 typedef enum{
 keyenter,

@@ -23,7 +23,7 @@ typedef enum {
   NFC_MODE_EMULATE
 } NFCMode;
 
-// App modes (unchanged)
+// App modes
 enum NFCAppMode {
   NAM_OFF,
   NAM_READING,

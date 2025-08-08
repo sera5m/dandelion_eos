@@ -6,8 +6,12 @@
 #include "globals.h"
 #include <cstdint>
 #include <Arduino.h>
-#include "NFCAPP.h"
 
+
+#include "NFCAPP.h"
+#include "InputHandler.h"
+#include "mdl_clock.h"
+#include "MainApp.h"
 
 //app ui configs
 WindowCfg d_ls_c_cfg = { //clock
@@ -39,12 +43,42 @@ WindowCfg d_ls_c_cfg = { //clock
     tcol_secondary, tcol_background, tcol_primary,
     1000
 };
+QueueHandle_t processInputQueue=nullptr;
+TaskHandle_t inputTaskHandle;
+
+
+void CreateInputHandler() {
+    processInputQueue = xQueueCreate(8, sizeof(S_UserInput));//create input handling struct.
+    if (processInputQueue == NULL) {
+        Serial.println("Failed to create processInputQueue!");
+        return;  // or handle error
+    }
+
+    BaseType_t result = xTaskCreatePinnedToCore(
+        INPUT_tick,
+        "INPUT_tick",
+        4096,     // stack size, adjust if needed
+        NULL,
+        2,
+        &inputTaskHandle,
+        1         // core ID, confirm it's correct for your MCU
+    );
+
+    if (result != pdPASS) {
+        Serial.println("Failed to create INPUT_tick task");
+        // handle error
+    }
+
+}
+
+
+extern QueueHandle_t ProcInputQueTarget; //all input is sent around here, so this variable must be set to the value of each task
 
 AppName CurrentOpenApplicationIndex=APP_LOCK_SCREEN; 
 //handles for tasks/apps
 //follows finite state machine to ensure correct task starts, management done here.
 
-TaskHandle_t inputTaskHandle; //NEVER changed!!!!
+extern TaskHandle_t inputTaskHandle; //NEVER changed!!!!
 
 TaskHandle_t currentAppTaskHandle=nullptr; //current app task will be disabled and swapped to the desired app task
 TaskHandle_t watchScreenHandle    = nullptr;
@@ -103,7 +137,7 @@ bool on_app_change(
     // Suspend or delete the old task if valid
     if (oldTaskHandlePtr && *oldTaskHandlePtr) {
         if (oldIndex == APP_LOCK_SCREEN) {
-            vTaskSuspend(*oldTaskHandlePtr);
+            vTaskSuspend(*oldTaskHandlePtr);//suspend main screen, do not delete because it's important
         } else if (deleteOldTask) {
             vTaskDelete(*oldTaskHandlePtr);
             *oldTaskHandlePtr = nullptr;
@@ -120,10 +154,14 @@ bool on_app_change(
             // Attempt to auto-create the task
             switch (newIndex) {
                 case APP_LOCK_SCREEN:
-                    xTaskCreate(WatchScreenTask, "WatchScreen", 2048, nullptr, 1, newTaskHandlePtr);
+                //need to do a validation check to see what's goin on here
+                    //xTaskCreate(WatchScreenTask, "WatchScreen", 2048, nullptr, 1, newTaskHandlePtr);
                     break;
                 case APP_NFC:
-                    xTaskCreate(nfcTask, "NFC", 4096, nullptr, 1, newTaskHandlePtr);
+                if (xTaskCreate(nfcTask, "NFC", 8192, nullptr, tskIDLE_PRIORITY+1, newTaskHandlePtr) != pdPASS) {
+                    Serial.println("Failed to create NFC task");
+                    *newTaskHandlePtr = nullptr;
+                }                
                     break;
                 // Add other app cases and task functions here
                 default:
@@ -179,6 +217,114 @@ void LaunchApp(TaskHandle_t target) {
         Serial.println("LaunchApp: Invalid TaskHandle");
     }
 }
+
+
+
+
+void INPUT_tick(void *pvParameters) {
+    // Initial stack watermark
+    UBaseType_t stackRemaining = uxTaskGetStackHighWaterMark(NULL);
+    Serial.printf("[INPUT_tick] Stack remaining: %u\n", stackRemaining);
+
+    S_UserInput uinput;
+    uint32_t lastInputTime = 0;
+    const TickType_t xDelay = pdMS_TO_TICKS(10);
+
+    while (true) {
+        Serial.println("[INPUT_tick] Loop start");
+        updateCurrentTimeVars();
+
+        // Dequeue all pending inputs
+        while (xQueueReceive(processInputQueue, &uinput, 0) == pdPASS) {
+            Serial.printf("[INPUT_tick] Dequeued: key=%d, isDown=%d, millis()=%u\n",
+                          uinput.key, uinput.isDown, millis());
+
+            // Debounce logic
+            uint32_t now = millis();
+            if (!uinput.isDown) {
+                Serial.println("[INPUT_tick] Event is a release, skipping");
+                continue;
+            }
+            if (now - lastInputTime < 150) {
+                Serial.printf("[INPUT_tick] Debounced: delta=%u ms\n", now - lastInputTime);
+                continue;
+            }
+            lastInputTime = now;
+            Serial.printf("[INPUT_tick] Passing event to handler: key=%d\n", uinput.key);
+
+            // Dispatch to current application
+            switch (CurrentOpenApplicationIndex) {
+                case APP_LOCK_SCREEN:
+                    Serial.println("[INPUT_tick] Handler: APP_LOCK_SCREEN");
+                    Input_handler_fn_main_screen(uinput.key);
+                    break;
+                case APP_HEALTH:
+                    Serial.println("[INPUT_tick] Handler: APP_HEALTH");
+                    // Health app input handling
+                    break;
+                case APP_NFC:
+                    Serial.println("[INPUT_tick] Handler: APP_NFC");
+                    input_handler_fn_NFCAPP(uinput.key);
+                    break;
+                default:
+                    Serial.printf("[INPUT_tick] No handler for app index %d\n", CurrentOpenApplicationIndex);
+                    break;
+            }
+        }
+
+        // Queue status
+        UBaseType_t queued = uxQueueMessagesWaiting(processInputQueue);
+        Serial.printf("[INPUT_tick] Queue waiting: %u items\n", queued);
+        if (queued > 10) {
+            Serial.println("[INPUT_tick] Queue overflow, resetting queue");
+            xQueueReset(processInputQueue);
+        }
+
+        // Poll hardware
+        Serial.println("[INPUT_tick] PollEncoders()");
+        PollEncoders();
+        Serial.println("[INPUT_tick] PollButtons()");
+        PollButtons();
+
+        Serial.printf("[INPUT_tick] Sleeping for %u ticks\n", xDelay);
+        vTaskDelay(xDelay);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //scrolling up enters it?
 //globalNavPos.x
