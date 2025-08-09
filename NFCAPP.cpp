@@ -305,7 +305,7 @@ transitionApp(APP_LOCK_SCREEN,1); //delete this task and swap back to the main a
 break;  
 
 case key_enter: 
-NFC_APP_TRANSITION(globalNavPos.y); //enter the mode from the list.
+NFC_APP_TRANSITION((NFCAppMode)globalNavPos.y);//enter the mode from the list.
 break;
 
 //directions
