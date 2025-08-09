@@ -17,6 +17,7 @@
 #include "Micro2D_A.h"
 #include "globals.h"
 #include <Arduino.h>
+
 extern bool IsScreenOn;
 char thermoStr[8];
 char hrStr[8];
@@ -40,10 +41,11 @@ WindowManager::getInstance().registerWindow(lockscreen_biomon);
 WindowManager::getInstance().registerWindow(lockscreen_thermometer);
 
 }
-//defs in globals.cp
+//defs in globals.cpp
 extern int WatchScreenUpdateInterva;
 extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
 char buf_applist[25*MAX_VISIBLE]; 
+
 // Timer editing state and field
 EditState timerEditState;
 uint8_t currentTimerField;

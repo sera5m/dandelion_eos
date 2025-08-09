@@ -385,7 +385,7 @@ if (!version) {
 
 extern TaskHandle_t watchScreenHandle;
 
-    extern int WatchScreenUpdateInterval;
+    extern uint16_t WatchScreenUpdateInterval;
 
 
 

@@ -10,9 +10,9 @@ uint16_t tcol_background = 0x2000;
 
 
 std::shared_ptr<Window> Win_GeneralPurpose; 
-int WatchScreenUpdateInterval=500;
+uint16_t WatchScreenUpdateInterval=500;
  //size defined in the h file
-
+char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
 
 
 

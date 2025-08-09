@@ -4,6 +4,7 @@
 
 // developer configs
 #define WATCHSCREEN_BUF_SIZE 512
+extern uint16_t WatchScreenUpdateInterval; // no value here
 
 // userspace configs-config them in globals.cpp
 

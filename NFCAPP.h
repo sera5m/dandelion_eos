@@ -23,9 +23,6 @@ extern Adafruit_PN532 nfc;
 
 
 extern std::shared_ptr<Window> Win_GeneralPurpose; 
-extern const char* NFCModeNames[NFC_MODE_COUNT];
-
-
 
 
 
@@ -48,6 +45,9 @@ enum NFCAppMode {//nfc appmode
   NAM_EMULATING,
   NAM_COUNT
 };
+extern const char* NFCModeNames[NFC_MODE_COUNT];
+extern NFCAppMode nfcAppMODE_current; //
+
 
 // Global state
 struct NFCAppState {
@@ -84,13 +84,13 @@ void NFC_APP_EXIT();
 void NFC_APP_TRANSITION(NFCAppMode newMode);
 void input_handler_fn_NFCAPP(uint16_t key);
 void NFC_APP_UPDATE();
-void NFC_APP_RENDER();
+void NFC_APP_RENDER(NFCAppMode);
 extern void nfcTask(void* pvParameters);
 
-
+//to text
+void nfcAppMakeLISTtext(uint8_t mousepos);
 
 //input
-
 void NFC_APP_INPUT_menu(uint16_t key);
 void NFC_APP_INPUT_NAM_READING(uint16_t key);
 void NFC_APP_INPUT_NAM_WRITING(uint16_t key);
@@ -99,8 +99,8 @@ void NFC_APP_INPUT_NAM_LOADING(uint16_t key);
 void NFC_APP_INPUT_NAM_EMULATING(uint16_t key);
 void NFC_APP_INPUT_NAM_COUNT(uint16_t key);
 
-
-
+//render modes
+void NFC_APP_RENDER(NFCAppMode mode);
 
 
 

@@ -1,28 +1,35 @@
 // nfcapp.cpp
+#include <Arduino.h>
 #include "nfcapp.h"
 #include "types.h"
 #include "globals.h"
 #include "s_hell.h"
 #include "sdfs.h"
 #include "Micro2D_A.h"
+#include "InputHandler.h"
 // --- PN532 pins from Wiring.h ---
 
 extern Adafruit_PN532 nfc;
 
 // Global app state
-NFCAppState nfcAppState;
-
+NFCAppState nfcAppState_current;
+NFCAppMode nfcAppMODE_current=NAM_OFF; //
 //nfc requires reference to external general purpose static alloc window
 //this is for memory conservation due to the flexibility of my windows classes. we will simply attatch bitmap asets via canvas and assume controll
 
 //-----------------grabbing window from globals.cpp and assuming controll for thsi app//
 extern std::shared_ptr<Window> Win_GeneralPurpose; 
-extern int WatchScreenUpdateInterval=500;//also via globals.cpp
+
 extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
 
 //--------------------------------------------------------------------/
 
+//extern input handling---------------------
+extern int16vect globalNavPos; //mouse position
+extern int16vect Navlimits_; //how far the mouse is allowed to go
+//------------------------------------------
 
+//and this function rst_nav_pos();
 
 //UI FLOW NOTES:
 /*
@@ -51,21 +58,21 @@ const char* NFCModeNames[NFC_MODE_COUNT] = {
 
 
 static void nfc_setMode(NFCMode m) {
-  if (m == nfcAppState.nfcMode) return;
-  nfcAppState.lastUid.clear();
-  nfcAppState.tagWritten = false;
-  nfcAppState.nfcMode = m;
+  if (m == nfcAppState_current.nfcMode) return;
+  nfcAppState_current.lastUid.clear();
+  nfcAppState_current.tagWritten = false;
+  nfcAppState_current.nfcMode = m;
 }
 
 static bool nfc_isTagPresent() {
   uint8_t uidBuf[7], len;
-  return nfcAppState.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
+  return nfcAppState_current.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
 }
 
 static bool nfc_tryReadTag(std::vector<uint8_t>& uid, std::vector<uint8_t>& data) {
   // deliver lastUid+data once
-  if (nfcAppState.lastUid.empty() || data.empty()) return false;
-  uid = nfcAppState.lastUid;
+  if (nfcAppState_current.lastUid.empty() || data.empty()) return false;
+  uid = nfcAppState_current.lastUid;
   return true;
 }
 
@@ -76,7 +83,7 @@ static bool nfc_tryWriteTag(const std::vector<uint8_t>& data) {
     memset(pageBuf, 0, 4);
     memcpy(pageBuf, data.data()+i, chunk);
     uint8_t page = 4 + i/4;
-    if (!nfcAppState.nfc->ntag2xx_WritePage(page, pageBuf)) {
+    if (!nfcAppState_current.nfc->ntag2xx_WritePage(page, pageBuf)) {
       Serial.print("Fail @page "); Serial.println(page);
       return false;
     }
@@ -86,33 +93,33 @@ static bool nfc_tryWriteTag(const std::vector<uint8_t>& data) {
 
 static void nfc_update() {
   uint32_t now = millis();
-  if (now - nfcAppState.lastCheck < 100) return;
-  nfcAppState.lastCheck = now;
+  if (now - nfcAppState_current.lastCheck < 100) return;
+  nfcAppState_current.lastCheck = now;
 
   uint8_t uidBuf[7], len;
-  bool present = nfcAppState.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
+  bool present = nfcAppState_current.nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uidBuf, &len, 10);
 
-  switch (nfcAppState.nfcMode) {
+  switch (nfcAppState_current.nfcMode) {
     case NFC_MODE_READ:
       if (present) {
-        nfcAppState.lastUid.assign(uidBuf, uidBuf + len);
+        nfcAppState_current.lastUid.assign(uidBuf, uidBuf + len);
         Serial.println("Tag detected");
       }
       break;
 
     case NFC_MODE_WRITE:
       if (!present) {
-        nfcAppState.tagWritten = false;
+        nfcAppState_current.tagWritten = false;
         break;
       }
-      if (nfcAppState.lastUid.size()!=len ||
-          memcmp(nfcAppState.lastUid.data(), uidBuf,len)!=0) {
-        nfcAppState.lastUid.assign(uidBuf, uidBuf + len);
-        nfcAppState.tagWritten = false;
+      if (nfcAppState_current.lastUid.size()!=len ||
+          memcmp(nfcAppState_current.lastUid.data(), uidBuf,len)!=0) {
+        nfcAppState_current.lastUid.assign(uidBuf, uidBuf + len);
+        nfcAppState_current.tagWritten = false;
       }
-      if (!nfcAppState.tagWritten &&
-          nfc_tryWriteTag(nfcAppState.pendingWriteData)) {
-        nfcAppState.tagWritten = true;
+      if (!nfcAppState_current.tagWritten &&
+          nfc_tryWriteTag(nfcAppState_current.pendingWriteData)) {
+        nfcAppState_current.tagWritten = true;
         Serial.println("Write OK");
       }
       break;
@@ -138,14 +145,14 @@ void NFC_APP_INIT() {
 
 void NFC_APP_EXIT() {
   nfc_setMode(NFC_MODE_OFF);
-  delete nfcAppState.nfc;
-  nfcAppState = NFCAppState();
+  delete nfcAppState_current.nfc;
+  nfcAppState_current = NFCAppState();
 }
 
 void NFC_APP_TRANSITION(NFCAppMode newMode) {
   // turn off reader/writer
-  if (nfcAppState.currentMode==NAM_READING ||
-      nfcAppState.currentMode==NAM_WRITING) {
+  if (nfcAppState_current.currentMode==NAM_READING ||
+      nfcAppState_current.currentMode==NAM_WRITING) {
     nfc_setMode(NFC_MODE_OFF);
   }
 
@@ -153,15 +160,15 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
   switch (newMode) {
     case NAM_OFF:
     Navlimits_ = {0, NFC_MODE_COUNT, 0};//user is in vertically navigated menu for this mode, and selects the mode from the list. ensure clamp to mode. 
-      //nfcAppState.navPosition = 0;
-      //nfcAppState.navMaxPosition = 3;
+      //nfcAppState_current.navPosition = 0;
+      //nfcAppState_current.navMaxPosition = 3;
       
       break;
 
     case NAM_READING:
       nfc_setMode(NFC_MODE_READ);
-      nfcAppState.currentUid.clear();
-      nfcAppState.currentData.clear();
+      nfcAppState_current.currentUid.clear();
+      nfcAppState_current.currentData.clear();
       Navlimits_ = {0,0,0};
       break;
 
@@ -172,27 +179,28 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
 
     case NAM_LOADING:
       // load file list…
-      nfcAppState.tagFiles.clear();
+      nfcAppState_current.tagFiles.clear();
       {
         File root = SD.open("/nfc");
         while (File f = root.openNextFile()) {
-          if (!f.isDirectory()) nfcAppState.tagFiles.push_back(f.name());
+          if (!f.isDirectory()) nfcAppState_current.tagFiles.push_back(f.name());
           f.close();
         }
         root.close();
       }
-      nfcAppState.navPosition = 0;
-      nfcAppState.navMaxPosition = min<size_t>
-         (nfcAppState.tagFiles.size(), nfcAppState.config.maxCards)-1;
-      Navlimits_ = {nfcAppState.navMaxPosition,1,0};
+      nfcAppState_current.navPosition = 0;
+      nfcAppState_current.navMaxPosition = min<size_t>
+         (nfcAppState_current.tagFiles.size(), nfcAppState_current.config.maxCards)-1;
+      Navlimits_ = {nfcAppState_current.navMaxPosition,1,0};
       break;
 
     default:
-    Serial.println("invalid nfc app mode, mode is",newMode);
+    Serial.print("invalid nfc app mode, mode is "); Serial.println(newMode); //i wish i could just 
+
      break;
   } 
 
-  nfcAppState.currentMode = newMode;
+  nfcAppState_current.currentMode = newMode;
   globalNavPos = {0,0,0};
 }
 
@@ -201,23 +209,9 @@ void input_handler_fn_NFCAPP(uint16_t key) {
 }
 
 void NFC_APP_UPDATE() {
-  nfc_update();
+  //nfc_update();
 
-  switch (nfcAppState.currentMode) {
-    case NAM_READING:
-      if (nfc_tryReadTag(nfcAppState.currentUid, nfcAppState.currentData)) {
-        NFC_APP_TRANSITION(NAM_SAVING);
-      }
-      break;
-    case NAM_WRITING:
-      // pendingWriteData should be set elsewhere before entering
-      break;
-    case NAM_SAVING:
-      // save to SD or internal…
-      NFC_APP_TRANSITION(NAM_OFF);
-      break;
-    default: break;
-  }
+  //switch (
 }
 
 //writes to watchscreenbuff using direct ref
@@ -250,41 +244,48 @@ void nfcAppMakeLISTtext(uint8_t mousepos) {
 
 //follows chain implementation, mode passes here, render functions for each which require complex code
 void NFC_APP_RENDER(NFCAppMode mode) {
-  switch (mode)
-  {
+  switch (mode){
   case NAM_OFF:
   
   //need event check for if allready updated this at least once to change background
 
-  nfcAppMakeLISTtext(); //warning: todo get mousepos y for this to input!
+  nfcAppMakeLISTtext(globalNavPos.y); //yes,yes,narrowing, we get it
   Win_GeneralPurpose->updateContent(watchscreen_buf);//
 
     break;
 
   case NAM_READING:
     //reading is a special case, pause screen updates if in safe mode to ensure no faulty data via bus conflicts
+    //watchscreen_buf="/0"
+
+    //Win_GeneralPurpose->updateContent("please wait!");
+    Win_GeneralPurpose->updateContent("Reading...<n> Please wait!");
   break;
 
   case NAM_WRITING: //writing data to card, lock for 5s or untill works
-
+    Win_GeneralPurpose->updateContent("writing data<n>pls wait");
   break;
 
   case NAM_SAVING: //is storing scanned card from reading mode to memory, block user interaction untill saved or 5s timeout
-
+    Win_GeneralPurpose->updateContent("Saving card data...");
   break;
 
   case NAM_EMULATING: //device pretending to be nfc card
-
+    Win_GeneralPurpose->updateContent("emulate mode, ");
   break;
 
   case NAM_LOADING: //please wait! loading the card, or user is in storage looking for their card to emulate/write. essentially file browser for them
-
+    Win_GeneralPurpose->updateContent(" card list mode. pick one"); //todo: this will need to have a list, and loaded from the card list. shoudl i use an nindex table?
+  
   break;
 
   default:
+    Win_GeneralPurpose->updateContent("Unknown NFC mode");
     break;
   }
+  WindowManager::getInstance().UpdateAllWindows(true,false);//i need to do better than this man
 }
+
 
 
 //need input handle for each
@@ -296,8 +297,13 @@ switch (key){
 
 
 //enter/back
-case key_down: break;  
-case key_enter: break;
+case key_back: 
+
+break;  
+
+case key_enter: 
+
+break;
 
 //directions
 case key_up: break;
@@ -317,7 +323,7 @@ default:
 
 void NFC_APP_INPUT_NAM_READING(uint16_t key){
   switch (key){
-      case key_down: break;
+      case key_back: break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -329,7 +335,7 @@ void NFC_APP_INPUT_NAM_READING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_WRITING(uint16_t key){
   switch (key){
-      case key_down: break;
+      case key_back: break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -341,8 +347,13 @@ void NFC_APP_INPUT_NAM_WRITING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_SAVING(uint16_t key){
   switch (key){
-      case key_down: break;
-      case key_enter: break;
+
+      case key_back: //exit to the list mode after saving it
+      break;
+
+      case key_enter: //fuck you want man we're saving it
+       break;
+
       case key_up: break;
       case key_down: break;
       case key_right: break;
@@ -353,7 +364,7 @@ void NFC_APP_INPUT_NAM_SAVING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_LOADING(uint16_t key){
   switch (key){
-      case key_down: break;
+      case key_back: break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -365,7 +376,7 @@ void NFC_APP_INPUT_NAM_LOADING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_EMULATING(uint16_t key){
   switch (key){
-      case key_down: break;
+      case key_back: break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -377,7 +388,7 @@ void NFC_APP_INPUT_NAM_EMULATING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_COUNT(uint16_t key){
   switch (key){
-      case key_down: break;
+      case key_back: break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -399,7 +410,7 @@ void nfcTask(void* pvParameters) {
     // NFC_APP_TRANSITION(NAM_READING);
 
     while (true) {
-      NFC_APP_RENDER(NFCAppMode mode);
+      NFC_APP_RENDER(nfcAppMODE_current); //take variable 
 
       
         

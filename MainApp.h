@@ -43,7 +43,7 @@ extern bool isConfirming;
 extern bool stopwatchRunning;
 extern unsigned long stopwatchStart;
 extern uint8_t watchModeIndex;
-extern int WatchScreenUpdateInterval;
+extern uint16_t WatchScreenUpdateInterval;
 
 
 extern usr_alarm_st usrmade_alarms[10]; 
