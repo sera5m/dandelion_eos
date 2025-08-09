@@ -130,8 +130,7 @@ extern void nfcTask(void*);//defined at nfcapp
 bool on_app_change(
     AppName newIndex, TaskHandle_t* newTaskHandlePtr,
     AppName oldIndex,
-    TaskHandle_t* oldTaskHandlePtr, bool deleteOldTask)
-{
+    TaskHandle_t* oldTaskHandlePtr, bool deleteOldTask){
     // Suspend or delete the old task if valid
     if (oldTaskHandlePtr && *oldTaskHandlePtr) {
         if (oldIndex == APP_LOCK_SCREEN) {

@@ -148,8 +148,9 @@ void NFC_APP_EXIT() {
   delete nfcAppState_current.nfc;
   nfcAppState_current = NFCAppState();
 }
-
+//should have nav limit table instead of doing this manually per mode but whatever ig
 void NFC_APP_TRANSITION(NFCAppMode newMode) {
+  rst_nav_pos();
   // turn off reader/writer
   if (nfcAppState_current.currentMode==NAM_READING ||
       nfcAppState_current.currentMode==NAM_WRITING) {
@@ -283,7 +284,8 @@ void NFC_APP_RENDER(NFCAppMode mode) {
     Win_GeneralPurpose->updateContent("Unknown NFC mode");
     break;
   }
-  WindowManager::getInstance().UpdateAllWindows(true,false);//i need to do better than this man
+  //WindowManager::getInstance().UpdateAllWindows(true,false);//i need to do better than this man
+  Win_GeneralPurpose->ForceUpdate(true); //update & subcomps
 }
 
 
@@ -298,18 +300,27 @@ switch (key){
 
 //enter/back
 case key_back: 
-
+//print exit to main
+transitionApp(APP_LOCK_SCREEN,1); //delete this task and swap back to the main app
 break;  
 
 case key_enter: 
-
+NFC_APP_TRANSITION(globalNavPos.y); //enter the mode from the list.
 break;
 
 //directions
-case key_up: break;
 
-case key_down: break;
+//scroll list....
+case key_up: 
+globalNavPos.y++;
+break;
 
+case key_down: 
+globalNavPos.y--;
+break;
+
+
+//nothing now
 case key_right: break;
 
 case key_left: break;
@@ -364,8 +375,13 @@ void NFC_APP_INPUT_NAM_SAVING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_LOADING(uint16_t key){
   switch (key){
-      case key_back: break;
-      case key_enter: break;
+      case key_back: //cancel load, swap to main
+      NFC_APP_TRANSITION(NAM_OFF);
+      break;
+
+      case key_enter:
+      //select the item on this list
+       break;
       case key_up: break;
       case key_down: break;
       case key_right: break;
@@ -376,7 +392,9 @@ void NFC_APP_INPUT_NAM_LOADING(uint16_t key){
 
 void NFC_APP_INPUT_NAM_EMULATING(uint16_t key){
   switch (key){
-      case key_back: break;
+
+      case key_back: 
+      break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
@@ -387,15 +405,18 @@ void NFC_APP_INPUT_NAM_EMULATING(uint16_t key){
 }
 
 void NFC_APP_INPUT_NAM_COUNT(uint16_t key){
-  switch (key){
-      case key_back: break;
+  NFC_APP_TRANSITION(NAM_OFF);
+  //how did we get here?
+  /*switch (key){
+      case key_back: 
+      break;
       case key_enter: break;
       case key_up: break;
       case key_down: break;
       case key_right: break;
       case key_left: break;
       default: break;
-  }
+  }*/
 }
 
 
