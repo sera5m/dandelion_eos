@@ -17,9 +17,11 @@
  extern WindowCfg d_ls_b_cfg;
 
  extern WindowCfg d_ls_th_cfg;
+
  extern QueueHandle_t ProcInputQueTarget;
  extern QueueHandle_t processInputQueue;
  extern TaskHandle_t inputTaskHandle;
+ 
  void CreateInputHandler();
 
  extern void WatchScreenTask(void*); //defined in mainapp

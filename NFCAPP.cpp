@@ -1,6 +1,10 @@
 // nfcapp.cpp
 #include "nfcapp.h"
 #include "types.h"
+#include "globals.h"
+#include "s_hell.h"
+#include "sdfs.h"
+#include "Micro2D_A.h"
 // --- PN532 pins from Wiring.h ---
 
 extern Adafruit_PN532 nfc;
@@ -8,6 +12,42 @@ extern Adafruit_PN532 nfc;
 // Global app state
 NFCAppState nfcAppState;
 
+//nfc requires reference to external general purpose static alloc window
+//this is for memory conservation due to the flexibility of my windows classes. we will simply attatch bitmap asets via canvas and assume controll
+
+//-----------------grabbing window from globals.cpp and assuming controll for thsi app//
+extern std::shared_ptr<Window> Win_GeneralPurpose; 
+extern int WatchScreenUpdateInterval=500;//also via globals.cpp
+extern char watchscreen_buf[WATCHSCREEN_BUF_SIZE];
+
+//--------------------------------------------------------------------/
+
+
+
+//UI FLOW NOTES:
+/*
+USER PLACED in no mode by default, with menu, vertical scroll selection
+pressing back on any mode's default screen sends them into the menu mode
+while on menu mode, pressing enter swaps the app to that mode.  pressing back exits to main.
+
+while in each mode, it follows typical save/load with back pushing you out of each
+
+
+
+*/
+
+
+
+
+
+
+
+const char* NFCModeNames[NFC_MODE_COUNT] = { 
+  "Off    ",
+  "Read   ",
+  "Write  ",
+  "Emulate"
+};
 
 
 static void nfc_setMode(NFCMode m) {
@@ -112,9 +152,10 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
   // mode-specific inits
   switch (newMode) {
     case NAM_OFF:
-      nfcAppState.navPosition = 0;
-      nfcAppState.navMaxPosition = 3;
-      Navlimits_ = {nfcAppState.navMaxPosition,1,0};
+    Navlimits_ = {0, NFC_MODE_COUNT, 0};//user is in vertically navigated menu for this mode, and selects the mode from the list. ensure clamp to mode. 
+      //nfcAppState.navPosition = 0;
+      //nfcAppState.navMaxPosition = 3;
+      
       break;
 
     case NAM_READING:
@@ -146,8 +187,10 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
       Navlimits_ = {nfcAppState.navMaxPosition,1,0};
       break;
 
-    default: break;
-  }
+    default:
+    Serial.println("invalid nfc app mode, mode is",newMode);
+     break;
+  } 
 
   nfcAppState.currentMode = newMode;
   globalNavPos = {0,0,0};
@@ -177,20 +220,190 @@ void NFC_APP_UPDATE() {
   }
 }
 
-void NFC_APP_RENDER() {
-  // uh oh i lost the original code todo fix this shit!!
+//writes to watchscreenbuff using direct ref
+//Navlimits_ = {0, NFC_MODE_COUNT, 0}; //limit mode selector to mode count while here-put in nfc app transition-SAFE
+
+void nfcAppMakeLISTtext(uint8_t mousepos) {
+    int offset = 0;
+    watchscreen_buf[0] = '\0';
+
+    for (int i = 0; i < NFC_MODE_COUNT; i++) {
+        if (i == mousepos) {
+            offset += snprintf(watchscreen_buf + offset,
+                               WATCHSCREEN_BUF_SIZE - offset,
+                               "<setcolor(0xFFFF)>%s<setcolor(0x00FF)>", NFCModeNames[i]);
+        } else {
+            offset += snprintf(watchscreen_buf + offset,
+                               WATCHSCREEN_BUF_SIZE - offset,
+                               "%s", NFCModeNames[i]);
+        }
+
+        if (i < NFC_MODE_COUNT - 1) {
+            offset += snprintf(watchscreen_buf + offset,
+                               WATCHSCREEN_BUF_SIZE - offset,
+                               "<n>");
+        }
+    }
 }
+
+
+
+//follows chain implementation, mode passes here, render functions for each which require complex code
+void NFC_APP_RENDER(NFCAppMode mode) {
+  switch (mode)
+  {
+  case NAM_OFF:
+  
+  //need event check for if allready updated this at least once to change background
+
+  nfcAppMakeLISTtext(); //warning: todo get mousepos y for this to input!
+  Win_GeneralPurpose->updateContent(watchscreen_buf);//
+
+    break;
+
+  case NAM_READING:
+    //reading is a special case, pause screen updates if in safe mode to ensure no faulty data via bus conflicts
+  break;
+
+  case NAM_WRITING: //writing data to card, lock for 5s or untill works
+
+  break;
+
+  case NAM_SAVING: //is storing scanned card from reading mode to memory, block user interaction untill saved or 5s timeout
+
+  break;
+
+  case NAM_EMULATING: //device pretending to be nfc card
+
+  break;
+
+  case NAM_LOADING: //please wait! loading the card, or user is in storage looking for their card to emulate/write. essentially file browser for them
+
+  break;
+
+  default:
+    break;
+  }
+}
+
+
+//need input handle for each
+
+
+
+void NFC_APP_INPUT_menu(uint16_t key){
+switch (key){
+
+
+//enter/back
+case key_down: break;  
+case key_enter: break;
+
+//directions
+case key_up: break;
+
+case key_down: break;
+
+case key_right: break;
+
+case key_left: break;
+
+default:
+
+  break;
+}//switch statement end
+
+}//end fn
+
+void NFC_APP_INPUT_NAM_READING(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+void NFC_APP_INPUT_NAM_WRITING(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+void NFC_APP_INPUT_NAM_SAVING(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+void NFC_APP_INPUT_NAM_LOADING(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+void NFC_APP_INPUT_NAM_EMULATING(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+void NFC_APP_INPUT_NAM_COUNT(uint16_t key){
+  switch (key){
+      case key_down: break;
+      case key_enter: break;
+      case key_up: break;
+      case key_down: break;
+      case key_right: break;
+      case key_left: break;
+      default: break;
+  }
+}
+
+
+
+
+
 
 void nfcTask(void* pvParameters) {
     Serial.println("NFC Task starting...");
-
+    NFC_APP_TRANSITION(NAM_OFF);//by default,off mode, ensure.
     // Commented out to isolate crash cause
     // NFC_APP_TRANSITION(NAM_READING);
 
     while (true) {
-        Serial.println("NFC task alive");
-        // NFC_APP_UPDATE();
-        vTaskDelay(pdMS_TO_TICKS(5000)); // print every 5 seconds
+      NFC_APP_RENDER(NFCAppMode mode);
+
+      
+        
+        vTaskDelay(pdMS_TO_TICKS(NFCAPP_TASKUPDATERATE_MS));  //go to the h file if you wanna
     }
 }
 

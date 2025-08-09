@@ -12,24 +12,41 @@
 #include "types.h"
 #include "Wiring.h"
 #include "InputHandler.h"
-
+#include "globals.h"
+#include "s_hell.h"
+#include "sdfs.h"
+#include "Micro2D_A.h"
 extern Adafruit_PN532 nfc;
 
+#define NFCAPP_TASKUPDATERATE_MS 55
+
+
+
+extern std::shared_ptr<Window> Win_GeneralPurpose; 
+extern const char* NFCModeNames[NFC_MODE_COUNT];
+
+
+
+
+
 // --- NFC “module” modes (was in nfc.h) ---
-typedef enum {
+typedef enum {//nfc module itself has different mode
   NFC_MODE_OFF,
   NFC_MODE_READ,
   NFC_MODE_WRITE,
-  NFC_MODE_EMULATE
+  NFC_MODE_EMULATE,
+  NFC_MODE_COUNT
 } NFCMode;
 
 // App modes
-enum NFCAppMode {
+enum NFCAppMode {//nfc appmode
   NAM_OFF,
   NAM_READING,
   NAM_WRITING,
   NAM_SAVING,
-  NAM_LOADING
+  NAM_LOADING,
+  NAM_EMULATING,
+  NAM_COUNT
 };
 
 // Global state
@@ -69,4 +86,22 @@ void input_handler_fn_NFCAPP(uint16_t key);
 void NFC_APP_UPDATE();
 void NFC_APP_RENDER();
 extern void nfcTask(void* pvParameters);
+
+
+
+//input
+
+void NFC_APP_INPUT_menu(uint16_t key);
+void NFC_APP_INPUT_NAM_READING(uint16_t key);
+void NFC_APP_INPUT_NAM_WRITING(uint16_t key);
+void NFC_APP_INPUT_NAM_SAVING(uint16_t key);
+void NFC_APP_INPUT_NAM_LOADING(uint16_t key);
+void NFC_APP_INPUT_NAM_EMULATING(uint16_t key);
+void NFC_APP_INPUT_NAM_COUNT(uint16_t key);
+
+
+
+
+
+
 #endif

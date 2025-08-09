@@ -100,7 +100,7 @@ typedef struct {
 
 
 
-typedef enum {
+typedef enum {//types.h, app names in the list
   APP_LOCK_SCREEN,
   APP_HEALTH,
   APP_NFC,
