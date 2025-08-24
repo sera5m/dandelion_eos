@@ -166,6 +166,8 @@ bool on_app_change(
         currentAppTaskHandle = *newTaskHandlePtr;
     }
 
+
+    
     CurrentOpenApplicationIndex = newIndex;
     return true;
 }

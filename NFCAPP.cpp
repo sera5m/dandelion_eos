@@ -150,6 +150,7 @@ void NFC_APP_EXIT() {
 }
 //should have nav limit table instead of doing this manually per mode but whatever ig
 void NFC_APP_TRANSITION(NFCAppMode newMode) {
+  
   rst_nav_pos();
   // turn off reader/writer
   if (nfcAppState_current.currentMode==NAM_READING ||
@@ -180,6 +181,8 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
 
     case NAM_LOADING:
       // load file list…
+      nfc_setMode(NFC_MODE_EMULATE);
+      /*
       nfcAppState_current.tagFiles.clear();
       {
         File root = SD.open("/nfc");
@@ -192,7 +195,7 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
       nfcAppState_current.navPosition = 0;
       nfcAppState_current.navMaxPosition = min<size_t>
          (nfcAppState_current.tagFiles.size(), nfcAppState_current.config.maxCards)-1;
-      Navlimits_ = {nfcAppState_current.navMaxPosition,1,0};
+      Navlimits_ = {nfcAppState_current.navMaxPosition,1,0};*/
       break;
 
     default:
@@ -205,9 +208,6 @@ void NFC_APP_TRANSITION(NFCAppMode newMode) {
   globalNavPos = {0,0,0};
 }
 
-void input_handler_fn_NFCAPP(uint16_t key) {
-  // unchanged…
-}
 
 void NFC_APP_UPDATE() {
   //nfc_update();
@@ -240,8 +240,14 @@ void nfcAppMakeLISTtext(uint8_t mousepos) {
         }
     }
 }
-
-
+void makePagedFS_LoadText(){
+Navlimits_ = {0,1000,0};//todo make unlimited
+// List .nfcd files starting from globalNavPos.y, 10 at a time
+listDirPaged(SD, "/nfc", globalNavPos.y, 10, watchscreen_buf, sizeof(watchscreen_buf), 
+             1,  // Files only (no directories)
+             "nfcd");
+}
+//globalNavPos.y--;
 
 //follows chain implementation, mode passes here, render functions for each which require complex code
 void NFC_APP_RENDER(NFCAppMode mode) {
@@ -275,9 +281,12 @@ void NFC_APP_RENDER(NFCAppMode mode) {
     Win_GeneralPurpose->updateContent("emulate mode, ");
   break;
 
-  case NAM_LOADING: //please wait! loading the card, or user is in storage looking for their card to emulate/write. essentially file browser for them
-    Win_GeneralPurpose->updateContent(" card list mode. pick one"); //todo: this will need to have a list, and loaded from the card list. shoudl i use an nindex table?
-  
+  case NAM_LOADING:
+  //listDirPaged(fs::FS &fs, const char *dirname, uint16_t startIndex, uint16_t count,   char *output, size_t outputSize, uint8_t fileTypeFilter = 0) should be something along the lines of a filesystem for this?
+   //please wait! loading the card, or user is in storage looking for their card to emulate/write. essentially file browser for them
+   makePagedFS_LoadText();
+    Win_GeneralPurpose->updateContent(watchscreen_buf); //todo: this will need to have a list, and loaded from the card list. shoudl i use an nindex table?
+
   break;
 
   default:
@@ -421,7 +430,48 @@ void NFC_APP_INPUT_NAM_COUNT(uint16_t key){
 
 
 
+void input_handler_fn_NFCAPP(uint16_t input){
 
+switch (nfcAppMODE_current){ //take the normal var not the other thing man
+  case NAM_OFF:
+  NFC_APP_INPUT_menu(input);
+  //need event check for if allready updated this at least once to change background
+
+  
+    break;
+
+  case NAM_READING:
+    //reading is a special case, pause screen updates if in safe mode to ensure no faulty data via bus conflicts
+    //watchscreen_buf="/0"
+  NFC_APP_INPUT_NAM_READING(input);
+    //Win_GeneralPurpose->updateContent("please wait!");
+    
+  break;
+
+  case NAM_WRITING: //writing data to card, lock for 5s or untill works
+    NFC_APP_INPUT_NAM_WRITING(input);
+  break;
+
+  case NAM_SAVING: //is storing scanned card from reading mode to memory, block user interaction untill saved or 5s timeout
+    NFC_APP_INPUT_NAM_SAVING(input);
+  break;
+
+  case NAM_EMULATING: //device pretending to be nfc card
+  NFC_APP_INPUT_NAM_EMULATING(input);
+  break;
+
+  case NAM_LOADING:
+  //listDirPaged(fs::FS &fs, const char *dirname, uint16_t startIndex, uint16_t count,   char *output, size_t outputSize, uint8_t fileTypeFilter = 0) should be something along the lines of a filesystem for this?
+   //please wait! loading the card, or user is in storage looking for their card to emulate/write. essentially file browser for them
+NFC_APP_INPUT_NAM_LOADING(input); //put it in the file browser fn.
+  break;
+
+  default:
+    Win_GeneralPurpose->updateContent("Unknown NFC mode");
+    break;
+  }
+
+}
 
 
 void nfcTask(void* pvParameters) {

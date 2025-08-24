@@ -515,7 +515,7 @@ static void on_wm_appmenu_input(uint16_t key) {
 void WATCH_SCREEN_TRANSITION(WatchMode desiredMode){
    rst_nav_pos();//reset mouse
   Win_GeneralPurpose->updateContent("");//remove content, avoid visual only bug
-
+tft_Fillscreen(tcol_background);
 switch (desiredMode){
   
 //tft.fillScreen(tcol_background);//clean everything

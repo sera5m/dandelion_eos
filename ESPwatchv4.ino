@@ -290,7 +290,6 @@ scanI2C();
     SetupHardwareInput();
     DBG_PRINTLN("Input OK");
 
-    DBG_PRINTLN("Checking SD");
     
    // if (initSDCard()){        DBG_PRINTLN("SD Card initialized.");}else{DBG_PRINTLN("SD Card failed!");} 
 
